@@ -84,14 +84,41 @@ def own_project_version(content: str) -> str | None:
 
 
 def has_unclear_project_ownership(content: str) -> bool:
-    """Check if project ownership is ambiguous due to external includes or substitutions."""
-    # If the YAML uses includes or external packages that might define project
-    if "!include" in content:
-        # If user explicitly declared a concrete project version at top-level, it's owned
-        ver = own_project_version(content)
-        if ver and not ("$" in ver or "{" in ver):
-            return False
+    """Check if project ownership is ambiguous due to included packages/esphome configs or unresolved substitutions."""
+    data = parse_yaml_safe(content)
+
+    # 1. Check if esphome block itself is an include or contains an include or unresolved substitution
+    esphome_block = data.get("esphome")
+    if isinstance(esphome_block, dict):
+        if "__include__" in esphome_block:
+            return True
+        project_block = esphome_block.get("project")
+        if isinstance(project_block, dict):
+            if "__include__" in project_block:
+                return True
+            ver = project_block.get("version")
+            if ver is not None:
+                ver_str = str(ver).strip()
+                # Check for unresolved substitution
+                resolved = own_project_version(content)
+                if ("$" in ver_str or "{" in ver_str) and (not resolved or "$" in resolved or "{" in resolved):
+                    return True
+    elif esphome_block == {"__include__": ...} or (
+        isinstance(content, str) and bool(re.search(r"^\s*esphome:\s*!include", content, re.MULTILINE))
+    ):
         return True
+
+    # 2. Check if packages block uses includes that might contain project definitions
+    packages = data.get("packages")
+    if isinstance(packages, dict):
+        for pkg_name, pkg_val in packages.items():
+            if pkg_name == "esphome_ota":
+                continue
+            if isinstance(pkg_val, dict) and "__include__" in pkg_val:
+                return True
+    elif isinstance(content, str) and bool(re.search(r"^\s*packages:\s*!include", content, re.MULTILINE)):
+        return True
+
     return False
 
 

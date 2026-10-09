@@ -300,11 +300,22 @@ class EsphomeOtaManager extends HTMLElement {
     } else if (event === "devices_updated" && data) {
       this.devices = data.devices || [];
       this._renderDeviceList();
+    } else if (event === "installation_verified" && data) {
+      if (data.devices) {
+        this.devices = data.devices;
+      }
+      this._renderDeviceList();
     } else if (event === "job_updated" && data) {
       const idx = this.jobs.findIndex((j) => j.job_id === data.job_id);
       if (idx >= 0) this.jobs[idx] = data;
       else this.jobs.push(data);
       this.shadowRoot.querySelector("esphome-ota-job-dialog")?.updateJob(data);
+      if (data.stage === "published") {
+        const d = this.devices.find((dev) => dev.device_id === data.device_id);
+        if (d && data.reserved_version) {
+          d.last_published_version = data.reserved_version;
+        }
+      }
       this._renderDeviceList();
     } else if (msg.status !== undefined) {
       this.status = msg.status;

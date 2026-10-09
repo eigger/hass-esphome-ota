@@ -204,21 +204,23 @@ class JobRunner:
                         None,
                     )
                     if matching:
-                        builder_version = matching.get("current_version") or matching.get("project_version")
+                        builder_version = matching.get("project_version")
                 except Exception as b_err:  # noqa: BLE001
                     _LOGGER.debug("Could not query builder devices: %s", b_err)
 
-                if own_ver or unclear:
+                if unclear:
+                    raise BuilderError(
+                        f"Cannot build {device.configuration}: project ownership is ambiguous due to external configuration includes or unresolved substitutions. Manual review required."
+                    )
+
+                if own_ver:
                     # User or external file owns the project version
-                    if own_ver and ("$" in own_ver or "{" in own_ver) and builder_version and not builder_version.startswith("202"):
+                    if ("$" in own_ver or "{" in own_ver) and builder_version:
                         job.reserved_version = builder_version
                         device.own_project_version = builder_version
-                    elif own_ver:
+                    else:
                         job.reserved_version = own_ver
                         device.own_project_version = own_ver
-                    else:
-                        job.reserved_version = builder_version
-                        device.own_project_version = builder_version
                 else:
                     device.own_project_version = None
                     diff_res = apply_ota_patch(
@@ -322,6 +324,12 @@ class JobRunner:
                 if self.monitor:
                     self.monitor.schedule_cleanup(device.device_id, device.slug)
 
+                # Emit devices_updated so UI device cards update immediately
+                if self.event_callback:
+                    self.event_callback(
+                        "devices_updated", {"devices": self.device_manager.list_all()}
+                    )
+
                 await self._update_stage(job, STAGE_PUBLISHED)
                 _LOGGER.info(
                     "Pipeline succeeded for %s: published version %s",
@@ -337,8 +345,12 @@ class JobRunner:
         except BuilderConnectionError as err:
             _LOGGER.warning("Builder connection lost during job %s: %s", job.job_id, err)
             if not job.builder_job_id:
-                job.error = str(err)
-                await self._update_stage(job, STAGE_FAILED, {"error": str(err)})
+                if job.stage == STAGE_SUBMITTING:
+                    job.error = "Connection lost while submitting compile request; recovery required"
+                    await self._update_stage(job, STAGE_RECOVERY_REQUIRED, {"error": job.error})
+                else:
+                    job.error = str(err)
+                    await self._update_stage(job, STAGE_FAILED, {"error": str(err)})
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Pipeline job %s failed: %s", job.job_id, err)
             job.error = str(err)
@@ -365,6 +377,44 @@ class JobRunner:
             if not device:
                 continue
 
+            if job.stage == STAGE_RECOVERY_REQUIRED or (job.stage == STAGE_SUBMITTING and not job.builder_job_id):
+                _LOGGER.info(
+                    "Checking Builder active jobs to recover unacknowledged job %s for %s",
+                    job.job_id,
+                    job.configuration,
+                )
+                try:
+                    builder_jobs = await client.list_jobs()
+                    matching = next(
+                        (
+                            bj
+                            for bj in builder_jobs
+                            if bj.get("configuration") == job.configuration
+                            and bj.get("status") in ("running", "queued", "completed")
+                        ),
+                        None,
+                    )
+                    if matching and matching.get("job_id"):
+                        job.builder_job_id = str(matching["job_id"])
+                        _LOGGER.info(
+                            "Recovered builder_job_id=%s for job %s",
+                            job.builder_job_id,
+                            job.job_id,
+                        )
+                        self._active_tasks[job.job_id] = asyncio.create_task(
+                            self._resume_pipeline(job, device, client, base_url)
+                        )
+                        continue
+                    else:
+                        job.error = "Compile job was not accepted by Builder before disconnect"
+                        await self._update_stage(job, STAGE_FAILED, {"error": job.error})
+                        continue
+                except Exception as rec_err:  # noqa: BLE001
+                    _LOGGER.warning("Failed checking builder jobs for recovery: %s", rec_err)
+                    job.error = f"Recovery check failed: {rec_err}"
+                    await self._update_stage(job, STAGE_FAILED, {"error": job.error})
+                    continue
+
             if job.builder_job_id:
                 _LOGGER.info(
                     "Resuming tracking for pipeline job %s (builder_job_id=%s)",
@@ -374,7 +424,7 @@ class JobRunner:
                 self._active_tasks[job.job_id] = asyncio.create_task(
                     self._resume_pipeline(job, device, client, base_url)
                 )
-            elif job.stage in (STAGE_PREPARING, STAGE_VALIDATING, STAGE_SUBMITTING):
+            elif job.stage in (STAGE_PREPARING, STAGE_VALIDATING):
                 _LOGGER.warning(
                     "Failing unsubmitted pipeline job %s interrupted before compile submission",
                     job.job_id,
@@ -402,10 +452,17 @@ class JobRunner:
                 # Query compile status on Builder
                 job_info = await client.get_job(b_job_id)
                 status = job_info.get("status")
+                if status == "cancelled":
+                    _LOGGER.info("Resumed compile job %s was cancelled on remote builder", b_job_id)
+                    job.error = "Compile job was cancelled on remote builder"
+                    await self._update_stage(job, STAGE_CANCELLED, {"error": job.error})
+                    return
                 if status == "failed":
                     raise BuilderError(f"Compile job {b_job_id} failed on remote builder")
-                if not status:
-                    raise BuilderError(f"Compile job {b_job_id} status could not be retrieved")
+                if not status or status not in ("running", "queued", "completed"):
+                    raise BuilderError(
+                        f"Compile job {b_job_id} has invalid status on builder: '{status}'"
+                    )
 
                 if status in ("running", "queued"):
                     await self._update_stage(job, STAGE_BUILDING)
@@ -421,6 +478,8 @@ class JobRunner:
                         job_id=b_job_id,
                         on_output=_append_log,
                     )
+                elif status != "completed":
+                    raise BuilderError(f"Compile job {b_job_id} is not completed (status={status})")
 
                 # Download, verify, and publish
                 await self._update_stage(job, STAGE_DOWNLOADING)
@@ -470,6 +529,12 @@ class JobRunner:
 
                 if self.monitor:
                     self.monitor.schedule_cleanup(device.device_id, device.slug)
+
+                # Emit devices_updated so UI device cards update immediately
+                if self.event_callback:
+                    self.event_callback(
+                        "devices_updated", {"devices": self.device_manager.list_all()}
+                    )
 
                 await self._update_stage(job, STAGE_PUBLISHED)
                 _LOGGER.info(
@@ -535,5 +600,10 @@ class JobRunner:
 
         if self.monitor:
             self.monitor.schedule_cleanup(device.device_id, device.slug)
+
+        if self.event_callback:
+            self.event_callback(
+                "devices_updated", {"devices": self.device_manager.list_all()}
+            )
 
         return published

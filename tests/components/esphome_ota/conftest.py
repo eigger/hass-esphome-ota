@@ -241,6 +241,17 @@ class MockBuilderServer:
                 }
                 await ws.send_str(json.dumps(reply))
 
+            elif cmd == "firmware/list_jobs":
+                job_list = [
+                    {"job_id": jid, "configuration": jdata.get("configuration"), "status": jdata.get("status")}
+                    for jid, jdata in self.jobs.items()
+                ]
+                reply = {
+                    "message_id": msg_id,
+                    "result": job_list,
+                }
+                await ws.send_str(json.dumps(reply))
+
             elif cmd == "firmware/cancel":
                 job_id = args.get("job_id")
                 if job_id in self.jobs:

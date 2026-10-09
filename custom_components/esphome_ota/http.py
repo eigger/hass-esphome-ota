@@ -86,6 +86,12 @@ class FirmwareUploadView(HomeAssistantView):
             await self.manager.device_manager.async_mark_published(
                 dev.device_id, published.version
             )
+            if self.manager.monitor:
+                self.manager.monitor.schedule_cleanup(dev.device_id, dev.slug)
+            self.manager._dispatch_event(
+                "devices_updated",
+                {"devices": self.manager.device_manager.list_all()},
+            )
             return web.json_response(
                 {
                     "success": True,

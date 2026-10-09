@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-10  
-상태: 자동화 테스트 70개(기존 62개 + 리뷰 결함 검증 8개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 77개(기존 70개 + 2차 리뷰 결함 검증 7개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -24,6 +24,7 @@
 | 웹소켓 API & 수동 업로드 | HA WS/HTTP 클라이언트 | **통과 (100%)** | 관리자 권한 확인, 스냅샷+델타 구독, 16MB 업로드 제한 |
 | **8대 P1 1차 결함 회귀 테스트** | [test_p1_bugfixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_bugfixes.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
 | **2ba3cab 리뷰 결함 8건 회귀 테스트** | [test_p1_p2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_p2_review_fixes.py) | **통과 (100%)** | Builder 미선택 ingress 포트, 다이얼로그 DOM 보존, 치환문자열 버전, XSS 방지, 소켓 중단 복구, 락 내부 버전 할당, Update 엔티티 동적 감시, 자동 정리 타이머 복원 |
+| **00d085d 2차 리뷰 결함 7건 회귀 테스트** | [test_00d085d_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_00d085d_review_fixes.py) | **통과 (100%)** | 취소 빌드 게시 차단, dev Builder 하이재킹 방지, !include 관리버전 보존/검토, Update 엔티티 정밀 매칭, 컴파일 유실 복구, 기기 카드 갱신, 수동 업로드 정리 스케줄링 |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -81,7 +82,33 @@
 
 ---
 
-## 4. 실환경 최소 연결 진단 절차
+## 4. 00d085d 2차 리뷰 결함 7건 조치 내역 (P1 3건, P2 4건)
+
+1. **[P1-1] 복구 중 취소(cancelled)된 빌드 게시 차단**:
+   - `_resume_pipeline()`에서 Builder 상태 조회 시 `status == "cancelled"`인 경우 다운로드/게시로 넘어가지 않고 즉시 `STAGE_CANCELLED`로 종결.
+   - `completed` 상태만 정상 다운로드·게시 경로를 허용하고, 그 외 비정상 상태는 예외 발생 처리.
+2. **[P1-2] 저장된 운영 Builder 대기 유지 (개발 Builder 자동 전환 차단)**:
+   - `resolver.py`에서 `saved_selection.slug`가 지정된 경우, 오직 해당 슬러그(또는 표준 코어 별칭인 `esphome`과 `5c53de3b_esphome`)만 매칭.
+   - 운영 Builder 미발견 시 `esphome-dev` 등 다른 후보로 임의 전환하지 않고 `STATUS_WAITING` 대기 상태를 유지.
+3. **[P1-3] 단순 컴포넌트 !include 관리 버전 유지 및 모호한 프로젝트 include 검토 요구**:
+   - `sensor: !include sensors.yaml` 등 일반 컴포넌트 include는 프로젝트 소유권을 침해하지 않으므로 정상적으로 `packages.esphome_ota`를 주입하고 관리 버전 증가.
+   - `packages:` 또는 `esphome:` 블록에 외부 include가 있거나 미해결 `${...}` 치환자가 있는 경우에만 소유권 모호로 판단하고, 임의 빌드 대신 수동 검토를 요구(`BuilderError`). Builder의 `current_version`을 프로젝트 버전으로 오인하는 결함 차단.
+4. **[P2-4] Update 엔티티 정밀 매칭 (부분문자열 오매칭 방지)**:
+   - `dev_name in entity.entity_id` 단순 부분문자열 검색 대신, HA Device Registry 식별자 매칭 및 `update.{name}_firmware` 등 정밀 토큰/접두사 패턴으로 매핑.
+   - `room` 기기가 `update.bedroom_firmware`를 가로채지 않도록 격리.
+5. **[P2-5] 컴파일 제출 응답 유실 시 `recovery_required` 상태 분리 및 재추적**:
+   - `client.start_compile()` 도중 소켓이 끊긴 경우 즉시 `failed`로 버리지 않고 `STAGE_RECOVERY_REQUIRED`로 기록.
+   - Builder 재연결 시 `client.list_jobs()`로 원격 접수 여부를 대조하여, 실제 수락된 작업은 `builder_job_id`를 복구해 이어서 빌드 완료.
+6. **[P2-6] 펌웨어 게시 및 설치 검증 시 기기 카드 데이터 즉시 동기화**:
+   - `jobs.py` 게시 완료 및 `monitor.py` 설치 검증 시 `devices_updated` 이벤트를 송출.
+   - `manager.js`에서 `job_updated` 및 `installation_verified` 수신 시 기기 카드의 게시/설치 버전(1.0.1)을 즉각 갱신하도록 처리.
+7. **[P2-7] 수동 HTTP 업로드 시 만료 타이머 재스케줄링**:
+   - `FirmwareUploadView.post()` 경로에서도 `monitor.schedule_cleanup()`을 호출하여 이전 타이머를 취소하고 신규 만료 타이머 등록.
+   - 업로드 즉시 `devices_updated` 이벤트를 발행하여 UI 카드 동기화.
+
+---
+
+## 5. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -124,7 +151,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 5. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 6. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -148,7 +175,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 6. 장애 유형별 원인 및 해결 가이드
+## 7. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|
