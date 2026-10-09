@@ -98,9 +98,15 @@ class ArtifactPublisher:
         check_cancelled: Callable[[], bool] | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
         done_event: asyncio.Event | None = None,
+        started_event: asyncio.Event | None = None,
     ) -> PublishedArtifact:
         """Synchronous publish implementation executing in executor."""
         with self._get_sync_slug_lock(slug):
+            if loop and started_event:
+                try:
+                    loop.call_soon_threadsafe(started_event.set)
+                except RuntimeError:
+                    pass
             staged_files: list[Path] = []
             backup_files: list[Path] = []
             backup_bin: Path | None = None
@@ -269,6 +275,7 @@ class ArtifactPublisher:
         lock = self._get_slug_lock(slug)
         async with lock:
             done_event = asyncio.Event()
+            started_event = asyncio.Event()
             loop = asyncio.get_running_loop()
             fut = self.hass.async_add_executor_job(
                 self._publish_sync,
@@ -282,15 +289,22 @@ class ArtifactPublisher:
                 check_cancelled,
                 loop,
                 done_event,
+                started_event,
             )
             try:
                 return await fut
             finally:
-                while not done_event.is_set():
+                if fut.cancelled() and not started_event.is_set():
                     try:
-                        await done_event.wait()
+                        await asyncio.sleep(0)
                     except asyncio.CancelledError:
                         pass
+                if started_event.is_set():
+                    while not done_event.is_set():
+                        try:
+                            await done_event.wait()
+                        except asyncio.CancelledError:
+                            pass
 
     def _deactivate_sync(self, slug: str) -> bool:
         """Hide/remove public binary from /local while keeping manifest."""

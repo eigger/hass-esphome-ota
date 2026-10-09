@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -139,6 +140,70 @@ async def test_publish_cancellation_waits_for_executor_and_does_not_overwrite_su
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest_data["version"] == "1.0.2"
     assert bin_path.read_bytes() == blob_v102
+
+
+async def test_publish_cancellation_before_executor_start_unblocks_cleanly(
+    hass: HomeAssistant,
+) -> None:
+    """[P1] Cancelling publish before executor thread starts unblocks task and releases slug lock."""
+    import concurrent.futures
+
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_cancel_before_start_test")
+    blob = _make_valid_esp32_bin("1.0.0")
+    info = inspect_binary(blob, target_platform="esp32", reserved_version="1.0.0")
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    # 1. Occupy the 1-worker executor with a blocking event
+    blocker_done = threading.Event()
+    blocker_started = threading.Event()
+
+    def blocker():
+        blocker_started.set()
+        blocker_done.wait(timeout=2.0)
+
+    pool.submit(blocker)
+    assert blocker_started.wait(timeout=1.0)
+
+    # 2. Direct publisher's executor jobs to this 1-worker pool
+    with patch.object(
+        hass,
+        "async_add_executor_job",
+        side_effect=lambda target, *args: hass.loop.run_in_executor(pool, target, *args),
+    ):
+        task = asyncio.create_task(
+            publisher.async_publish(
+                device_id="dev_busy",
+                configuration="dev_busy.yaml",
+                slug="dev_busy_slug",
+                blob=blob,
+                info=info,
+            )
+        )
+
+        # Allow task to queue in executor without starting
+        await asyncio.sleep(0.01)
+
+        # 3. Cancel task while queued in executor
+        task.cancel()
+
+        # Task must complete cancellation cleanly without hanging
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    # Release the blocker and shutdown pool
+    blocker_done.set()
+    pool.shutdown(wait=True)
+
+    # 4. Crucial assertion: Slug lock MUST be free, and a subsequent publish must succeed immediately
+    subsequent_artifact = await publisher.async_publish(
+        device_id="dev_busy",
+        configuration="dev_busy.yaml",
+        slug="dev_busy_slug",
+        blob=blob,
+        info=info,
+    )
+    assert subsequent_artifact.version == "1.0.0"
 
 
 async def test_select_same_builder_restores_suppress_counter_and_allows_subsequent_options_reload(
