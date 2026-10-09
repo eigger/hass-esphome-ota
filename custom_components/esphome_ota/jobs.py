@@ -11,7 +11,12 @@ import uuid
 from homeassistant.core import HomeAssistant
 
 from .builder.client import BuilderClient
-from .config_patch import apply_ota_patch, bump_patch_version, own_project_version
+from .config_patch import (
+    apply_ota_patch,
+    bump_patch_version,
+    has_unclear_project_ownership,
+    own_project_version,
+)
 from .const import (
     MAX_LOG_TAIL_LINES,
     STAGE_BUILDING,
@@ -32,6 +37,7 @@ from .devices import DeviceManager
 from .firmware import inspect_binary
 from .models import (
     BinaryValidationError,
+    BuilderConnectionError,
     BuilderError,
     EsphomeOtaError,
     JobCancelledError,
@@ -55,12 +61,14 @@ class JobRunner:
         device_manager: DeviceManager,
         publisher: ArtifactPublisher,
         event_callback: Callable[[str, dict[str, Any]], None] | None = None,
+        monitor: Any | None = None,
     ) -> None:
         self.hass = hass
         self.storage = storage
         self.device_manager = device_manager
         self.publisher = publisher
         self.event_callback = event_callback
+        self.monitor = monitor
         self._active_jobs: dict[str, PipelineJob] = {}
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
         self._in_flight_requests: set[str] = set()
@@ -110,14 +118,25 @@ class JobRunner:
         """
         req_id = request_id or str(uuid.uuid4())
         device_req_key = f"{device.device_id}:{req_id}"
-
         if device_req_key in self._in_flight_requests:
             raise EsphomeOtaError(f"Duplicate request already in progress for {device.device_id}")
+
+        # Prevent concurrent build requests for the same device
+        active_for_dev = [
+            j
+            for j in self._active_jobs.values()
+            if j.device_id == device.device_id
+            and j.stage not in (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED)
+        ]
+        if active_for_dev:
+            raise EsphomeOtaError(
+                f"A build job is already active for {device.device_id} (job {active_for_dev[0].job_id})"
+            )
 
         job_id = f"job_{uuid.uuid4().hex[:12]}"
         self._in_flight_requests.add(device_req_key)
 
-        # Version allocation
+        # Version allocation (provisional; re-evaluated under device lock)
         if device.own_project_version:
             target_version = device.own_project_version
         elif device.last_published_version:
@@ -156,13 +175,50 @@ class JobRunner:
 
         try:
             async with lock:
-                # 1. Preparing YAML configuration and managing version
+                # 1. Preparing YAML configuration and managing version under lock
                 await self._update_stage(job, STAGE_PREPARING)
                 current_yaml = await client.get_config(device.configuration)
                 own_ver = own_project_version(current_yaml)
-                if own_ver:
-                    job.reserved_version = own_ver
-                    device.own_project_version = own_ver
+                unclear = has_unclear_project_ownership(current_yaml)
+
+                # Re-evaluate version based on latest published version inside lock
+                if not own_ver and not unclear:
+                    if device.last_published_version:
+                        target_version = bump_patch_version(device.last_published_version)
+                    else:
+                        target_version = device.managed_version or "1.0.0"
+                    job.reserved_version = target_version
+                    self._notify_job_update(job)
+
+                # Query builder for evaluated device version if available
+                builder_version = None
+                try:
+                    builder_devs = await client.list_devices()
+                    matching = next(
+                        (
+                            d
+                            for d in builder_devs
+                            if d.get("configuration") == device.configuration
+                            or d.get("name") == device.name
+                        ),
+                        None,
+                    )
+                    if matching:
+                        builder_version = matching.get("current_version") or matching.get("project_version")
+                except Exception as b_err:  # noqa: BLE001
+                    _LOGGER.debug("Could not query builder devices: %s", b_err)
+
+                if own_ver or unclear:
+                    # User or external file owns the project version
+                    if own_ver and ("$" in own_ver or "{" in own_ver) and builder_version and not builder_version.startswith("202"):
+                        job.reserved_version = builder_version
+                        device.own_project_version = builder_version
+                    elif own_ver:
+                        job.reserved_version = own_ver
+                        device.own_project_version = own_ver
+                    else:
+                        job.reserved_version = builder_version
+                        device.own_project_version = builder_version
                 else:
                     device.own_project_version = None
                     diff_res = apply_ota_patch(
@@ -226,7 +282,14 @@ class JobRunner:
                     expected_chip=device.chip_family,
                     reserved_version=job.reserved_version,
                 )
-                if job.reserved_version and info.authoritative_version != job.reserved_version:
+                is_user_owned = device.own_project_version is not None or (
+                    job.reserved_version
+                    and ("$" in job.reserved_version or "{" in job.reserved_version)
+                )
+                if is_user_owned:
+                    job.reserved_version = info.authoritative_version
+                    device.own_project_version = info.authoritative_version
+                elif job.reserved_version and info.authoritative_version != job.reserved_version:
                     raise BinaryValidationError(
                         f"Compiled binary version '{info.authoritative_version}' does not match expected version '{job.reserved_version}'"
                     )
@@ -255,6 +318,10 @@ class JobRunner:
                     device.device_id, published.version
                 )
 
+                # Schedule automatic cleanup
+                if self.monitor:
+                    self.monitor.schedule_cleanup(device.device_id, device.slug)
+
                 await self._update_stage(job, STAGE_PUBLISHED)
                 _LOGGER.info(
                     "Pipeline succeeded for %s: published version %s",
@@ -267,8 +334,154 @@ class JobRunner:
             if job.builder_job_id:
                 await client.cancel_job(job.builder_job_id)
             await self._update_stage(job, STAGE_CANCELLED)
+        except BuilderConnectionError as err:
+            _LOGGER.warning("Builder connection lost during job %s: %s", job.job_id, err)
+            if not job.builder_job_id:
+                job.error = str(err)
+                await self._update_stage(job, STAGE_FAILED, {"error": str(err)})
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Pipeline job %s failed: %s", job.job_id, err)
+            job.error = str(err)
+            await self._update_stage(job, STAGE_FAILED, {"error": str(err)})
+        finally:
+            self._in_flight_requests.discard(device_req_key)
+            self._active_tasks.pop(job.job_id, None)
+
+    async def async_resume_jobs(
+        self,
+        client: BuilderClient,
+        base_url: str,
+    ) -> None:
+        """Resume in-flight jobs after Builder reconnection or HA restart."""
+        for job in list(self._active_jobs.values()):
+            if job.stage in (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED):
+                continue
+
+            task = self._active_tasks.get(job.job_id)
+            if task and not task.done():
+                continue
+
+            device = self.device_manager.get_device(job.device_id)
+            if not device:
+                continue
+
+            if job.builder_job_id:
+                _LOGGER.info(
+                    "Resuming tracking for pipeline job %s (builder_job_id=%s)",
+                    job.job_id,
+                    job.builder_job_id,
+                )
+                self._active_tasks[job.job_id] = asyncio.create_task(
+                    self._resume_pipeline(job, device, client, base_url)
+                )
+            elif job.stage in (STAGE_PREPARING, STAGE_VALIDATING, STAGE_SUBMITTING):
+                _LOGGER.warning(
+                    "Failing unsubmitted pipeline job %s interrupted before compile submission",
+                    job.job_id,
+                )
+                job.error = "Interrupted before compile submission"
+                await self._update_stage(job, STAGE_FAILED, {"error": job.error})
+
+    async def _resume_pipeline(
+        self,
+        job: PipelineJob,
+        device: ManagedDevice,
+        client: BuilderClient,
+        base_url: str,
+    ) -> None:
+        """Resume an active compile job from Builder checkpoint."""
+        lock = self.device_manager.get_lock(device.device_id)
+        device_req_key = f"{device.device_id}:{job.request_id}"
+        self._in_flight_requests.add(device_req_key)
+
+        try:
+            async with lock:
+                assert job.builder_job_id is not None
+                b_job_id = job.builder_job_id
+
+                # Query compile status on Builder
+                job_info = await client.get_job(b_job_id)
+                status = job_info.get("status")
+                if status == "failed":
+                    raise BuilderError(f"Compile job {b_job_id} failed on remote builder")
+                if not status:
+                    raise BuilderError(f"Compile job {b_job_id} status could not be retrieved")
+
+                if status in ("running", "queued"):
+                    await self._update_stage(job, STAGE_BUILDING)
+
+                    def _append_log(line: str) -> None:
+                        job.log_tail.append(line)
+                        if len(job.log_tail) > MAX_LOG_TAIL_LINES:
+                            job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
+                        self._notify_job_update(job)
+
+                    await client.wait_for_compile_completion(
+                        configuration=device.configuration,
+                        job_id=b_job_id,
+                        on_output=_append_log,
+                    )
+
+                # Download, verify, and publish
+                await self._update_stage(job, STAGE_DOWNLOADING)
+                blob = await client.download_ota(device.configuration)
+
+                await self._update_stage(job, STAGE_VERIFYING)
+                info = inspect_binary(
+                    blob=blob,
+                    target_platform=device.target_platform,
+                    expected_chip=device.chip_family,
+                    reserved_version=job.reserved_version,
+                )
+                is_user_owned = device.own_project_version is not None or (
+                    job.reserved_version
+                    and ("$" in job.reserved_version or "{" in job.reserved_version)
+                )
+                if is_user_owned:
+                    job.reserved_version = info.authoritative_version
+                    device.own_project_version = info.authoritative_version
+                elif job.reserved_version and info.authoritative_version != job.reserved_version:
+                    raise BinaryValidationError(
+                        f"Compiled binary version '{info.authoritative_version}' does not match expected version '{job.reserved_version}'"
+                    )
+
+                job.binary_version = info.authoritative_version
+                job.chip_family = info.chip_family
+                job.size = info.size
+                job.md5 = info.md5
+                job.sha256 = info.sha256
+
+                await self._update_stage(job, STAGE_PUBLISHING)
+                published = await self.publisher.async_publish(
+                    device_id=device.device_id,
+                    configuration=device.configuration,
+                    slug=device.slug,
+                    blob=blob,
+                    info=info,
+                    title=device.friendly_name,
+                )
+
+                artifacts = await self.storage.async_load_artifacts()
+                artifacts[device.device_id] = published
+                await self.storage.async_save_artifacts(artifacts)
+                await self.device_manager.async_mark_published(
+                    device.device_id, published.version
+                )
+
+                if self.monitor:
+                    self.monitor.schedule_cleanup(device.device_id, device.slug)
+
+                await self._update_stage(job, STAGE_PUBLISHED)
+                _LOGGER.info(
+                    "Resumed job %s successfully completed and published version %s",
+                    job.job_id,
+                    published.version,
+                )
+
+        except BuilderConnectionError as err:
+            _LOGGER.warning("Connection lost again while resuming job %s: %s", job.job_id, err)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Resumed job %s failed: %s", job.job_id, err)
             job.error = str(err)
             await self._update_stage(job, STAGE_FAILED, {"error": str(err)})
         finally:
@@ -319,4 +532,8 @@ class JobRunner:
         artifacts[device.device_id] = published
         await self.storage.async_save_artifacts(artifacts)
         await self.device_manager.async_mark_published(device.device_id, published.version)
+
+        if self.monitor:
+            self.monitor.schedule_cleanup(device.device_id, device.slug)
+
         return published

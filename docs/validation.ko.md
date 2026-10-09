@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
-작성일: 2026-10-09  
-상태: 자동화 테스트 62개(기존 54개 + P1 회귀 검증 8개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+작성일: 2026-10-10  
+상태: 자동화 테스트 70개(기존 62개 + 리뷰 결함 검증 8개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -22,7 +22,8 @@
 | Update 엔티티 감시 & 만료 | HA State 머신 테스트 | **통과 (100%)** | `installed_version` 일치 감시, unavailable 제외, 만료 타이머 |
 | 레거시 애드온 데이터 이전 | 스토리지 마이그레이션 | **통과 (100%)** | 토큰·슬러그 보존, 바이너리 이전, 멱등성 검증 |
 | 웹소켓 API & 수동 업로드 | HA WS/HTTP 클라이언트 | **통과 (100%)** | 관리자 권한 확인, 스냅샷+델타 구독, 16MB 업로드 제한 |
-| **8대 P1 결함 전용 회귀 테스트** | [test_p1_bugfixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_bugfixes.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
+| **8대 P1 1차 결함 회귀 테스트** | [test_p1_bugfixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_bugfixes.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
+| **2ba3cab 리뷰 결함 8건 회귀 테스트** | [test_p1_p2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_p2_review_fixes.py) | **통과 (100%)** | Builder 미선택 ingress 포트, 다이얼로그 DOM 보존, 치환문자열 버전, XSS 방지, 소켓 중단 복구, 락 내부 버전 할당, Update 엔티티 동적 감시, 자동 정리 타이머 복원 |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -52,7 +53,35 @@
 
 ---
 
-## 2. 실환경 최소 연결 진단 절차
+## 3. 2ba3cab 리뷰 결함 8건 조치 내역 (P1 5건, P2 3건)
+
+1. **[P1-1] Builder 미선택 상태 보존 및 동적 ingress 포트 우선 해석**:
+   - Builder 없이 설치 시 slug를 임의로 `"esphome"`으로 저장하지 않고 `slug=None` 미선택 상태를 유지.
+   - 사후에 실제 애드온(`5c53de3b_esphome`)이 발견되면 fallback 힌트(6052) 대신 발견된 ingress 포트를 최우선 채택하여 자동 연결.
+2. **[P1-2] 빌드 이벤트 수신 시 열린 진행창 DOM 보존**:
+   - `manager.js`에서 `handleEvent()`가 매번 shadowRoot 전체를 덮어쓰지 않도록 DOM 셸을 최초 1회만 초기화(`_initDom()`).
+   - `job_updated`, `devices_updated` 시 진행창 및 설정창 요소를 그대로 유지하고 목록 및 로그만 갱신하여 모달이 닫히는 현상 제거.
+3. **[P1-3] 사용자 프로젝트 버전 치환 및 소유권 보호**:
+   - YAML의 `substitutions:` 정의를 읽어 `${version}` 등 로컬 치환 변수를 선해석.
+   - 미해결 치환자(`$`, `{}` 포함) 또는 외부 include 등으로 소유권이 불명확하거나 사용자 관리 버전인 경우, 자동 YAML 덮어쓰기를 건너뛰고 컴파일된 바이너리의 app_desc 버전을 권위(authoritative)로 인정.
+4. **[P1-4] 프런트엔드 XSS 방지 (YAML diff, 로그, 기기 정보)**:
+   - `device-dialog.js`, `job-dialog.js`, `manager.js`에서 YAML diff 라인, 기기명, 모달 타이틀에 `escapeHtml()` 적용.
+   - 빌드 로그 뷰어는 innerHTML 대신 `textContent = logs`로 변경하여 악의적 스크립트 실행 벡터 완전 차단.
+5. **[P1-5] 소켓 단절 시 대기 큐 즉시 해제 및 작업 재추적/복구**:
+   - `connection.py`에서 WebSocket 종료 감지 시 대기 중인 모든 요청 큐를 `BuilderConnectionError`로 깨워 타임아웃 지연 제거.
+   - HA 재시작 또는 재연결 시 `async_resume_jobs()`를 실행하여 저장된 `builder_job_id`를 기반으로 원격 작업 상태를 조회하고 파이프라인(다운로드/검증/게시)을 자동 복구.
+6. **[P2-6] 기기 Lock 내부 동적 버전 할당 및 중복 동시 빌드 차단**:
+   - 동일 기기에 대한 중복 빌드 요청을 즉시 거부(`BuilderConflictError`).
+   - 버전 번호 증가를 요청 접수 시점이 아닌 기기 Lock(`async with lock:`) 획득 내부에서 최신 게시 버전을 기준으로 계산하여 버전 충돌 원천 차단.
+7. **[P2-7] Update 엔티티 동적 감시 갱신**:
+   - `er.EVENT_ENTITY_REGISTRY_UPDATED` 이벤트를 구독하고 최초 설치/기기 등록 시 `async_refresh_monitoring()`을 호출하여, 최초 배포 후 새로 등록된 Update 엔티티도 누락 없이 감시 목록에 편입.
+8. **[P2-8] 자동 정리(Auto-cleanup) 스케줄링 및 재시작 후 복원**:
+   - 펌웨어 게시(`async_publish`) 및 재게시(`republish`) 시점에 `monitor.schedule_cleanup()`을 호출하여 만료 타이머 등록.
+   - HA 재시작 시 `monitor.async_setup()`에서 활성 공개 아티팩트의 남은 만료 시간을 계산하여 타이머를 자동 복원.
+
+---
+
+## 4. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -95,7 +124,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 3. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 5. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -119,7 +148,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 4. 장애 유형별 원인 및 해결 가이드
+## 6. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|

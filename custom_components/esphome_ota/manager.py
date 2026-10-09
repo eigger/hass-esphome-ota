@@ -57,33 +57,36 @@ class OtaManager:
 
         saved_selection = None
         slug = entry.data.get(CONF_BUILDER_SLUG)
-        name = entry.data.get(CONF_BUILDER_NAME, slug or "ESPHome Builder")
         if slug:
+            name = entry.data.get(CONF_BUILDER_NAME, slug or "ESPHome Builder")
+            host_hint = entry.data.get("builder_host", "")
+            port_hint = entry.data.get("builder_port", 0)
             saved_selection = BuilderSelection(
                 slug=slug,
                 name=name,
                 source="config_entry",
-                host_hint="127.0.0.1",
-                port_hint=6052,
+                host_hint=host_hint,
+                port_hint=port_hint,
             )
 
         # Subsystems
         self.storage = StorageManager(hass)
         self.publisher = ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
         self.device_manager = DeviceManager(hass, self.storage)
-        self.job_runner = JobRunner(
-            hass,
-            self.storage,
-            self.device_manager,
-            self.publisher,
-            self._dispatch_event,
-        )
         self.monitor = InstallationMonitor(
             hass,
             self.device_manager,
             self.publisher,
             self.cleanup_hours,
             self._dispatch_event,
+        )
+        self.job_runner = JobRunner(
+            hass,
+            self.storage,
+            self.device_manager,
+            self.publisher,
+            self._dispatch_event,
+            self.monitor,
         )
         self.migration_manager = MigrationManager(
             hass, self.storage, self.device_manager, self.publisher
@@ -187,6 +190,7 @@ class OtaManager:
                     "devices_updated",
                     {"devices": self.device_manager.list_all()},
                 )
+                await self.job_runner.async_resume_jobs(client, self.base_url)
                 return
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Builder reconnect attempt failed: %s", err)
@@ -211,6 +215,7 @@ class OtaManager:
             self._attach_connection_listener(client)
             devices = await client.list_devices()
             self.device_manager.update_builder_devices(devices)
+            await self.job_runner.async_resume_jobs(client, self.base_url)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Initial ESPHome Builder connection deferred: %s", err)
             self._start_reconnect_loop()
@@ -251,6 +256,7 @@ class OtaManager:
                 },
             )
             self._dispatch_event("devices_updated", {"devices": self.device_manager.list_all()})
+            await self.job_runner.async_resume_jobs(client, self.base_url)
         except Exception as err:
             _LOGGER.warning("Manual reconnect attempt failed: %s", err)
             self._start_reconnect_loop()

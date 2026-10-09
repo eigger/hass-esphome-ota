@@ -173,6 +173,8 @@ class BuilderConnection:
                 _LOGGER.warning("Builder WS connection read loop terminated: %s", err)
         finally:
             self._connected = False
+            for q in list(self._queues.values()):
+                q.put_nowait({"error_code": "CONNECTION_LOST", "details": "Builder connection closed"})
             if not self._closing and self.on_disconnect:
                 try:
                     self.on_disconnect()
@@ -237,6 +239,8 @@ class BuilderConnection:
                 if "error_code" in payload:
                     error_code = payload.get("error_code")
                     details = payload.get("details", "")
+                    if error_code in ("CONNECTION_LOST", "DISCONNECTED"):
+                        raise BuilderConnectionError(f"{command_name} failed: Builder connection lost ({details})")
                     raise BuilderError(f"{command_name} failed: {error_code} {details}".strip())
 
                 yield payload
@@ -282,6 +286,8 @@ class BuilderConnection:
         if "error_code" in payload:
             error_code = payload.get("error_code")
             details = payload.get("details", "")
+            if error_code in ("CONNECTION_LOST", "DISCONNECTED"):
+                raise BuilderConnectionError(f"{command_name} failed: Builder connection lost ({details})")
             raise BuilderError(f"{command_name} failed: {error_code} {details}".strip())
         return payload.get("result")
 

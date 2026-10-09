@@ -25,7 +25,7 @@ from ..models import (
 )
 from .client import BuilderClient
 from .connection import BuilderConnection
-from .ha_discovery import HaDiscoveryAdapter
+from .ha_discovery import HaDiscoveryAdapter, KNOWN_ESPHOME_SLUGS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,8 +78,19 @@ class BuilderResolver:
             for c in self.candidates:
                 if c.slug == self.saved_selection.slug:
                     return c
-            # If saved candidate not discovered by slug, use stored host/port hint
-            if self.saved_selection.host_hint and self.saved_selection.port_hint:
+
+            # Check if saved slug is a known alias matching discovered candidates
+            if self.saved_selection.slug in KNOWN_ESPHOME_SLUGS:
+                matching = [c for c in self.candidates if c.slug in KNOWN_ESPHOME_SLUGS]
+                if len(matching) == 1:
+                    return matching[0]
+
+            # If a single candidate was discovered, use it with its discovered port
+            if len(self.candidates) == 1:
+                return self.candidates[0]
+
+            # If no candidates discovered at all, use stored host/port hint
+            if not self.candidates and self.saved_selection.host_hint and self.saved_selection.port_hint:
                 return BuilderCandidate(
                     slug=self.saved_selection.slug,
                     name=self.saved_selection.name,

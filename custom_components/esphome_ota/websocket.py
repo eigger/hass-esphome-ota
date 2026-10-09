@@ -240,6 +240,7 @@ async def ws_apply_ota(
     try:
         await client.update_config(config_file, content, expected)
         await manager.refresh_devices()
+        await manager.monitor.async_refresh_monitoring()
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "apply_failed", str(err))

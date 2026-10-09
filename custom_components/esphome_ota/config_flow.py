@@ -93,16 +93,18 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             base_url = user_input.get(CONF_BASE_URL, "").strip().rstrip("/")
             cand = self._selected_candidate
 
-            slug = cand.slug if cand else "esphome"
-            name = cand.name if cand else "ESPHome Builder"
+            data: dict[str, Any] = {
+                CONF_BASE_URL: base_url,
+            }
+            title = "ESPHome OTA"
+            if cand and cand.slug:
+                data[CONF_BUILDER_SLUG] = cand.slug
+                data[CONF_BUILDER_NAME] = cand.name
+                title = f"ESPHome OTA ({cand.name})"
 
             return self.async_create_entry(
-                title=f"ESPHome OTA ({name})",
-                data={
-                    CONF_BUILDER_SLUG: slug,
-                    CONF_BUILDER_NAME: name,
-                    CONF_BASE_URL: base_url,
-                },
+                title=title,
+                data=data,
                 options={
                     CONF_BASE_URL: base_url,
                     CONF_AUTO_CLEANUP_HOURS: DEFAULT_AUTO_CLEANUP_HOURS,

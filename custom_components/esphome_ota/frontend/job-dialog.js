@@ -117,6 +117,16 @@ button.primary {
 }
 `;
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 class EsphomeOtaJobDialog extends HTMLElement {
   constructor() {
     super();
@@ -184,19 +194,19 @@ class EsphomeOtaJobDialog extends HTMLElement {
       <div class="backdrop" id="backdrop">
         <div class="modal">
           <div class="header">
-            <h2>${t(this.hass, "logs_title")} - ${this.job.configuration}</h2>
+            <h2>${escapeHtml(t(this.hass, "logs_title"))} - ${escapeHtml(this.job.configuration)}</h2>
             <button id="close-x">✕</button>
           </div>
           <div class="body">
             <div class="${stageClass}">
-              <span><strong>Status:</strong> ${stageText}</span>
-              ${this.job.reserved_version ? `<span>(Target Version: ${this.job.reserved_version})</span>` : ""}
+              <span><strong>Status:</strong> ${escapeHtml(stageText)}</span>
+              ${this.job.reserved_version ? `<span>(Target Version: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
             </div>
-            <div class="terminal" id="terminal">${logs}</div>
+            <div class="terminal" id="terminal"></div>
           </div>
           <div class="footer">
-            ${isRunning ? `<button class="danger" id="btn-cancel">${t(this.hass, "logs_cancel_btn")}</button>` : ""}
-            <button class="primary" id="btn-close">${t(this.hass, "close")}</button>
+            ${isRunning ? `<button class="danger" id="btn-cancel">${escapeHtml(t(this.hass, "logs_cancel_btn"))}</button>` : ""}
+            <button class="primary" id="btn-close">${escapeHtml(t(this.hass, "close"))}</button>
           </div>
         </div>
       </div>
@@ -204,6 +214,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
 
     const terminalEl = this.shadowRoot.getElementById("terminal");
     if (terminalEl) {
+      terminalEl.textContent = logs;
       terminalEl.scrollTop = terminalEl.scrollHeight;
     }
 

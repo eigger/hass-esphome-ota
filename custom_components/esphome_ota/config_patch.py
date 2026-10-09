@@ -47,6 +47,7 @@ def own_project_version(content: str) -> str | None:
 
     Returns the version string if user owns it, else None.
     Carefully distinguishes esphome.project.version from esp32.framework.version.
+    Resolves substitutions if defined locally in the configuration.
     """
     data = parse_yaml_safe(content)
     esphome_block = data.get("esphome")
@@ -55,8 +56,43 @@ def own_project_version(content: str) -> str | None:
         if isinstance(project_block, dict):
             version = project_block.get("version")
             if version is not None:
-                return str(version).strip()
+                ver_str = str(version).strip()
+                # Resolve local substitution if present
+                substitutions = data.get("substitutions")
+                if isinstance(substitutions, dict):
+                    if ver_str.startswith("${") and ver_str.endswith("}"):
+                        key = ver_str[2:-1].strip()
+                        if key in substitutions:
+                            return str(substitutions[key]).strip()
+                    elif ver_str.startswith("$"):
+                        key = ver_str[1:].strip()
+                        if key in substitutions:
+                            return str(substitutions[key]).strip()
+                return ver_str
+
+    # Also detect if external packages define project version
+    packages = data.get("packages")
+    if isinstance(packages, dict):
+        for pkg_name, pkg_val in packages.items():
+            if pkg_name == "esphome_ota":
+                continue
+            if isinstance(pkg_val, dict):
+                p_ver = pkg_val.get("esphome", {}).get("project", {}).get("version")
+                if p_ver is not None:
+                    return str(p_ver).strip()
     return None
+
+
+def has_unclear_project_ownership(content: str) -> bool:
+    """Check if project ownership is ambiguous due to external includes or substitutions."""
+    # If the YAML uses includes or external packages that might define project
+    if "!include" in content:
+        # If user explicitly declared a concrete project version at top-level, it's owned
+        ver = own_project_version(content)
+        if ver and not ("$" in ver or "{" in ver):
+            return False
+        return True
+    return False
 
 
 def bump_patch_version(version: str) -> str:
@@ -82,7 +118,8 @@ def apply_ota_patch(
     """Apply the managed packages.esphome_ota block into YAML while preserving comments and format."""
     original = yaml_content
     own_ver = own_project_version(original)
-    use_project = own_ver is None
+    unclear = has_unclear_project_ownership(original)
+    use_project = (own_ver is None) and not unclear
 
     patch_yaml = generate_inline_ota_yaml(
         base_url=base_url,
