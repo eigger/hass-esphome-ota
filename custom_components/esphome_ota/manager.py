@@ -118,6 +118,15 @@ class OtaManager:
         self._reconnect_task: asyncio.Task[None] | None = None
         self._unloaded = False
         self._reconnect_backoff_index = 0
+        self._suppress_reload_count = 0
+
+    def should_suppress_reload(self) -> bool:
+        """Check and consume a suppress reload request."""
+        if self._suppress_reload_count > 0:
+            self._suppress_reload_count -= 1
+            return True
+        return False
+
 
     def add_subscriber(
         self, callback: Callable[[str, dict[str, Any]], None]
@@ -185,8 +194,14 @@ class OtaManager:
 
             try:
                 client = await self.resolver.async_resolve()
+                if self._unloaded:
+                    await self.resolver.async_disconnect()
+                    return
                 self._attach_connection_listener(client)
                 devices = await client.list_devices()
+                if self._unloaded:
+                    await self.resolver.async_disconnect()
+                    return
                 self.device_manager.update_builder_devices(devices)
                 self._reconnect_backoff_index = 0
                 _LOGGER.info(
@@ -219,10 +234,16 @@ class OtaManager:
                     "devices_updated",
                     {"devices": self.device_manager.list_all()},
                 )
+                if self._unloaded:
+                    await self.resolver.async_disconnect()
+                    return
                 await self.job_runner.async_resume_jobs(client, self.base_url)
                 return
             except Exception as err:  # noqa: BLE001
+                if self._unloaded:
+                    return
                 _LOGGER.debug("Builder reconnect attempt failed: %s", err)
+
                 self._dispatch_event(
                     "status_changed",
                     {
@@ -331,24 +352,42 @@ class OtaManager:
             new_options.pop("builder_port", None)
             self.resolver.saved_selection = None
 
-        self.hass.config_entries.async_update_entry(
-            self.entry,
-            data=new_data,
-            options=new_options,
-        )
+        self._suppress_reload_count += 1
+        try:
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                data=new_data,
+                options=new_options,
+            )
+        except Exception:
+            self._suppress_reload_count = max(0, self._suppress_reload_count - 1)
+            raise
+
+        if self._unloaded:
+            return
 
         await self.async_reconnect()
 
     async def async_reconnect(self) -> None:
         """Trigger manual re-discovery and re-connection to Builder."""
+        if self._unloaded:
+            return
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
         self._reconnect_backoff_index = 0
         await self.resolver.async_disconnect()
+        if self._unloaded:
+            return
         try:
             client = await self.resolver.async_resolve()
+            if self._unloaded:
+                await self.resolver.async_disconnect()
+                return
             self._attach_connection_listener(client)
             devices = await client.list_devices()
+            if self._unloaded:
+                await self.resolver.async_disconnect()
+                return
             self.device_manager.update_builder_devices(devices)
             self._dispatch_event(
                 "status_changed",
@@ -373,8 +412,13 @@ class OtaManager:
                 },
             )
             self._dispatch_event("devices_updated", {"devices": self.device_manager.list_all()})
+            if self._unloaded:
+                await self.resolver.async_disconnect()
+                return
             await self.job_runner.async_resume_jobs(client, self.base_url)
         except Exception as err:
+            if self._unloaded:
+                return
             _LOGGER.warning("Manual reconnect attempt failed: %s", err)
             self._dispatch_event(
                 "status_changed",
@@ -400,13 +444,19 @@ class OtaManager:
 
     async def refresh_devices(self) -> None:
         """Fetch updated device list from Builder."""
+        if self._unloaded:
+            return
         client = self.resolver.active_client
         if client:
             try:
                 devices = await client.list_devices()
+                if self._unloaded:
+                    return
                 self.device_manager.update_builder_devices(devices)
                 self._dispatch_event(
                     "devices_updated", {"devices": self.device_manager.list_all()}
                 )
             except Exception as err:  # noqa: BLE001
+                if self._unloaded:
+                    return
                 _LOGGER.debug("Failed refreshing devices: %s", err)

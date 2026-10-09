@@ -223,7 +223,25 @@
 
 ---
 
-## 11. 실환경 최소 연결 진단 절차
+## 11. 3050dea 9차 리뷰 결함 2건 조치 내역 (P1 1건, P2 1건)
+
+1. **[P1] 파일 교체 중 취소 시 이전 정상 펌웨어 복원 및 미확정 매니페스트 공개 방지**:
+   - `publisher.py:148`의 `_publish_sync`에서 바이너리 교체 직후 작업이 취소되거나 예외가 발생할 경우, 기존 파일이 존재했다는 이유로 롤백을 수행하지 않고 manifest까지 새 버전으로 교체한 뒤 취소 에러를 발생시키던 결함 해결.
+   - **백업 사본 보존**: 기존 파일 교체 전에 기존 `public_bin`, `public_md5`, `public_manifest`가 존재하는 경우 각각 `.bak_<uuid>` 임시 백업 파일로 복사(`shutil.copyfile`).
+   - **일관된 취소·유효성 검사**: 파일 치환 시작 직전 및 최종 공개 확정 지점인 manifest 치환 직전에 `_check_validity()`를 검사.
+   - **안전한 롤백 및 정리**:
+     - 치환 도중 취소 또는 오류 발생 시, 기존 파일이 있었던 항목은 `.bak_*` 사본에서 즉시 복원하여 이전 정상 펌웨어 및 매니페스트 상태 유지.
+     - 기존 파일이 없었던 신규 배포의 경우 부분 치환된 공개 파일들을 즉시 `unlink(missing_ok=True)`.
+     - `finally` 블록에서 스테이징 파일(`.stage_*`) 및 백업 파일(`.bak_*`)을 예외 없이 완전 삭제.
+2. **[P2] Builder 변경 시 자동 재로드와의 중복 연결 및 종료된 manager의 재연결 방지**:
+   - `manager.py:334`에서 패널/웹소켓(`esphome_ota/select_builder`)을 통한 Builder 선택 저장(`async_update_entry`) 시, Home Assistant의 `entry.add_update_listener(async_reload_entry)`로 인해 자동 재로드가 백그라운드 태스크로 유발되는 동시에 기존 manager도 `await self.async_reconnect()`를 실행하던 결함 해결.
+   - 이로 인해 재로드로 언로드(`_unloaded=True`)된 기존 manager가 `async_resolve()` 및 `list_devices()`를 완료한 후 Builder 연결을 다시 열어 새 manager와 연결이 중복되고 고아 연결이 남던 문제 해결.
+   - **재로드 억제 플래그 연동**: `OtaManager`에 `_suppress_reload_count` 및 `should_suppress_reload()`를 도입하고, `__init__.py`의 `async_reload_entry`에서 이를 확인하여 프로그래밍 방식의 Builder 선택 저장 시 불필요한 자동 재로드를 억제하고 현재 manager가 안전하게 제자리(in-place)에서 재연결하도록 통일. (단, 사용자가 HA 설정의 OptionsFlow를 통해 수동 변경하는 경우는 정상 재로드 수행)
+   - **언로드 상태 엄격 확인**: `manager.py`의 `async_reconnect()`, `_reconnect_loop()`, `refresh_devices()`의 모든 비동기 경계(`async_disconnect`, `async_resolve`, `list_devices`) 전후에 `if self._unloaded:` 상태를 철저히 확인하고, 언로드 상태 감지 시 즉시 `await self.resolver.async_disconnect()`를 호출하여 고아 연결을 닫고 추가 작업을 전면 중단.
+
+---
+
+## 12. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -290,7 +308,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 12. 장애 유형별 원인 및 해결 가이드
+## 13. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|

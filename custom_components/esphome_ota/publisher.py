@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -113,6 +114,11 @@ class ArtifactPublisher:
         stage_manifest = self.www_dir / f"{slug}.json.stage_{tmp_id}"
         staged_files = [stage_bin, stage_md5, stage_manifest]
 
+        backup_bin = self.www_dir / f"{bin_name}.bak_{tmp_id}"
+        backup_md5 = self.www_dir / f"{bin_name}.md5.bak_{tmp_id}"
+        backup_manifest = self.www_dir / f"{slug}.json.bak_{tmp_id}"
+        backup_files = [backup_bin, backup_md5, backup_manifest]
+
         try:
             # Build ESP-Web-Tools manifest
             manifest: dict[str, Any] = {
@@ -136,32 +142,54 @@ class ArtifactPublisher:
 
             manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
 
-            # Stage files first
+            # 1. Stage files first
             stage_bin.write_bytes(blob)
             stage_md5.write_bytes(digest.encode("ascii"))
             stage_manifest.write_bytes(manifest_bytes)
 
-            # Check validity right before atomic publication commit
+            # 2. Backup prior existing files for rollback if cancelled/failed during replacement
+            if prior_bin_exists:
+                shutil.copyfile(public_bin, backup_bin)
+            if prior_md5_exists:
+                shutil.copyfile(public_md5, backup_md5)
+            if prior_manifest_exists:
+                shutil.copyfile(public_manifest, backup_manifest)
+
+            # 3. Check validity before starting public file replacements
             _check_validity()
 
-            # Atomically replace into public destinations (.bin and .md5 first, manifest last)
+            # 4. Atomically replace binary and MD5
             os.replace(stage_bin, public_bin)
             os.replace(stage_md5, public_md5)
-            os.replace(stage_manifest, public_manifest)
 
+            # 5. Check validity right before manifest finalization (the atomic commit point)
             _check_validity()
+
+            # 6. Final atomic commit: replace manifest
+            os.replace(stage_manifest, public_manifest)
         except Exception:
+            # Rollback: restore prior files if they existed, or unlink newly placed public files
+            if prior_bin_exists and backup_bin.exists():
+                os.replace(backup_bin, public_bin)
+            elif not prior_bin_exists:
+                public_bin.unlink(missing_ok=True)
+
+            if prior_md5_exists and backup_md5.exists():
+                os.replace(backup_md5, public_md5)
+            elif not prior_md5_exists:
+                public_md5.unlink(missing_ok=True)
+
+            if prior_manifest_exists and backup_manifest.exists():
+                os.replace(backup_manifest, public_manifest)
+            elif not prior_manifest_exists:
+                public_manifest.unlink(missing_ok=True)
+
+            raise
+        finally:
             for sf in staged_files:
                 sf.unlink(missing_ok=True)
-            # If aborted/cancelled, ensure prior files are NOT deleted.
-            # Only clean up public files if this operation created them without prior existing files.
-            if not prior_bin_exists:
-                public_bin.unlink(missing_ok=True)
-            if not prior_md5_exists:
-                public_md5.unlink(missing_ok=True)
-            if not prior_manifest_exists:
-                public_manifest.unlink(missing_ok=True)
-            raise
+            for bf in backup_files:
+                bf.unlink(missing_ok=True)
 
         _LOGGER.info(
             "Published firmware for %s (slug=%s, version=%s, chip=%s, size=%d bytes)",
