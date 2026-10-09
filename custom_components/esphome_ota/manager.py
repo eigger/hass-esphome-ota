@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -228,6 +229,7 @@ class OtaManager:
         self._unloaded = True
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
+        await self.job_runner.async_unload()
         self.monitor.async_unload()
         self.panel_manager.async_unregister()
         await self.resolver.async_disconnect()

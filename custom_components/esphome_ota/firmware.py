@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import logging
 import re
-import struct
+from dataclasses import dataclass
 
 from .models import BinaryValidationError
 
@@ -85,10 +84,15 @@ def chip_family(target_platform: str, blob: bytes | None = None) -> tuple[str | 
     """Return (chipFamily, how_it_was_determined)."""
     mapped = VARIANTS.get(normalise_platform(target_platform))
     sniffable = mapped is None or mapped.startswith("ESP32")
-    chip_id = chip_id_from_binary(blob) if blob and sniffable else None
-    sniffed = CHIP_IDS.get(chip_id) if chip_id is not None else None
-    if sniffed:
-        return sniffed, "binary"
+    if blob is not None:
+        chip_id = chip_id_from_binary(blob) if sniffable else None
+        sniffed = CHIP_IDS.get(chip_id) if chip_id is not None else None
+        if sniffed:
+            return sniffed, "binary"
+        if mapped == "ESP8266" and len(blob) >= 8 and blob[0] == ESP_IMAGE_MAGIC:
+            return "ESP8266", "binary"
+        return None, "invalid"
+
     if mapped:
         return mapped, "platform"
     return None, "unknown"
@@ -198,16 +202,30 @@ def inspect_binary(
     if len(blob) < 1024:
         raise BinaryValidationError(f"Binary is too small: {len(blob)} bytes")
 
-    md5_hash = hashlib.md5(blob).hexdigest()  # noqa: S324
+    md5_hash = hashlib.md5(blob).hexdigest()
     sha256_hash = hashlib.sha256(blob).hexdigest()
 
     chip, source = chip_family(target_platform, blob)
-    if not chip:
-        chip = expected_chip or "ESP32"
+    if not chip or source != "binary":
+        target_name = (
+            expected_chip
+            or VARIANTS.get(normalise_platform(target_platform))
+            or target_platform
+        )
+        raise BinaryValidationError(
+            f"Invalid firmware binary structure for target '{target_name}': "
+            "binary header magic or chip family could not be identified"
+        )
 
     if expected_chip and chip != expected_chip:
         raise BinaryValidationError(
             f"Chip family mismatch: binary is {chip}, but target device expected {expected_chip}"
+        )
+
+    mapped_target = VARIANTS.get(normalise_platform(target_platform))
+    if mapped_target and mapped_target != "ESP32" and chip != mapped_target:
+        raise BinaryValidationError(
+            f"Chip family mismatch: binary is {chip}, but target device expected {mapped_target}"
         )
 
     desc = parse_app_descriptor(blob)

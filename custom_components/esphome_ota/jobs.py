@@ -93,6 +93,19 @@ class JobRunner:
         self._active_jobs: dict[str, PipelineJob] = {}
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
         self._in_flight_requests: set[str] = set()
+        self._unloaded = False
+
+    async def async_unload(self) -> None:
+        """Cancel and clean up all active pipeline tasks on integration unload."""
+        self._unloaded = True
+        tasks = list(self._active_tasks.values())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._active_tasks.clear()
+        self._in_flight_requests.clear()
 
     async def async_load(self) -> None:
         """Load stored pipeline jobs."""
@@ -108,6 +121,8 @@ class JobRunner:
 
     def _notify_job_update(self, job: PipelineJob) -> None:
         """Emit job update event."""
+        if self._unloaded:
+            return
         if self.event_callback:
             self.event_callback("job_updated", job.to_dict())
 
@@ -118,6 +133,8 @@ class JobRunner:
         checkpoint_data: dict[str, Any] | None = None,
     ) -> None:
         """Update job stage and persist checkpoint."""
+        if self._unloaded:
+            return
         job.stage = stage
         job.updated_at = datetime.now(timezone.utc).isoformat()
         if checkpoint_data:
@@ -242,27 +259,30 @@ class JobRunner:
                     else:
                         job.reserved_version = own_ver
                         device.own_project_version = own_ver
+                    target_patch_version = None
                 else:
                     device.own_project_version = None
-                    diff_res = apply_ota_patch(
-                        yaml_content=current_yaml,
-                        base_url=base_url,
-                        slug=device.slug,
-                        target_version=job.reserved_version,
-                        node=device.name,
-                    )
-                    if diff_res.modified != current_yaml:
-                        _LOGGER.info(
-                            "Updating YAML for %s to version %s prior to compile",
-                            device.configuration,
-                            job.reserved_version,
-                        )
-                        await client.update_config(
-                            configuration=device.configuration,
-                            content=diff_res.modified,
-                            expected=current_yaml,
-                        )
                     device.managed_version = job.reserved_version
+                    target_patch_version = job.reserved_version
+
+                diff_res = apply_ota_patch(
+                    yaml_content=current_yaml,
+                    base_url=base_url,
+                    slug=device.slug,
+                    target_version=target_patch_version,
+                    node=device.name,
+                )
+                if diff_res.modified != current_yaml:
+                    _LOGGER.info(
+                        "Updating YAML for %s (version: %s) prior to compile",
+                        device.configuration,
+                        job.reserved_version,
+                    )
+                    await client.update_config(
+                        configuration=device.configuration,
+                        content=diff_res.modified,
+                        expected=current_yaml,
+                    )
 
                 await self.storage.async_save_devices(self.device_manager._managed_devices)
 
@@ -302,12 +322,18 @@ class JobRunner:
                     on_output=_append_log,
                 )
 
+                if self._unloaded:
+                    return
+
                 # 5. Downloading firmware binary
                 await self._update_stage(job, STAGE_DOWNLOADING)
                 blob = await client.download_ota(
                     device.configuration,
                     platform_hint=device.target_platform,
                 )
+
+                if self._unloaded:
+                    return
 
                 # 6. Verifying binary structure and chip family
                 await self._update_stage(job, STAGE_VERIFYING)
@@ -334,6 +360,9 @@ class JobRunner:
                 job.md5 = info.md5
                 job.sha256 = info.sha256
 
+                if self._unloaded:
+                    return
+
                 # 7. Publishing artifact atomically
                 await self._update_stage(job, STAGE_PUBLISHING)
                 published = await self.publisher.async_publish(
@@ -344,6 +373,9 @@ class JobRunner:
                     info=info,
                     title=device.friendly_name,
                 )
+
+                if self._unloaded:
+                    return
 
                 # Record successful publish in storage and devices
                 artifacts = await self.storage.async_load_artifacts()
@@ -372,6 +404,12 @@ class JobRunner:
 
         except asyncio.CancelledError:
             _LOGGER.info("Pipeline job %s was cancelled", job.job_id)
+            if self._unloaded:
+                _LOGGER.info(
+                    "Integration unloaded; stopped tracking pipeline %s without remote builder cancellation",
+                    job.job_id,
+                )
+                return
             if job.builder_job_id:
                 await client.cancel_job(job.builder_job_id)
             await self._update_stage(job, STAGE_CANCELLED)
@@ -563,12 +601,18 @@ class JobRunner:
                 elif status != "completed":
                     raise BuilderError(f"Compile job {b_job_id} is not completed (status={status})")
 
+                if self._unloaded:
+                    return
+
                 # Download, verify, and publish
                 await self._update_stage(job, STAGE_DOWNLOADING)
                 blob = await client.download_ota(
                     device.configuration,
                     platform_hint=device.target_platform,
                 )
+
+                if self._unloaded:
+                    return
 
                 await self._update_stage(job, STAGE_VERIFYING)
                 info = inspect_binary(
@@ -595,6 +639,9 @@ class JobRunner:
                 job.md5 = info.md5
                 job.sha256 = info.sha256
 
+                if self._unloaded:
+                    return
+
                 await self._update_stage(job, STAGE_PUBLISHING)
                 published = await self.publisher.async_publish(
                     device_id=device.device_id,
@@ -604,6 +651,9 @@ class JobRunner:
                     info=info,
                     title=device.friendly_name,
                 )
+
+                if self._unloaded:
+                    return
 
                 artifacts = await self.storage.async_load_artifacts()
                 artifacts[device.device_id] = published
@@ -628,6 +678,13 @@ class JobRunner:
                     published.version,
                 )
 
+        except asyncio.CancelledError:
+            _LOGGER.info("Resumed pipeline job %s was cancelled", job.job_id)
+            if self._unloaded:
+                return
+            if job.builder_job_id:
+                await client.cancel_job(job.builder_job_id)
+            await self._update_stage(job, STAGE_CANCELLED)
         except BuilderConnectionError as err:
             _LOGGER.warning("Connection lost again while resuming job %s: %s", job.job_id, err)
         except Exception as err:  # noqa: BLE001
@@ -651,8 +708,11 @@ class JobRunner:
         task = self._active_tasks.get(job_id)
         if task and not task.done():
             task.cancel()
-
-        if client and job.builder_job_id:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception) as err:  # noqa: BLE001
+                _LOGGER.debug("Cancelled task for job %s completed: %s", job_id, err)
+        elif client and job.builder_job_id:
             await client.cancel_job(job.builder_job_id)
 
         await self._update_stage(job, STAGE_CANCELLED)

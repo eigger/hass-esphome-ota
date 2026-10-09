@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-10  
-상태: 자동화 테스트 93개(기존 88개 + 5차 리뷰 결함 검증 5개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 99개(기존 93개 + 6차 리뷰 결함 검증 6개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -28,6 +28,7 @@
 | **ffe378c 3차 리뷰 결함 4건 회귀 테스트** | [test_ffe378c_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ffe378c_review_fixes.py) | **통과 (100%)** | `firmware/get_jobs` 공식 API 규격, 과거 이력/업로드 오연결 방지, 원격 패키지 소유권 보호, ESPHome 플랫폼 엔티티 검증 |
 | **e2369ce 4차 리뷰 결함 4건 회귀 테스트** | [test_e2369ce_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_e2369ce_review_fixes.py) | **통과 (100%)** | 직전 완료 컴파일 오연결 차단(P1), recovery_required 화면 해제/취소/재확인(P2), ESP8266 firmware.bin 다운로드(P2), 4칸 들여쓰기 YAML 패치 교정(P2) |
 | **ee66713 5차 리뷰 결함 3건 회귀 테스트** | [test_ee66713_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ee66713_review_fixes.py) | **통과 (100%)** | packages 직접 자식 들여쓰기 기준 정밀화(P1), BuilderClient.get_jobs(configuration=) 스냅샷 지원(P2), factory 단독 바이너리 거부 및 OTA 파일 필수화(P2) |
+| **ae5c1bb 6차 리뷰 결함 3건 회귀 테스트** | [test_ae5c1bb_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ae5c1bb_review_fixes.py) | **통과 (100%)** | 비펌웨어/0채움 바이너리 거부(P1), 언로드 시 파이프라인 정리 및 빌더 컴파일 보존(P2), 사용자 프로젝트 버전 소유권과 OTA 설정 갱신 분리(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -166,7 +167,23 @@
 
 ---
 
-## 8. 실환경 최소 연결 진단 절차
+## 8. ae5c1bb 6차 리뷰 결함 3건 조치 내역 (P1 1건, P2 2건)
+
+1. **[P1-1] 비펌웨어(0채움 2KB 등) 바이너리 플랫폼 헤더 구조 검증 및 엄격 거부**:
+   - `firmware.py:209`에서 `chip_family`가 `sniffed`를 찾지 못해도 `target_platform` 매핑값으로 fallback하여 0으로 채운 2KB 파일이나 텍스트 파일이 정상 펌웨어로 판정되던 결함 해결.
+   - `chip_family`에서 바이너리가 제공된 경우 플랫폼별 헤더 매직(ESP32 계열 `0xE9` 및 CHIP_ID, ESP8266 `0xE9`)을 엄격히 검증하여 유효하지 않은 경우 `(None, "invalid")` 반환.
+   - `inspect_binary`에서 헤더가 인식되지 않거나 `source != "binary"`인 경우 즉시 `BinaryValidationError`를 발생시켜 수동 업로드(HTTP 422) 및 게시 파이프라인에서 비정상 파일이 배포되지 않도록 차단.
+2. **[P2-2] 통합 언로드 시 추적 파이프라인 중단 및 이전 환경 저장/타이머 차단 (원격 빌더 컴파일 취소 구분)**:
+   - `manager.py:226`의 `async_unload()`에서 `job_runner.async_unload()`를 호출하여 실행 중인 로컬 비동기 파이프라인 태스크를 정리.
+   - `JobRunner`에 `_unloaded` 플래그를 도입하여, 언로드에 의한 취소(`CancelledError`) 발생 시 원격 Builder의 백그라운드 컴파일 작업을 함부로 취소하지 않고 유지(사용자의 명시적 취소 `async_cancel_job`과 분리).
+   - 언로드된 이전 인스턴스가 다운로드/게시/스토리지 저장 및 만료 타이머 등록(`schedule_cleanup`)을 수행하지 못하도록 차단.
+3. **[P2-3] 사용자 프로젝트 버전 소유권 보호와 OTA 설정 갱신 분리**:
+   - `jobs.py:237`에서 `esphome.project.version`이 존재할 때 `apply_ota_patch()` 호출 전체를 건너뛰어, 사전 준비 없이 빌드하거나 HA 기본 URL 변경 시 OTA 설정(`packages.esphome_ota`, `ota_base_url`)이 누락/미갱신되던 결함 해결.
+   - 버전 소유권 판단(사용자 버전 보존 vs 관리 버전 증가)과 OTA 설정 주입을 명확히 분리하여, 사용자 버전이 있는 기기에서도 `apply_ota_patch()`를 호출하여 최신 `ota_base_url`과 OTA 패키지를 YAML에 반영하되 사용자 프로젝트 버전은 일체 수정하지 않도록 보장.
+
+---
+
+## 9. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -209,7 +226,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 9. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 10. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -233,7 +250,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 10. 장애 유형별 원인 및 해결 가이드
+## 11. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|
@@ -242,4 +259,5 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 | `인증 요구 (requires_auth=true)` | Builder에 사용자 로그인 암호가 설정됨 | Builder 설정에서 전용 로그인 비밀번호를 해제하고 trusted listener 환경 유지 |
 | CAS 충돌 (`CAS_CONFLICT`) | 다른 사용자가 외부에서 YAML을 동시 수정함 | 기기 상세 화면에서 최신 YAML을 다시 불러온 후 변경 적용 |
 | 칩셋 불일치 (`BinaryValidationError`) | 기기 설정 플랫폼과 빌드 결과 바이너리 칩 ID 불일치 | YAML의 `esp32: board:` 설정 확인 |
+
 
