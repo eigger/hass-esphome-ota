@@ -57,18 +57,28 @@ class OtaManager:
         )
 
         saved_selection = None
-        slug = (
-            entry.options.get(CONF_BUILDER_SLUG)
-            or entry.data.get(CONF_BUILDER_SLUG)
-        )
+        opt_slug = entry.options.get(CONF_BUILDER_SLUG)
+        if opt_slug in (None, "", "auto"):
+            opt_slug = None
+        data_slug = entry.data.get(CONF_BUILDER_SLUG)
+        if data_slug in (None, "", "auto"):
+            data_slug = None
+
+        slug = opt_slug or data_slug
         if slug:
             name = (
                 entry.options.get(CONF_BUILDER_NAME)
                 or entry.data.get(CONF_BUILDER_NAME)
                 or slug
             )
-            host_hint = entry.data.get("builder_host", "")
-            port_hint = entry.data.get("builder_port", 0)
+            host_hint = (
+                entry.options.get("builder_host")
+                or entry.data.get("builder_host", "")
+            )
+            port_hint = (
+                entry.options.get("builder_port")
+                or entry.data.get("builder_port", 0)
+            )
             saved_selection = BuilderSelection(
                 slug=slug,
                 name=name,
@@ -239,10 +249,11 @@ class OtaManager:
         await self.job_runner.async_load()
 
         # 2. Register HTTP view and custom panel
-        try:
-            self.hass.http.register_view(self.upload_view)
-        except (RuntimeError, ValueError) as err:
-            _LOGGER.debug("HTTP upload view already registered or router frozen: %s", err)
+        if getattr(self.hass, "http", None) is not None:
+            try:
+                self.hass.http.register_view(self.upload_view)
+            except (RuntimeError, ValueError) as err:
+                _LOGGER.debug("HTTP upload view already registered or router frozen: %s", err)
         await self.panel_manager.async_register()
 
         # 3. Attempt Builder resolution & initial device refresh
@@ -298,6 +309,10 @@ class OtaManager:
                 new_data["builder_port"] = port_hint
             new_options[CONF_BUILDER_SLUG] = slug
             new_options[CONF_BUILDER_NAME] = name
+            if host_hint:
+                new_options["builder_host"] = host_hint
+            if port_hint:
+                new_options["builder_port"] = port_hint
             self.resolver.saved_selection = BuilderSelection(
                 slug=slug,
                 name=name,
@@ -312,11 +327,14 @@ class OtaManager:
             new_data.pop("builder_port", None)
             new_options.pop(CONF_BUILDER_SLUG, None)
             new_options.pop(CONF_BUILDER_NAME, None)
+            new_options.pop("builder_host", None)
+            new_options.pop("builder_port", None)
             self.resolver.saved_selection = None
 
         self.hass.config_entries.async_update_entry(
             self.entry,
             data=new_data,
+            options=new_options,
         )
 
         await self.async_reconnect()

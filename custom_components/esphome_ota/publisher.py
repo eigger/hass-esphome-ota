@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -102,11 +103,17 @@ class ArtifactPublisher:
         public_md5 = self.www_dir / f"{bin_name}.md5"
         public_manifest = self.www_dir / f"{slug}.json"
 
-        try:
-            # Write .bin and .md5 first
-            self._atomic_write_bytes(public_bin, blob)
-            self._atomic_write_bytes(public_md5, digest.encode("ascii"))
+        prior_bin_exists = public_bin.exists()
+        prior_md5_exists = public_md5.exists()
+        prior_manifest_exists = public_manifest.exists()
 
+        tmp_id = uuid.uuid4().hex[:8]
+        stage_bin = self.www_dir / f"{bin_name}.stage_{tmp_id}"
+        stage_md5 = self.www_dir / f"{bin_name}.md5.stage_{tmp_id}"
+        stage_manifest = self.www_dir / f"{slug}.json.stage_{tmp_id}"
+        staged_files = [stage_bin, stage_md5, stage_manifest]
+
+        try:
             # Build ESP-Web-Tools manifest
             manifest: dict[str, Any] = {
                 "name": title or configuration,
@@ -129,18 +136,31 @@ class ArtifactPublisher:
 
             manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
 
-            # Check validity right before writing public manifest (finalization step)
+            # Stage files first
+            stage_bin.write_bytes(blob)
+            stage_md5.write_bytes(digest.encode("ascii"))
+            stage_manifest.write_bytes(manifest_bytes)
+
+            # Check validity right before atomic publication commit
             _check_validity()
 
-            # Manifest written last to finalize the atomic publication
-            self._atomic_write_bytes(public_manifest, manifest_bytes)
+            # Atomically replace into public destinations (.bin and .md5 first, manifest last)
+            os.replace(stage_bin, public_bin)
+            os.replace(stage_md5, public_md5)
+            os.replace(stage_manifest, public_manifest)
 
             _check_validity()
         except Exception:
-            # If aborted/cancelled, ensure public files are cleaned up immediately
-            public_bin.unlink(missing_ok=True)
-            public_md5.unlink(missing_ok=True)
-            public_manifest.unlink(missing_ok=True)
+            for sf in staged_files:
+                sf.unlink(missing_ok=True)
+            # If aborted/cancelled, ensure prior files are NOT deleted.
+            # Only clean up public files if this operation created them without prior existing files.
+            if not prior_bin_exists:
+                public_bin.unlink(missing_ok=True)
+            if not prior_md5_exists:
+                public_md5.unlink(missing_ok=True)
+            if not prior_manifest_exists:
+                public_manifest.unlink(missing_ok=True)
             raise
 
         _LOGGER.info(

@@ -95,19 +95,22 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data: dict[str, Any] = {
                 CONF_BASE_URL: base_url,
             }
+            options: dict[str, Any] = {
+                CONF_BASE_URL: base_url,
+                CONF_AUTO_CLEANUP_HOURS: DEFAULT_AUTO_CLEANUP_HOURS,
+            }
             title = "ESPHome OTA"
             if cand and cand.slug:
                 data[CONF_BUILDER_SLUG] = cand.slug
                 data[CONF_BUILDER_NAME] = cand.name
+                options[CONF_BUILDER_SLUG] = cand.slug
+                options[CONF_BUILDER_NAME] = cand.name
                 title = f"ESPHome OTA ({cand.name})"
 
             return self.async_create_entry(
                 title=title,
                 data=data,
-                options={
-                    CONF_BASE_URL: base_url,
-                    CONF_AUTO_CLEANUP_HOURS: DEFAULT_AUTO_CLEANUP_HOURS,
-                },
+                options=options,
             )
 
         # Propose HA external or internal URL as base_url default
@@ -153,31 +156,41 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Manage ESPHome OTA options."""
         if user_input is not None:
+            clean_options = dict(user_input)
             # Sync builder selection to config entry data
             if CONF_BUILDER_SLUG in user_input:
                 slug = user_input[CONF_BUILDER_SLUG]
                 new_data = dict(self.config_entry.data)
                 if slug and slug != "auto":
                     new_data[CONF_BUILDER_SLUG] = slug
+                    clean_options[CONF_BUILDER_SLUG] = slug
                     discovery = HaDiscoveryAdapter(self.hass)
                     candidates = await discovery.async_discover_all()
                     for c in candidates:
                         if c.slug == slug:
                             new_data[CONF_BUILDER_NAME] = c.name
+                            clean_options[CONF_BUILDER_NAME] = c.name
                             if c.host:
                                 new_data["builder_host"] = c.host
+                                clean_options["builder_host"] = c.host
                             if c.port:
                                 new_data["builder_port"] = c.port
+                                clean_options["builder_port"] = c.port
                             break
                     else:
                         new_data.setdefault(CONF_BUILDER_NAME, slug)
+                        clean_options.setdefault(CONF_BUILDER_NAME, slug)
                 else:
                     new_data.pop(CONF_BUILDER_SLUG, None)
                     new_data.pop(CONF_BUILDER_NAME, None)
                     new_data.pop("builder_host", None)
                     new_data.pop("builder_port", None)
+                    clean_options.pop(CONF_BUILDER_SLUG, None)
+                    clean_options.pop(CONF_BUILDER_NAME, None)
+                    clean_options.pop("builder_host", None)
+                    clean_options.pop("builder_port", None)
                 self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(title="", data=clean_options)
 
         current_base_url = (
             self.config_entry.options.get(CONF_BASE_URL)

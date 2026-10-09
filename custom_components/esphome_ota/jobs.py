@@ -421,10 +421,6 @@ class JobRunner:
         except asyncio.CancelledError:
             _LOGGER.info("Pipeline job %s was cancelled", job.job_id)
             self._cancelled_jobs.add(job.job_id)
-            try:
-                await self.publisher.async_deactivate(device.slug)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Cleanup on cancel failed: %s", err)
             if self._unloaded:
                 _LOGGER.info(
                     "Integration unloaded; stopped tracking pipeline %s without remote builder cancellation",
@@ -715,10 +711,6 @@ class JobRunner:
         except asyncio.CancelledError:
             _LOGGER.info("Resumed pipeline job %s was cancelled", job.job_id)
             self._cancelled_jobs.add(job.job_id)
-            try:
-                await self.publisher.async_deactivate(device.slug)
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Cleanup on cancel failed: %s", err)
             if self._unloaded:
                 return
             if job.builder_job_id:

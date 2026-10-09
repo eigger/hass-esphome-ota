@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-10  
-상태: 자동화 테스트 106개(기존 99개 + 7차 리뷰 결함 검증 7개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 112개(기존 106개 + 8차 리뷰 결함 검증 6개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -30,6 +30,7 @@
 | **ee66713 5차 리뷰 결함 3건 회귀 테스트** | [test_ee66713_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ee66713_review_fixes.py) | **통과 (100%)** | packages 직접 자식 들여쓰기 기준 정밀화(P1), BuilderClient.get_jobs(configuration=) 스냅샷 지원(P2), factory 단독 바이너리 거부 및 OTA 파일 필수화(P2) |
 | **ae5c1bb 6차 리뷰 결함 3건 회귀 테스트** | [test_ae5c1bb_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ae5c1bb_review_fixes.py) | **통과 (100%)** | 비펌웨어/0채움 바이너리 거부(P1), 언로드 시 파이프라인 정리 및 빌더 컴파일 보존(P2), 사용자 프로젝트 버전 소유권과 OTA 설정 갱신 분리(P2) |
 | **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_cf00be0_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_cf00be0_review_fixes.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
+| **c22c0a2 8차 리뷰 결함 3건 회귀 테스트** | [test_c22c0a2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_c22c0a2_review_fixes.py) | **통과 (100%)** | 새 빌드 취소 시 기존 정상 펌웨어 보존(P1), Auto-detect 옵션 정규화 및 단일 Builder 자동 연결 복원(P2), 패널 Builder 선택 영구 저장 및 재로드 유지(P2), MockBuilderServer 웹소켓 종료 타임아웃 해결 |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -204,7 +205,25 @@
 
 ---
 
-## 10. 실환경 최소 연결 진단 절차
+## 10. c22c0a2 8차 리뷰 결함 3건 조치 내역 (P1 1건, P2 2건)
+
+1. **[P1] 새 빌드 취소 시 기존 정상 펌웨어 삭제 결함 해결**:
+   - `jobs.py:425`, `jobs.py:719`에서 빌드 작업이 취소(`CancelledError`)되거나 언로드될 때 무조건 `await self.publisher.async_deactivate(device.slug)`를 호출하던 문제 해결. 검증·컴파일 단계 등 배포 전 단계에서 새 작업을 취소하더라도 이전에 배포된 정상 펌웨어가 삭제되지 않도록 취소 핸들러의 `async_deactivate` 호출을 완전히 제거.
+   - `publisher.py`의 `_publish_sync`에 임시 스테이징(`.stage_<uuid>`) 메커니즘을 적용: 바이너리, MD5, 매니페스트를 임시 스테이징 파일에 먼저 작성한 뒤 유효성 검사를 통과한 경우에만 `os.replace`로 원자적 치환.
+   - 배포 도중 취소되거나 예외가 발생하더라도 작업 이전에 이미 존재하던 파일(`prior_bin_exists` 등)은 일체 삭제하지 않고, 오직 해당 작업이 생성한 임시 스테이징 파일(및 신규 배포였던 경우에 한해 미완성 파일)만 정리하도록 수정.
+2. **[P2] 옵션의 Auto-detect 설정 시 자동 연결 방해 결함 해결**:
+   - `manager.py:60`에서 `entry.options` 또는 `entry.data`에 저장된 `"auto"` 문자열을 실제 Builder slug로 취급하여 단일 후보가 감지되어도 일치하는 Builder가 없어 연결하지 못하던 결함 해결.
+   - `manager.py`의 `__init__`에서 `raw_slug in (None, "", "auto")`를 `None`(미선택 상태)으로 정규화하여, `resolver.py`가 후보가 1개일 때 자동 연결을 정상 수행하도록 복원.
+   - `config_flow.py`의 `EsphomeOtaOptionsFlowHandler`에서도 `"auto"` 선택 시 `CONF_BUILDER_SLUG`를 `options` 및 `data`에서 제거하여 저장소 차원에서도 정규화.
+3. **[P2] 패널에서 변경한 Builder 선택의 재로드 후 원복 결함 해결**:
+   - `manager.py:317`의 `async_select_builder`에서 `new_options`를 구성하였으나 `async_update_entry` 호출 시 `data=new_data`만 전달하고 `options`를 누락하여, 재로드 시 옵션 값이 우선되어 이전 대상으로 되돌아가던 문제 해결.
+   - `async_select_builder`에서 `options=new_options`를 함께 전달하여 `data`와 `options`의 Builder 선택 저장 위치를 완전히 일치시키고, `manager.py`의 읽기 우선순위와 동기화.
+4. **[테스트 환경] MockBuilderServer 웹소켓 종료 지연 및 타임아웃 해결**:
+   - `tests/components/esphome_ota/conftest.py`의 `MockBuilderServer`에서 활성 웹소켓 연결(`websockets: set`)을 추적하고 `stop()` 시 명시적으로 닫도록 개선하여, `test_issue2_websocket_reconnect_with_slug` 등 테스트 teardown 시 aiohttp 60초 타임아웃 대기 문제를 완전히 해결.
+
+---
+
+## 11. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -247,7 +266,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 11. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 12. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.

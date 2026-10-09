@@ -29,7 +29,7 @@ class PanelManager:
         version = str(integration.version)
 
         # 1. Register static paths once
-        if not self._static_paths_registered:
+        if not self._static_paths_registered and getattr(self.hass, "http", None) is not None:
             frontend_dir = Path(__file__).parent / "frontend"
             try:
                 await self.hass.http.async_register_static_paths(

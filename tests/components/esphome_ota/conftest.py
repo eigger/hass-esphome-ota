@@ -78,6 +78,8 @@ class MockBuilderServer:
         )
         self.last_download_token = "valid-token-123"
 
+        self.websockets: set[web.WebSocketResponse] = set()
+
     async def start(self) -> int:
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
@@ -89,6 +91,9 @@ class MockBuilderServer:
         return self.port
 
     async def stop(self) -> None:
+        for ws in list(self.websockets):
+            await ws.close()
+        self.websockets.clear()
         if self.runner:
             await self.runner.cleanup()
 
@@ -98,6 +103,7 @@ class MockBuilderServer:
 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        self.websockets.add(ws)
 
         # 1. Unsolicited server info frame
         server_info = {
@@ -288,6 +294,7 @@ class MockBuilderServer:
                 }
                 await ws.send_str(json.dumps(reply))
 
+        self.websockets.discard(ws)
         return ws
 
     async def _download_handler(self, request: web.Request) -> web.Response:
