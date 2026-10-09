@@ -172,14 +172,20 @@ async def ws_prepare_ota(
         connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
         return
 
-    yaml_content = await client.get_config(device_id)
+    config_file = manager.device_manager.get_configuration(device_id)
+    raw_info = manager.device_manager.get_builder_raw(device_id)
+    yaml_content = await client.get_config(config_file)
     dev = manager.device_manager.get_device(device_id)
     if not dev:
+        dev_name = raw_info.get("name") if raw_info else device_id.replace(".yaml", "")
+        friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
+        plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
         dev = await manager.device_manager.async_register_or_update(
-            device_id=device_id,
-            configuration=device_id,
-            name=device_id,
-            friendly_name=device_id,
+            device_id=device_id.replace(".yaml", ""),
+            configuration=config_file,
+            name=dev_name,
+            friendly_name=friendly,
+            target_platform=plat,
         )
 
     target_ver = dev.own_project_version or dev.managed_version or "1.0.0"
@@ -198,6 +204,8 @@ async def ws_prepare_ota(
             "modified": diff_res.modified,
             "target_version": diff_res.target_version,
             "own_version": diff_res.previous_version,
+            "original": yaml_content,
+            "expected": yaml_content,
         },
     )
 
@@ -228,8 +236,9 @@ async def ws_apply_ota(
         connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
         return
 
+    config_file = manager.device_manager.get_configuration(device_id)
     try:
-        await client.update_config(device_id, content, expected)
+        await client.update_config(config_file, content, expected)
         await manager.refresh_devices()
         connection.send_result(msg["id"], {"success": True})
     except Exception as err:  # noqa: BLE001
@@ -262,11 +271,17 @@ async def ws_build(
 
     dev = manager.device_manager.get_device(device_id)
     if not dev:
+        config_file = manager.device_manager.get_configuration(device_id)
+        raw_info = manager.device_manager.get_builder_raw(device_id)
+        dev_name = raw_info.get("name") if raw_info else device_id.replace(".yaml", "")
+        friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
+        plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
         dev = await manager.device_manager.async_register_or_update(
-            device_id=device_id,
-            configuration=device_id,
-            name=device_id,
-            friendly_name=device_id,
+            device_id=device_id.replace(".yaml", ""),
+            configuration=config_file,
+            name=dev_name,
+            friendly_name=friendly,
+            target_platform=plat,
         )
 
     try:
@@ -306,11 +321,17 @@ async def ws_batch_build(
     for dev_id in device_ids:
         dev = manager.device_manager.get_device(dev_id)
         if not dev:
+            config_file = manager.device_manager.get_configuration(dev_id)
+            raw_info = manager.device_manager.get_builder_raw(dev_id)
+            dev_name = raw_info.get("name") if raw_info else dev_id.replace(".yaml", "")
+            friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
+            plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
             dev = await manager.device_manager.async_register_or_update(
-                device_id=dev_id,
-                configuration=dev_id,
-                name=dev_id,
-                friendly_name=dev_id,
+                device_id=dev_id.replace(".yaml", ""),
+                configuration=config_file,
+                name=dev_name,
+                friendly_name=friendly,
+                target_platform=plat,
             )
         try:
             j_id = await manager.job_runner.async_start_build_pipeline(
@@ -450,15 +471,16 @@ def ws_subscribe(
     unsub = manager.add_subscriber(_send_event)
     connection.subscriptions[msg["id"]] = unsub
 
-    # Initial snapshot
-    connection.send_result(
-        msg["id"],
-        {
-            "status": manager.resolver.status,
-            "devices": manager.device_manager.list_all(),
-            "jobs": [j.to_dict() for j in manager.job_runner.list_jobs()],
-        },
-    )
+    # Initial snapshot acknowledge
+    snapshot_payload = {
+        "status": manager.resolver.status,
+        "devices": manager.device_manager.list_all(),
+        "jobs": [j.to_dict() for j in manager.job_runner.list_jobs()],
+    }
+    connection.send_result(msg["id"], snapshot_payload)
+
+    # Dispatch snapshot as an event so frontend subscribeMessage callbacks receive it
+    _send_event("snapshot", snapshot_payload)
 
 
 @websocket_api.require_admin

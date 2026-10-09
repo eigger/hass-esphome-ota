@@ -98,7 +98,7 @@ class MigrationManager:
                     # Archive into private storage
                     art = self.publisher._publish_sync(
                         device_id=node,
-                        configuration=node,
+                        configuration=f"{node}.yaml",
                         slug=slug,
                         blob=blob,
                         info=info,
@@ -135,7 +135,7 @@ class MigrationManager:
                     title = rec.get("title") or node
                     await self.device_manager.async_register_or_update(
                         device_id=node,
-                        configuration=node,
+                        configuration=f"{node}.yaml",
                         name=node,
                         friendly_name=title,
                         token=token,

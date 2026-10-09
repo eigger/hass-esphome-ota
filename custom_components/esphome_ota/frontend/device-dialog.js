@@ -190,6 +190,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         type: "esphome_ota/apply_ota",
         device_id: this.device.device_id,
         content: this.diffData.modified,
+        expected: this.diffData.expected || this.diffData.original,
       });
       this.statusMessage = "Successfully applied OTA configuration to YAML!";
       if (andBuild) {

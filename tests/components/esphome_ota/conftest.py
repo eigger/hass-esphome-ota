@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 import unittest.mock
 from unittest.mock import AsyncMock, patch
+import uuid
 
 from aiohttp import web
 from homeassistant.core import HomeAssistant
@@ -48,11 +49,12 @@ class MockBuilderServer:
         self.site: web.TCPSite | None = None
         self.port: int = 0
         self.configs: dict[str, str] = {
+            "livingroom.yaml": "esphome:\n  name: livingroom\nesp32:\n  board: esp32dev\n",
             "livingroom": "esphome:\n  name: livingroom\nesp32:\n  board: esp32dev\n",
+            "bedroom.yaml": "esphome:\n  name: bedroom\n  project:\n    name: my.bedroom\n    version: '2.1.0'\nesp32:\n  board: esp32dev\n",
             "bedroom": "esphome:\n  name: bedroom\n  project:\n    name: my.bedroom\n    version: '2.1.0'\nesp32:\n  board: esp32dev\n",
         }
-        self.jobs: dict[int, dict[str, Any]] = {}
-        self.next_job_id = 100
+        self.jobs: dict[str, dict[str, Any]] = {}
         self.compile_status = "completed"
         self.issued_download_token = "valid-token-123"
         self.expected_download_token = "valid-token-123"
@@ -166,15 +168,27 @@ class MockBuilderServer:
                 await ws.send_str(json.dumps(reply))
 
             elif cmd == "devices/validate":
-                reply = {
-                    "message_id": msg_id,
-                    "result": {"valid": True},
-                }
-                await ws.send_str(json.dumps(reply))
+                await ws.send_str(
+                    json.dumps(
+                        {
+                            "message_id": msg_id,
+                            "event": "output",
+                            "data": "INFO Reading configuration...\n",
+                        }
+                    )
+                )
+                await ws.send_str(
+                    json.dumps(
+                        {
+                            "message_id": msg_id,
+                            "event": "result",
+                            "data": {"success": True, "code": 0},
+                        }
+                    )
+                )
 
             elif cmd == "firmware/compile":
-                self.next_job_id += 1
-                job_id = self.next_job_id
+                job_id = f"c{uuid.uuid4().hex[:11]}"
                 self.jobs[job_id] = {
                     "status": self.compile_status,
                     "configuration": args.get("configuration"),

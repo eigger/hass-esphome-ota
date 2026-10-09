@@ -11,7 +11,7 @@ import uuid
 from homeassistant.core import HomeAssistant
 
 from .builder.client import BuilderClient
-from .config_patch import bump_patch_version
+from .config_patch import apply_ota_patch, bump_patch_version, own_project_version
 from .const import (
     MAX_LOG_TAIL_LINES,
     STAGE_BUILDING,
@@ -156,13 +156,42 @@ class JobRunner:
 
         try:
             async with lock:
-                # 1. Validating configuration
-                await self._update_stage(job, STAGE_VALIDATING)
-                validation_res = await client.validate_config(device.configuration)
-                if validation_res.get("error_code"):
-                    raise BuilderError(f"Configuration validation failed: {validation_res}")
+                # 1. Preparing YAML configuration and managing version
+                await self._update_stage(job, STAGE_PREPARING)
+                current_yaml = await client.get_config(device.configuration)
+                own_ver = own_project_version(current_yaml)
+                if own_ver:
+                    job.reserved_version = own_ver
+                    device.own_project_version = own_ver
+                else:
+                    device.own_project_version = None
+                    diff_res = apply_ota_patch(
+                        yaml_content=current_yaml,
+                        base_url=base_url,
+                        slug=device.slug,
+                        target_version=job.reserved_version,
+                        node=device.name,
+                    )
+                    if diff_res.modified != current_yaml:
+                        _LOGGER.info(
+                            "Updating YAML for %s to version %s prior to compile",
+                            device.configuration,
+                            job.reserved_version,
+                        )
+                        await client.update_config(
+                            configuration=device.configuration,
+                            content=diff_res.modified,
+                            expected=current_yaml,
+                        )
+                    device.managed_version = job.reserved_version
 
-                # 2. Submitting compile job to Builder
+                await self.storage.async_save_devices(self.device_manager._managed_devices)
+
+                # 2. Validating configuration
+                await self._update_stage(job, STAGE_VALIDATING)
+                await client.validate_config(device.configuration)
+
+                # 3. Submitting compile job to Builder
                 await self._update_stage(job, STAGE_SUBMITTING)
                 b_job_id = await client.start_compile(device.configuration)
                 job.builder_job_id = b_job_id
@@ -170,7 +199,7 @@ class JobRunner:
                     job, STAGE_QUEUED, {"builder_job_id": b_job_id}
                 )
 
-                # 3. Following and streaming compile progress
+                # 4. Following and streaming compile progress
                 await self._update_stage(job, STAGE_BUILDING)
 
                 def _append_log(line: str) -> None:
@@ -185,11 +214,11 @@ class JobRunner:
                     on_output=_append_log,
                 )
 
-                # 4. Downloading firmware binary
+                # 5. Downloading firmware binary
                 await self._update_stage(job, STAGE_DOWNLOADING)
                 blob = await client.download_ota(device.configuration)
 
-                # 5. Verifying binary structure and chip family
+                # 6. Verifying binary structure and chip family
                 await self._update_stage(job, STAGE_VERIFYING)
                 info = inspect_binary(
                     blob=blob,
@@ -197,13 +226,17 @@ class JobRunner:
                     expected_chip=device.chip_family,
                     reserved_version=job.reserved_version,
                 )
+                if job.reserved_version and info.authoritative_version != job.reserved_version:
+                    raise BinaryValidationError(
+                        f"Compiled binary version '{info.authoritative_version}' does not match expected version '{job.reserved_version}'"
+                    )
                 job.binary_version = info.authoritative_version
                 job.chip_family = info.chip_family
                 job.size = info.size
                 job.md5 = info.md5
                 job.sha256 = info.sha256
 
-                # 6. Publishing artifact atomically
+                # 7. Publishing artifact atomically
                 await self._update_stage(job, STAGE_PUBLISHING)
                 published = await self.publisher.async_publish(
                     device_id=device.device_id,

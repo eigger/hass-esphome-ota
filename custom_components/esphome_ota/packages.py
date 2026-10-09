@@ -80,20 +80,17 @@ def generate_inline_ota_yaml(
     clean_base_url = base_url.rstrip("/")
     proj_block = ""
     if use_project and node and version:
-        proj_block = f"""
-  esphome:
-    project:
-      name: "{project_name(node)}"
-      version: "{version}"
-"""
+        proj_block = f"""    esphome:
+      project:
+        name: "{project_name(node)}"
+        version: "{version}"\n"""
 
     return f"""\
   esphome_ota:
     substitutions:
       ota_base_url: "{clean_base_url}"
       ota_slug: "{slug}"
-{proj_block}
-    http_request:
+{proj_block}    http_request:
       timeout: 60s
 
     ota:

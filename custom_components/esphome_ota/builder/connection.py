@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import random
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 import aiohttp
 
@@ -39,10 +39,12 @@ class BuilderConnection:
         host: str,
         port: int,
         session: aiohttp.ClientSession,
+        on_disconnect: Callable[[], None] | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.session = session
+        self.on_disconnect = on_disconnect
         self.server_info: dict[str, Any] = {}
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -171,6 +173,11 @@ class BuilderConnection:
                 _LOGGER.warning("Builder WS connection read loop terminated: %s", err)
         finally:
             self._connected = False
+            if not self._closing and self.on_disconnect:
+                try:
+                    self.on_disconnect()
+                except Exception as cb_err:  # noqa: BLE001
+                    _LOGGER.debug("Error in on_disconnect callback: %s", cb_err)
 
     async def command(
         self,

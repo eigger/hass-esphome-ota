@@ -68,6 +68,12 @@ async def test_websocket_api_commands(
         assert "devices" in msg["result"]
         assert "status" in msg["result"]
 
+        # Initial snapshot event
+        event_msg = await ws.receive_json()
+        assert event_msg["type"] == "event"
+        assert event_msg["event"]["event"] == "snapshot"
+        assert "devices" in event_msg["event"]["data"]
+
         # 5. migrate_preview
         await ws.send_json({"id": 5, "type": "esphome_ota/migrate_preview"})
         msg = await ws.receive_json()

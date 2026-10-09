@@ -233,8 +233,11 @@ class EsphomeOtaManager extends HTMLElement {
 
   connectedCallback() {
     this.render();
-    if (this._hass && !this._unsubEvents) {
-      this.subscribe();
+    if (this._hass) {
+      this.loadInitialData();
+      if (!this._unsubEvents) {
+        this.subscribe();
+      }
     }
   }
 
@@ -245,36 +248,52 @@ class EsphomeOtaManager extends HTMLElement {
     }
   }
 
+  async loadInitialData() {
+    try {
+      const res = await this.hass.callWS({ type: "esphome_ota/status" });
+      if (res) {
+        if (res.status !== undefined) this.status = res.status;
+        if (res.devices) this.devices = res.devices;
+        if (res.jobs) this.jobs = res.jobs;
+        this.render();
+      }
+    } catch (err) {
+      console.debug("Initial status fetch error:", err);
+    }
+  }
+
   async subscribe() {
     try {
       this._unsubEvents = await this.hass.connection.subscribeMessage(
         (msg) => this.handleEvent(msg),
         { type: "esphome_ota/subscribe" }
       );
+      await this.loadInitialData();
     } catch (err) {
       console.error("Subscription error:", err);
     }
   }
 
   handleEvent(msg) {
-    if (msg.status !== undefined) {
-      this.status = msg.status;
-      this.devices = msg.devices || [];
-      this.jobs = msg.jobs || [];
-      this.render();
-      return;
-    }
-
+    if (!msg) return;
     const { event, data } = msg;
-    if (event === "status_changed") {
-      this.status = data.status;
-    } else if (event === "devices_updated") {
+    if (event === "snapshot" && data) {
+      this.status = data.status || this.status;
       this.devices = data.devices || [];
-    } else if (event === "job_updated") {
+      this.jobs = data.jobs || [];
+    } else if (event === "status_changed" && data) {
+      this.status = data.status;
+    } else if (event === "devices_updated" && data) {
+      this.devices = data.devices || [];
+    } else if (event === "job_updated" && data) {
       const idx = this.jobs.findIndex((j) => j.job_id === data.job_id);
       if (idx >= 0) this.jobs[idx] = data;
       else this.jobs.push(data);
       this.shadowRoot.querySelector("esphome-ota-job-dialog")?.updateJob(data);
+    } else if (msg.status !== undefined) {
+      this.status = msg.status;
+      this.devices = msg.devices || [];
+      this.jobs = msg.jobs || [];
     }
     this.render();
   }

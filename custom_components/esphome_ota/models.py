@@ -111,8 +111,8 @@ class BuilderSelection:
 class ManagedDevice:
     """Device managed or tracked by ESPHome OTA."""
 
-    device_id: str  # Unique ID, usually equal to configuration stem
-    configuration: str  # Builder YAML filename stem (e.g. "livingroom")
+    device_id: str  # Unique ID, usually equal to configuration stem (e.g. "livingroom")
+    configuration: str  # Builder YAML filename with extension (e.g. "livingroom.yaml")
     name: str  # ESPHome node name (e.g. "livingroom")
     friendly_name: str
     token: str  # 32-hex token for OTA URL obfuscation
@@ -172,7 +172,7 @@ class PipelineCheckpoint:
     """State checkpoint for an active compile/publish pipeline."""
 
     stage: str
-    builder_job_id: int | None = None
+    builder_job_id: str | None = None
     reserved_version: str | None = None
     yaml_hash: str | None = None
     download_token: str | None = None
@@ -189,7 +189,7 @@ class PipelineJob:
     configuration: str
     request_id: str
     stage: str = STAGE_PREPARING
-    builder_job_id: int | None = None
+    builder_job_id: str | None = None
     reserved_version: str | None = None
     binary_version: str | None = None
     chip_family: str | None = None

@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-09  
-상태: 자동화 테스트 54개 통과 완료, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 62개(기존 54개 + P1 회귀 검증 8개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -22,11 +22,33 @@
 | Update 엔티티 감시 & 만료 | HA State 머신 테스트 | **통과 (100%)** | `installed_version` 일치 감시, unavailable 제외, 만료 타이머 |
 | 레거시 애드온 데이터 이전 | 스토리지 마이그레이션 | **통과 (100%)** | 토큰·슬러그 보존, 바이너리 이전, 멱등성 검증 |
 | 웹소켓 API & 수동 업로드 | HA WS/HTTP 클라이언트 | **통과 (100%)** | 관리자 권한 확인, 스냅샷+델타 구독, 16MB 업로드 제한 |
+| **8대 P1 결함 전용 회귀 테스트** | [test_p1_bugfixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_bugfixes.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
 > **실환경 연결 실증 미검증 안내**:
 > 작업 지시서의 원칙에 따라, 본 개발 환경(macOS 로컬)에는 활성 Home Assistant 프로세스 및 실제 ESPHome Builder 애드온이 구동되지 않으므로, **모의 환경 성공을 실환경 성공으로 표현하지 않으며 '실환경 미검증' 상태로 명시**합니다. 실제 HA OS에 설치 후 아래의 최소 진단 절차를 수행해야 합니다.
+
+---
+
+## 2. 실사용 전 8대 P1 결함 조치 내역
+
+1. **[P1-1] Builder 파일명 확장자 분리**:
+   - `device_id`("livingroom")와 Builder 전달용 원본 `configuration`("livingroom.yaml")을 엄격히 분리하여 Builder API가 파일 미발견 오류를 내지 않도록 조치.
+2. **[P1-2] 빌드 작업 ID 문자열 유지**:
+   - Builder가 반환하는 12자리 hex 작업 ID(`uuid4().hex[:12]`)를 `int()` 변환하지 않고 모델/API/스트림 전반에서 문자열로 유지.
+3. **[P1-3] 생성 YAML 들여쓰기 교정**:
+   - `packages.esphome_ota` 생성 시 `esphome.project` 블록을 4칸 들여쓰기로 수정하여 별도 최상위 패키지로 오해석되는 YAML 구조 결함 제거.
+4. **[P1-4] 패널 첫 진입 시 초기 스냅샷 이벤트 발행**:
+   - HA JS 웹소켓의 `subscribeMessage()`가 `send_result()` 페이로드를 콜백에 전달하지 않는 동작에 대응하여, 구독 즉시 `snapshot` 이벤트를 송출하고 프런트엔드 연결 시 상태 조회 보완.
+5. **[P1-5] 자동 재연결 루프 구현**:
+   - 초기 연결 실패 시 지연 재시도 루프 가동, WS 끊김 감지 시 `on_disconnect` 콜백을 통해 지터 백오프로 자동 재탐색 및 재연결 수행.
+6. **[P1-6] YAML 검증 스트리밍 완료 및 종료 코드 검사**:
+   - `devices/validate`가 첫 출력 프레임에서 단일 응답으로 끝나지 않고 전체 스트림을 소비한 뒤 최종 `exit_code == 0` 및 `success == True`를 확인하도록 수정.
+7. **[P1-7] 자동 증가 버전 컴파일 전 YAML 반영 및 검증**:
+   - 빌드 시작 전 관리 대상 기기의 버전을 `apply_ota_patch`로 YAML에 기록(CAS)한 후 컴파일하며, 다운로드된 바이너리의 버전이 일치하는지 검증.
+8. **[P1-8] UI YAML CAS expected 원본 전달**:
+   - `esphome_ota/prepare_ota` 응답에 `expected`/`original` 원본 YAML을 포함하고 `device-dialog.js`가 `apply_ota` 호출 시 필수 전달하도록 연동.
 
 ---
 

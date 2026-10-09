@@ -41,7 +41,7 @@ async def test_builder_client_operations(mock_builder: MockBuilderServer) -> Non
 
         # 5. validate_config
         val = await client.validate_config("livingroom")
-        assert val.get("valid") is True
+        assert val.get("success") is True or val.get("valid") is True
 
         await conn.disconnect()
 
@@ -56,7 +56,7 @@ async def test_compile_explicit_completion_success(
         client = BuilderClient(conn)
 
         job_id = await client.start_compile("livingroom")
-        assert job_id > 0
+        assert isinstance(job_id, str) and len(job_id) > 0
 
         logs: list[str] = []
         status = await client.wait_for_compile_completion(

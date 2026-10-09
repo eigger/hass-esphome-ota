@@ -53,6 +53,29 @@ class DeviceManager:
         """Get managed device by ID."""
         return self._managed_devices.get(device_id)
 
+    def get_builder_raw(self, device_id: str) -> dict[str, Any] | None:
+        """Find raw Builder device info by device_id or configuration."""
+        target = device_id.replace(".yaml", "")
+        for raw in self._builder_devices:
+            cfg_file = raw.get("configuration", "")
+            cfg_stem = cfg_file.replace(".yaml", "") if cfg_file.endswith(".yaml") else cfg_file
+            if cfg_stem == target or raw.get("name") == target or cfg_file == device_id:
+                return raw
+        return None
+
+    def get_configuration(self, device_id: str) -> str:
+        """Return the actual Builder YAML configuration filename with extension."""
+        dev = self._managed_devices.get(device_id)
+        if dev and dev.configuration:
+            return dev.configuration if dev.configuration.endswith(".yaml") else f"{dev.configuration}.yaml"
+        raw = self.get_builder_raw(device_id)
+        if raw and raw.get("configuration"):
+            cfg = raw["configuration"]
+            return cfg if cfg.endswith(".yaml") else f"{cfg}.yaml"
+        if device_id.endswith(".yaml"):
+            return device_id
+        return f"{device_id}.yaml"
+
     def list_all(self) -> list[dict[str, Any]]:
         """Combine Builder devices and managed records into a unified list."""
         results: list[dict[str, Any]] = []
@@ -60,11 +83,13 @@ class DeviceManager:
 
         # Iterate over devices reported by Builder
         for raw in self._builder_devices:
-            # Builder device dict usually contains "configuration" (e.g. "livingroom.yaml") and "name"
+            # Builder device dict contains "configuration" (e.g. "livingroom.yaml") and "name"
             cfg_file = raw.get("configuration", "")
             cfg_stem = cfg_file.replace(".yaml", "") if cfg_file.endswith(".yaml") else cfg_file
             if not cfg_stem:
                 cfg_stem = raw.get("name", "")
+            if not cfg_file:
+                cfg_file = f"{cfg_stem}.yaml" if cfg_stem else ""
             seen_configurations.add(cfg_stem)
 
             managed = self._managed_devices.get(cfg_stem)
@@ -76,7 +101,7 @@ class DeviceManager:
                 results.append(
                     {
                         "device_id": managed.device_id,
-                        "configuration": managed.configuration,
+                        "configuration": managed.configuration if managed.configuration.endswith(".yaml") else cfg_file,
                         "name": managed.name,
                         "friendly_name": managed.friendly_name,
                         "is_managed": True,
@@ -99,7 +124,7 @@ class DeviceManager:
                 results.append(
                     {
                         "device_id": cfg_stem,
-                        "configuration": cfg_stem,
+                        "configuration": cfg_file,
                         "name": raw.get("name", cfg_stem),
                         "friendly_name": raw.get("friendly_name") or raw.get("name", cfg_stem),
                         "is_managed": False,
@@ -178,11 +203,13 @@ class DeviceManager:
         has_http_ota: bool = False,
     ) -> ManagedDevice:
         """Register a new managed device or update existing record."""
-        existing = self._managed_devices.get(device_id)
+        clean_dev_id = device_id.replace(".yaml", "")
+        clean_config = configuration if configuration.endswith(".yaml") else f"{configuration}.yaml"
+        existing = self._managed_devices.get(clean_dev_id)
         chip, _ = chip_family(target_platform)
 
         if existing:
-            existing.configuration = configuration
+            existing.configuration = clean_config
             existing.name = name
             existing.friendly_name = friendly_name
             existing.target_platform = target_platform
@@ -199,8 +226,8 @@ class DeviceManager:
             assigned_token = token if token is not None else secrets.token_hex(16)
             slug = f"{name}_{assigned_token}" if assigned_token else name
             device = ManagedDevice(
-                device_id=device_id,
-                configuration=configuration,
+                device_id=clean_dev_id,
+                configuration=clean_config,
                 name=name,
                 friendly_name=friendly_name,
                 token=assigned_token,
@@ -210,7 +237,7 @@ class DeviceManager:
                 own_project_version=own_project_version,
                 has_http_ota=has_http_ota,
             )
-            self._managed_devices[device_id] = device
+            self._managed_devices[clean_dev_id] = device
 
         await self.storage.async_save_devices(self._managed_devices)
         return device

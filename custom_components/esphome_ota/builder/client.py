@@ -85,15 +85,45 @@ class BuilderClient:
                 ) from err
             raise
 
-    async def validate_config(self, configuration: str) -> dict[str, Any]:
-        """Validate device YAML configuration."""
-        result = await self.conn.command(
-            "devices/validate", {"configuration": configuration}
-        )
-        return result if isinstance(result, dict) else {}
+    async def validate_config(
+        self,
+        configuration: str,
+        timeout: float = 120.0,
+    ) -> dict[str, Any]:
+        """Validate device YAML configuration by waiting for full streaming completion."""
+        last_result: dict[str, Any] = {}
+        output_lines: list[str] = []
 
-    async def start_compile(self, configuration: str) -> int:
-        """Submit compile job and return job_id immediately."""
+        async for frame in self.conn.stream(
+            "devices/validate",
+            {"configuration": configuration},
+            timeout=timeout,
+        ):
+            event = frame.get("event")
+            if event == "_heartbeat":
+                continue
+            if event == "output":
+                data = frame.get("data", "")
+                if isinstance(data, str):
+                    output_lines.extend(data.splitlines())
+            elif event == "result" or "result" in frame:
+                res = frame.get("data") or frame.get("result") or frame
+                if isinstance(res, dict):
+                    last_result = res
+                break
+
+        # Check success and exit code
+        success = last_result.get("success", True)
+        code = last_result.get("code", last_result.get("exit_code", 0))
+        if not success or code != 0:
+            tail = "\n".join(output_lines[-10:])
+            raise BuilderError(
+                f"Configuration validation failed for {configuration} (exit code {code}): {tail}".strip()
+            )
+        return last_result
+
+    async def start_compile(self, configuration: str) -> str:
+        """Submit compile job and return job_id string immediately."""
         result = await self.conn.command(
             "firmware/compile", {"configuration": configuration}
         )
@@ -104,11 +134,11 @@ class BuilderClient:
             raise BuilderError(
                 f"ESPHome Builder did not return a job_id for {configuration}"
             )
-        return int(job_id)
+        return str(job_id)
 
     async def follow_job(
         self,
-        job_id: int,
+        job_id: str,
         timeout: float = COMPILE_TIMEOUT_SECONDS,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream frames for a compile job until completion."""
@@ -117,12 +147,12 @@ class BuilderClient:
         ):
             yield frame
 
-    async def get_job(self, job_id: int) -> dict[str, Any]:
+    async def get_job(self, job_id: str) -> dict[str, Any]:
         """Query state and details for a specific job."""
         result = await self.conn.command("firmware/get_job", {"job_id": job_id})
         return result if isinstance(result, dict) else {}
 
-    async def cancel_job(self, job_id: int) -> None:
+    async def cancel_job(self, job_id: str) -> None:
         """Cancel a running compile job."""
         try:
             await self.conn.command("firmware/cancel", {"job_id": job_id})
@@ -132,7 +162,7 @@ class BuilderClient:
     async def wait_for_compile_completion(
         self,
         configuration: str,
-        job_id: int,
+        job_id: str,
         on_output: Callable[[str], None] | None = None,
         timeout: float = COMPILE_TIMEOUT_SECONDS,
     ) -> str:
