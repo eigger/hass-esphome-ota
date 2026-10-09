@@ -56,8 +56,32 @@ h1 {
 .status-ready { color: #166534; background: #dcfce7; }
 .status-connecting .status-dot, .status-reconnecting .status-dot, .status-waiting .status-dot { background: #eab308; }
 .status-connecting, .status-reconnecting, .status-waiting { color: #854d0e; background: #fef9c3; }
+.status-selection_required .status-dot { background: #f97316; }
+.status-selection_required { color: #c2410c; background: #ffedd5; }
 .status-error .status-dot, .status-unsupported .status-dot { background: #ef4444; }
 .status-error, .status-unsupported { color: #991b1b; background: #fee2e2; }
+
+.selection-banner {
+  margin: 16px 20px 0;
+  padding: 12px 16px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #9a3412;
+  font-size: 0.9rem;
+}
+.selection-banner select {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #fdba74;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 0.85rem;
+}
 
 .header-actions {
   display: flex;
@@ -222,6 +246,7 @@ class EsphomeOtaManager extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this.devices = [];
     this.jobs = [];
+    this.candidates = [];
     this.status = "discovering";
     this.builder = null;
     this.query = "";
@@ -265,6 +290,7 @@ class EsphomeOtaManager extends HTMLElement {
       const res = await this.hass.callWS({ type: "esphome_ota/status" });
       if (res) {
         if (res.status !== undefined) this.status = res.status;
+        if (res.candidates !== undefined) this.candidates = res.candidates;
         if (res.devices) this.devices = res.devices;
         if (res.jobs) this.jobs = res.jobs;
         this.render();
@@ -291,12 +317,15 @@ class EsphomeOtaManager extends HTMLElement {
     const { event, data } = msg;
     if (event === "snapshot" && data) {
       this.status = data.status || this.status;
+      if (data.candidates) this.candidates = data.candidates;
       this.devices = data.devices || [];
       this.jobs = data.jobs || [];
       this.render();
     } else if (event === "status_changed" && data) {
       this.status = data.status;
+      if (data.candidates) this.candidates = data.candidates;
       this._updateStatusBadge();
+      this._renderSelectionBanner();
     } else if (event === "devices_updated" && data) {
       this.devices = data.devices || [];
       this._renderDeviceList();
@@ -412,6 +441,8 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
       </header>
 
+      <div id="selection-banner" class="selection-banner" style="display: none;"></div>
+
       <div class="controls">
         <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
         <select id="filter">
@@ -466,9 +497,45 @@ class EsphomeOtaManager extends HTMLElement {
     statusTextEl.textContent = txt;
   }
 
+  _renderSelectionBanner() {
+    const banner = this.shadowRoot.getElementById("selection-banner");
+    if (!banner) return;
+    if (this.status === "selection_required" && this.candidates && this.candidates.length > 0) {
+      banner.style.display = "flex";
+      const options = this.candidates.map(
+        (c) => `<option value="${escapeHtml(c.slug)}">${escapeHtml(c.name || c.slug)} (${escapeHtml(c.host)}:${escapeHtml(c.port)})</option>`
+      ).join("");
+      banner.innerHTML = `
+        <span>${escapeHtml(t(this.hass, "select_builder_prompt") || "Multiple Builders found. Select one:")}</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="builder-candidate-select">${options}</select>
+          <button class="primary" id="btn-confirm-selection">${escapeHtml(t(this.hass, "btn_select_builder") || "Connect")}</button>
+        </div>
+      `;
+      this.shadowRoot.getElementById("btn-confirm-selection")?.addEventListener("click", async () => {
+        const sel = this.shadowRoot.getElementById("builder-candidate-select");
+        if (sel && sel.value) {
+          try {
+            await this.hass.callWS({
+              type: "esphome_ota/select_builder",
+              slug: sel.value,
+            });
+            await this.refresh();
+          } catch (err) {
+            alert(`Failed to select builder: ${err.message || err}`);
+          }
+        }
+      });
+    } else {
+      banner.style.display = "none";
+      banner.innerHTML = "";
+    }
+  }
+
   render() {
     this._initDom();
     this._updateStatusBadge();
+    this._renderSelectionBanner();
     this._renderDeviceList();
   }
 

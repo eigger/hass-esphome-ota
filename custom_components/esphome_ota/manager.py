@@ -57,9 +57,16 @@ class OtaManager:
         )
 
         saved_selection = None
-        slug = entry.data.get(CONF_BUILDER_SLUG)
+        slug = (
+            entry.options.get(CONF_BUILDER_SLUG)
+            or entry.data.get(CONF_BUILDER_SLUG)
+        )
         if slug:
-            name = entry.data.get(CONF_BUILDER_NAME, slug or "ESPHome Builder")
+            name = (
+                entry.options.get(CONF_BUILDER_NAME)
+                or entry.data.get(CONF_BUILDER_NAME)
+                or slug
+            )
             host_hint = entry.data.get("builder_host", "")
             port_hint = entry.data.get("builder_port", 0)
             saved_selection = BuilderSelection(
@@ -185,6 +192,17 @@ class OtaManager:
                             if self.resolver.active_candidate
                             else None
                         ),
+                        "candidates": [
+                            {
+                                "slug": cand.slug,
+                                "name": cand.name,
+                                "host": cand.host,
+                                "port": cand.port,
+                                "source": cand.source,
+                                "is_running": cand.is_running,
+                            }
+                            for cand in self.resolver.candidates
+                        ],
                     },
                 )
                 self._dispatch_event(
@@ -197,7 +215,21 @@ class OtaManager:
                 _LOGGER.debug("Builder reconnect attempt failed: %s", err)
                 self._dispatch_event(
                     "status_changed",
-                    {"status": self.resolver.status, "candidate": None},
+                    {
+                        "status": self.resolver.status,
+                        "candidate": None,
+                        "candidates": [
+                            {
+                                "slug": cand.slug,
+                                "name": cand.name,
+                                "host": cand.host,
+                                "port": cand.port,
+                                "source": cand.source,
+                                "is_running": cand.is_running,
+                            }
+                            for cand in self.resolver.candidates
+                        ],
+                    },
                 )
 
     async def async_setup(self) -> None:
@@ -207,7 +239,10 @@ class OtaManager:
         await self.job_runner.async_load()
 
         # 2. Register HTTP view and custom panel
-        self.hass.http.register_view(self.upload_view)
+        try:
+            self.hass.http.register_view(self.upload_view)
+        except (RuntimeError, ValueError) as err:
+            _LOGGER.debug("HTTP upload view already registered or router frozen: %s", err)
         await self.panel_manager.async_register()
 
         # 3. Attempt Builder resolution & initial device refresh
@@ -227,6 +262,7 @@ class OtaManager:
     async def async_unload(self) -> None:
         """Clean up resources on integration unload."""
         self._unloaded = True
+        self.publisher.async_unload()
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
         await self.job_runner.async_unload()
@@ -234,6 +270,56 @@ class OtaManager:
         self.panel_manager.async_unregister()
         await self.resolver.async_disconnect()
         self._subscribers.clear()
+
+    async def async_select_builder(self, slug: str) -> None:
+        """Select a builder candidate post-installation, persist to entry, and reconnect."""
+        if slug == "auto":
+            slug = ""
+
+        name = slug or "ESPHome Builder"
+        host_hint = ""
+        port_hint = 0
+        if slug:
+            for c in self.resolver.candidates:
+                if c.slug == slug:
+                    name = c.name
+                    host_hint = c.host
+                    port_hint = c.port
+                    break
+
+        new_data = dict(self.entry.data)
+        new_options = dict(self.entry.options)
+        if slug:
+            new_data[CONF_BUILDER_SLUG] = slug
+            new_data[CONF_BUILDER_NAME] = name
+            if host_hint:
+                new_data["builder_host"] = host_hint
+            if port_hint:
+                new_data["builder_port"] = port_hint
+            new_options[CONF_BUILDER_SLUG] = slug
+            new_options[CONF_BUILDER_NAME] = name
+            self.resolver.saved_selection = BuilderSelection(
+                slug=slug,
+                name=name,
+                source="config_entry",
+                host_hint=host_hint,
+                port_hint=port_hint,
+            )
+        else:
+            new_data.pop(CONF_BUILDER_SLUG, None)
+            new_data.pop(CONF_BUILDER_NAME, None)
+            new_data.pop("builder_host", None)
+            new_data.pop("builder_port", None)
+            new_options.pop(CONF_BUILDER_SLUG, None)
+            new_options.pop(CONF_BUILDER_NAME, None)
+            self.resolver.saved_selection = None
+
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            data=new_data,
+        )
+
+        await self.async_reconnect()
 
     async def async_reconnect(self) -> None:
         """Trigger manual re-discovery and re-connection to Builder."""
@@ -255,12 +341,42 @@ class OtaManager:
                         if self.resolver.active_candidate
                         else None
                     ),
+                    "candidates": [
+                        {
+                            "slug": cand.slug,
+                            "name": cand.name,
+                            "host": cand.host,
+                            "port": cand.port,
+                            "source": cand.source,
+                            "is_running": cand.is_running,
+                        }
+                        for cand in self.resolver.candidates
+                    ],
                 },
             )
             self._dispatch_event("devices_updated", {"devices": self.device_manager.list_all()})
             await self.job_runner.async_resume_jobs(client, self.base_url)
         except Exception as err:
             _LOGGER.warning("Manual reconnect attempt failed: %s", err)
+            self._dispatch_event(
+                "status_changed",
+                {
+                    "status": self.resolver.status,
+                    "candidate": None,
+                    "candidates": [
+                        {
+                            "slug": cand.slug,
+                            "name": cand.name,
+                            "host": cand.host,
+                            "port": cand.port,
+                            "source": cand.source,
+                            "is_running": cand.is_running,
+                        }
+                        for cand in self.resolver.candidates
+                    ],
+                    "error": str(err),
+                },
+            )
             self._start_reconnect_loop()
             raise
 

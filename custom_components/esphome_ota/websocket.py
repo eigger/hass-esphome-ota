@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
-import voluptuous as vol
 
 from .config_patch import apply_ota_patch
 from .const import DOMAIN
-from .models import ManagedDevice
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +31,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_republish)
     websocket_api.async_register_command(hass, ws_deactivate)
     websocket_api.async_register_command(hass, ws_cancel_job)
+    websocket_api.async_register_command(hass, ws_select_builder)
     websocket_api.async_register_command(hass, ws_reconnect)
     websocket_api.async_register_command(hass, ws_subscribe)
     websocket_api.async_register_command(hass, ws_migrate_preview)
@@ -428,7 +428,33 @@ async def ws_cancel_job(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
+        vol.Required("type"): "esphome_ota/select_builder",
+        vol.Required("slug"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_select_builder(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Select a builder candidate, persist selection, and reconnect."""
+    manager = _get_manager(hass)
+    slug = msg["slug"]
+    try:
+        await manager.async_select_builder(slug)
+        connection.send_result(
+            msg["id"], {"status": manager.resolver.status, "selected": slug}
+        )
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "select_builder_failed", str(err))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
         vol.Required("type"): "esphome_ota/reconnect",
+        vol.Optional("slug"): str,
     }
 )
 @websocket_api.async_response
@@ -439,8 +465,12 @@ async def ws_reconnect(
 ) -> None:
     """Force re-discovery and re-connection to Builder."""
     manager = _get_manager(hass)
+    slug = msg.get("slug")
     try:
-        await manager.async_reconnect()
+        if slug is not None:
+            await manager.async_select_builder(slug)
+        else:
+            await manager.async_reconnect()
         connection.send_result(msg["id"], {"status": manager.resolver.status})
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "reconnect_failed", str(err))

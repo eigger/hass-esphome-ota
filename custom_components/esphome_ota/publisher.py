@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,11 @@ class ArtifactPublisher:
         self.publish_dir = publish_dir
         self.www_dir = Path(hass.config.path("www", publish_dir))
         self.private_base_dir = Path(hass.config.path("esphome_ota", "firmware"))
+        self._unloaded = False
+
+    def async_unload(self) -> None:
+        """Mark publisher as unloaded."""
+        self._unloaded = True
 
     def _ensure_dirs(self) -> None:
         """Ensure public www and private storage directories exist."""
@@ -69,8 +75,16 @@ class ArtifactPublisher:
         info: BinaryInfo,
         title: str = "",
         summary: str = "",
+        check_cancelled: Callable[[], bool] | None = None,
     ) -> PublishedArtifact:
         """Synchronous publish implementation executing in executor."""
+        def _check_validity() -> None:
+            if self._unloaded:
+                raise EsphomeOtaError("Publish aborted: integration is unloaded")
+            if check_cancelled and check_cancelled():
+                raise EsphomeOtaError("Publish aborted: pipeline job was cancelled")
+
+        _check_validity()
         self._ensure_dirs()
         digest = info.md5
         sha256 = info.sha256
@@ -80,39 +94,54 @@ class ArtifactPublisher:
         # 1. Archive in private storage
         private_path = self._write_private_artifact(device_id, sha256, blob)
 
+        _check_validity()
+
         # 2. Write public files in atomic, manifest-last order
         bin_name = f"{slug}.ota.bin"
         public_bin = self.www_dir / bin_name
         public_md5 = self.www_dir / f"{bin_name}.md5"
         public_manifest = self.www_dir / f"{slug}.json"
 
-        # Write .bin and .md5 first
-        self._atomic_write_bytes(public_bin, blob)
-        self._atomic_write_bytes(public_md5, digest.encode("ascii"))
+        try:
+            # Write .bin and .md5 first
+            self._atomic_write_bytes(public_bin, blob)
+            self._atomic_write_bytes(public_md5, digest.encode("ascii"))
 
-        # Build ESP-Web-Tools manifest
-        manifest: dict[str, Any] = {
-            "name": title or configuration,
-            "version": version,
-            "builds": [
-                {
-                    "chipFamily": chip_family,
-                    "ota": {
-                        "md5": digest,
-                        "path": f"{bin_name}?v={digest[:8]}",
-                        "summary": summary or "Built by ESPHome OTA",
-                    },
-                }
-            ],
-        }
-        if info.build_time:
-            manifest["build_time"] = info.build_time
-        if info.version_source:
-            manifest["version_source"] = info.version_source
+            # Build ESP-Web-Tools manifest
+            manifest: dict[str, Any] = {
+                "name": title or configuration,
+                "version": version,
+                "builds": [
+                    {
+                        "chipFamily": chip_family,
+                        "ota": {
+                            "md5": digest,
+                            "path": f"{bin_name}?v={digest[:8]}",
+                            "summary": summary or "Built by ESPHome OTA",
+                        },
+                    }
+                ],
+            }
+            if info.build_time:
+                manifest["build_time"] = info.build_time
+            if info.version_source:
+                manifest["version_source"] = info.version_source
 
-        manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
-        # Manifest written last to finalize the atomic publication
-        self._atomic_write_bytes(public_manifest, manifest_bytes)
+            manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+
+            # Check validity right before writing public manifest (finalization step)
+            _check_validity()
+
+            # Manifest written last to finalize the atomic publication
+            self._atomic_write_bytes(public_manifest, manifest_bytes)
+
+            _check_validity()
+        except Exception:
+            # If aborted/cancelled, ensure public files are cleaned up immediately
+            public_bin.unlink(missing_ok=True)
+            public_md5.unlink(missing_ok=True)
+            public_manifest.unlink(missing_ok=True)
+            raise
 
         _LOGGER.info(
             "Published firmware for %s (slug=%s, version=%s, chip=%s, size=%d bytes)",
@@ -151,6 +180,7 @@ class ArtifactPublisher:
         info: BinaryInfo,
         title: str = "",
         summary: str = "",
+        check_cancelled: Callable[[], bool] | None = None,
     ) -> PublishedArtifact:
         """Asynchronously publish firmware binary and manifest."""
         return await self.hass.async_add_executor_job(
@@ -162,6 +192,7 @@ class ArtifactPublisher:
             info,
             title,
             summary,
+            check_cancelled,
         )
 
     def _deactivate_sync(self, slug: str) -> bool:

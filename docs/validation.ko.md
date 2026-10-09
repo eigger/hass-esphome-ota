@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-10  
-상태: 자동화 테스트 99개(기존 93개 + 6차 리뷰 결함 검증 6개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 106개(기존 99개 + 7차 리뷰 결함 검증 7개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -29,6 +29,7 @@
 | **e2369ce 4차 리뷰 결함 4건 회귀 테스트** | [test_e2369ce_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_e2369ce_review_fixes.py) | **통과 (100%)** | 직전 완료 컴파일 오연결 차단(P1), recovery_required 화면 해제/취소/재확인(P2), ESP8266 firmware.bin 다운로드(P2), 4칸 들여쓰기 YAML 패치 교정(P2) |
 | **ee66713 5차 리뷰 결함 3건 회귀 테스트** | [test_ee66713_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ee66713_review_fixes.py) | **통과 (100%)** | packages 직접 자식 들여쓰기 기준 정밀화(P1), BuilderClient.get_jobs(configuration=) 스냅샷 지원(P2), factory 단독 바이너리 거부 및 OTA 파일 필수화(P2) |
 | **ae5c1bb 6차 리뷰 결함 3건 회귀 테스트** | [test_ae5c1bb_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ae5c1bb_review_fixes.py) | **통과 (100%)** | 비펌웨어/0채움 바이너리 거부(P1), 언로드 시 파이프라인 정리 및 빌더 컴파일 보존(P2), 사용자 프로젝트 버전 소유권과 OTA 설정 갱신 분리(P2) |
+| **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_cf00be0_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_cf00be0_review_fixes.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -183,7 +184,27 @@
 
 ---
 
-## 9. 실환경 최소 연결 진단 절차
+## 9. cf00be0 7차 리뷰 결함 2건 조치 내역 (P1 1건, P2 1건)
+
+1. **[P1-1] 취소·언로드된 작업의 executor 스레드 지연 시 공개 바이너리/매니페스트 배포 방지 및 자동 정리**:
+   - `jobs.py:708`, `publisher.py:156`에서 파이프라인 코루틴이 취소(`CancelledError`)되거나 언로드되어도 파일 I/O를 수행 중인 Python `ThreadPoolExecutor` 스레드가 중단되지 않아, 스레드 재개 시 공개 바이너리와 manifest가 생성되면서도 게시 이력과 정리 타이머가 누락되던 결함 해결.
+   - `ArtifactPublisher`에 `_unloaded` 상태 플래그 및 `async_unload()` 메서드를 추가하고, `_publish_sync`에 `check_cancelled` 콜백 인자 도입.
+   - 비공개 아카이빙 전, 공개 파일 생성 직전, 매니페스트 확정 직전 및 직후에 실행 유효성(`_check_validity`)을 검사하여 작업 취소 또는 언로드 감지 시 즉시 `EsphomeOtaError`를 발생.
+   - 공개 파일 생성 구간을 `try...except`로 보호하여, 취소나 예외 발생 시 생성 중이던 `public_bin`, `public_md5`, `public_manifest`를 즉시 `unlink(missing_ok=True)`하여 잔류 파일이 남지 않도록 보장.
+   - `JobRunner`에 `_cancelled_jobs` 추적 세트를 도입하여 `async_cancel_job()` 시 즉시 취소 목록에 등록하고, 취소 핸들러에서 `async_deactivate(device.slug)`를 호출하여 잔여 공개 파일을 완전히 정리.
+2. **[P2-2] 설치 후 여러 Builder 후보 발견 시 선택 및 저장 경로 제공**:
+   - `resolver.py:61`, `config_flow.py:167`에서 Builder가 없는 상태에서 통합을 설치한 후 여러 Builder가 나타나면 `selection_required` 상태에 고착되고, 설치 후 옵션이나 패널에서 선택할 방법이 없던 문제 해결.
+   - **OptionsFlow 확장** (`config_flow.py:152`): `EsphomeOtaOptionsFlowHandler`에서 현재 감지된 Builder 후보 목록을 실시간 탐색하여 `CONF_BUILDER_SLUG` 드롭다운(`"auto"` 자동 감지 포함)을 제공하고, 저장 시 `config_entry.data` 및 `options`에 영구 반영.
+   - **WebSocket API 추가 및 확장** (`websocket.py`):
+     - `esphome_ota/select_builder` 명령어(`slug: str`) 추가: 설치 후에도 패널 및 API를 통해 특정 Builder 후보를 선택하고 설정을 즉시 저장 및 연결.
+     - `esphome_ota/reconnect` 명령어에 선택적 `slug: str` 인자 지원.
+   - **프론트엔드 패널 연동** (`frontend/manager.js`, `frontend/i18n.js`):
+     - 상태가 `selection_required`인 경우 상단에 Builder 선택 배너와 드롭다운 및 `Connect` 버튼을 렌더링하여 사용자가 화면에서 직접 후보를 선택하고 전환할 수 있도록 지원.
+     - HTTP 뷰 및 패널 재등록 시 라우터 동결(`RuntimeError: Cannot register a resource into frozen router.`) 예외 가드를 적용하여 안전한 갱신 보장.
+
+---
+
+## 10. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -226,7 +247,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 10. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 11. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -250,11 +271,12 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 11. 장애 유형별 원인 및 해결 가이드
+## 12. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|
 | `Builder 시작 대기` 상태 유지 | ESPHome Builder 애드온 정지 또는 재시작 중 | 애드온이 정상 실행될 때까지 대기하거나 상단 `Builder 재연결` 버튼 클릭 |
+| `Builder 선택 필요` 배너 표시 | 여러 개의 Builder가 감지되었으나 특정 Builder가 지정되지 않음 | 상단 배너 또는 통합 옵션(OptionsFlow)에서 원하는 Builder 선택 |
 | `HTTP 403 Forbidden` 발생 | 루프백 주소가 아닌 외부 IP로 접속 시도 | 연결 주소가 `127.0.0.1`인지 확인 (Docker 브리지 IP 직접 사용 금지) |
 | `인증 요구 (requires_auth=true)` | Builder에 사용자 로그인 암호가 설정됨 | Builder 설정에서 전용 로그인 비밀번호를 해제하고 trusted listener 환경 유지 |
 | CAS 충돌 (`CAS_CONFLICT`) | 다른 사용자가 외부에서 YAML을 동시 수정함 | 기기 상세 화면에서 최신 YAML을 다시 불러온 후 변경 적용 |

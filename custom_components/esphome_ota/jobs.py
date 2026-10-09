@@ -93,11 +93,14 @@ class JobRunner:
         self._active_jobs: dict[str, PipelineJob] = {}
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
         self._in_flight_requests: set[str] = set()
+        self._cancelled_jobs: set[str] = set()
         self._unloaded = False
 
     async def async_unload(self) -> None:
         """Cancel and clean up all active pipeline tasks on integration unload."""
         self._unloaded = True
+        for job_id in list(self._active_tasks):
+            self._cancelled_jobs.add(job_id)
         tasks = list(self._active_tasks.values())
         for task in tasks:
             if not task.done():
@@ -360,7 +363,11 @@ class JobRunner:
                 job.md5 = info.md5
                 job.sha256 = info.sha256
 
-                if self._unloaded:
+                if (
+                    self._unloaded
+                    or job.job_id in self._cancelled_jobs
+                    or job.stage == STAGE_CANCELLED
+                ):
                     return
 
                 # 7. Publishing artifact atomically
@@ -372,9 +379,18 @@ class JobRunner:
                     blob=blob,
                     info=info,
                     title=device.friendly_name,
+                    check_cancelled=lambda: (
+                        self._unloaded
+                        or job.job_id in self._cancelled_jobs
+                        or job.stage == STAGE_CANCELLED
+                    ),
                 )
 
-                if self._unloaded:
+                if (
+                    self._unloaded
+                    or job.job_id in self._cancelled_jobs
+                    or job.stage == STAGE_CANCELLED
+                ):
                     return
 
                 # Record successful publish in storage and devices
@@ -404,6 +420,11 @@ class JobRunner:
 
         except asyncio.CancelledError:
             _LOGGER.info("Pipeline job %s was cancelled", job.job_id)
+            self._cancelled_jobs.add(job.job_id)
+            try:
+                await self.publisher.async_deactivate(device.slug)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Cleanup on cancel failed: %s", err)
             if self._unloaded:
                 _LOGGER.info(
                     "Integration unloaded; stopped tracking pipeline %s without remote builder cancellation",
@@ -639,7 +660,11 @@ class JobRunner:
                 job.md5 = info.md5
                 job.sha256 = info.sha256
 
-                if self._unloaded:
+                if (
+                    self._unloaded
+                    or job.job_id in self._cancelled_jobs
+                    or job.stage == STAGE_CANCELLED
+                ):
                     return
 
                 await self._update_stage(job, STAGE_PUBLISHING)
@@ -650,9 +675,18 @@ class JobRunner:
                     blob=blob,
                     info=info,
                     title=device.friendly_name,
+                    check_cancelled=lambda: (
+                        self._unloaded
+                        or job.job_id in self._cancelled_jobs
+                        or job.stage == STAGE_CANCELLED
+                    ),
                 )
 
-                if self._unloaded:
+                if (
+                    self._unloaded
+                    or job.job_id in self._cancelled_jobs
+                    or job.stage == STAGE_CANCELLED
+                ):
                     return
 
                 artifacts = await self.storage.async_load_artifacts()
@@ -680,6 +714,11 @@ class JobRunner:
 
         except asyncio.CancelledError:
             _LOGGER.info("Resumed pipeline job %s was cancelled", job.job_id)
+            self._cancelled_jobs.add(job.job_id)
+            try:
+                await self.publisher.async_deactivate(device.slug)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Cleanup on cancel failed: %s", err)
             if self._unloaded:
                 return
             if job.builder_job_id:
@@ -704,6 +743,9 @@ class JobRunner:
         job = self._active_jobs.get(job_id)
         if not job:
             return
+
+        self._cancelled_jobs.add(job_id)
+        job.stage = STAGE_CANCELLED
 
         task = self._active_tasks.get(job_id)
         if task and not task.done():
@@ -737,6 +779,7 @@ class JobRunner:
             blob=blob,
             info=info,
             title=device.friendly_name,
+            check_cancelled=lambda: self._unloaded,
         )
         artifacts = await self.storage.async_load_artifacts()
         artifacts[device.device_id] = published
