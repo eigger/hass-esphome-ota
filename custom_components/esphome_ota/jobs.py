@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import logging
-from typing import Any, Callable
 import uuid
+from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 
@@ -21,7 +22,6 @@ from .const import (
     MAX_LOG_TAIL_LINES,
     STAGE_BUILDING,
     STAGE_CANCELLED,
-    STAGE_CANCELLING,
     STAGE_DOWNLOADING,
     STAGE_FAILED,
     STAGE_PREPARING,
@@ -40,7 +40,6 @@ from .models import (
     BuilderConnectionError,
     BuilderError,
     EsphomeOtaError,
-    JobCancelledError,
     ManagedDevice,
     PipelineJob,
     PublishedArtifact,
@@ -60,12 +59,15 @@ def _parse_iso_or_timestamp(val: Any) -> float | None:
     if isinstance(val, str):
         val_str = val.strip()
         try:
-            return datetime.fromisoformat(val_str).timestamp()
-        except Exception:
+            dt = datetime.fromisoformat(val_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except (ValueError, TypeError):
             pass
         try:
             return float(val_str)
-        except Exception:
+        except (ValueError, TypeError):
             pass
     return None
 
@@ -269,6 +271,15 @@ class JobRunner:
                 await client.validate_config(device.configuration)
 
                 # 3. Submitting compile job to Builder
+                submitting_time = datetime.now(timezone.utc).isoformat()
+                job.checkpoint["submitted_at"] = submitting_time
+                try:
+                    prior_jobs = await client.get_jobs(configuration=device.configuration)
+                    job.checkpoint["prior_job_ids"] = [
+                        str(pj["job_id"]) for pj in prior_jobs if pj.get("job_id")
+                    ]
+                except Exception as p_err:  # noqa: BLE001
+                    _LOGGER.debug("Could not snapshot prior builder jobs: %s", p_err)
                 await self._update_stage(job, STAGE_SUBMITTING)
                 b_job_id = await client.start_compile(device.configuration)
                 job.builder_job_id = b_job_id
@@ -293,7 +304,10 @@ class JobRunner:
 
                 # 5. Downloading firmware binary
                 await self._update_stage(job, STAGE_DOWNLOADING)
-                blob = await client.download_ota(device.configuration)
+                blob = await client.download_ota(
+                    device.configuration,
+                    platform_hint=device.target_platform,
+                )
 
                 # 6. Verifying binary structure and chip family
                 await self._update_stage(job, STAGE_VERIFYING)
@@ -415,10 +429,18 @@ class JobRunner:
                     continue
 
                 job_ts = _parse_iso_or_timestamp(job.created_at)
+                submitted_ts = _parse_iso_or_timestamp(job.checkpoint.get("submitted_at"))
+                prior_job_ids = set(job.checkpoint.get("prior_job_ids", []))
+                ref_ts = submitted_ts if submitted_ts is not None else job_ts
 
                 matching_candidates: list[dict[str, Any]] = []
                 for bj in builder_jobs:
                     if bj.get("configuration") != job.configuration:
+                        continue
+
+                    bj_id = str(bj.get("job_id", ""))
+                    # Exclude job IDs that existed before submission was initiated
+                    if bj_id and bj_id in prior_job_ids:
                         continue
 
                     # Check job type (must be compile, reject upload, install, clean, etc.)
@@ -431,7 +453,7 @@ class JobRunner:
                     if status not in ("running", "queued", "completed"):
                         continue
 
-                    # Check submission timestamp (reject jobs submitted before this pipeline job was created)
+                    # Check submission timestamp (reject jobs submitted before this pipeline job was created/submitted)
                     raw_bj_ts = (
                         bj.get("created_at")
                         or bj.get("submitted_at")
@@ -439,9 +461,12 @@ class JobRunner:
                         or bj.get("timestamp")
                     )
                     bj_ts = _parse_iso_or_timestamp(raw_bj_ts)
-                    if job_ts is not None and bj_ts is not None:
-                        # Allow 60s tolerance for slight clock skew
-                        if bj_ts < (job_ts - 60):
+                    if ref_ts is not None:
+                        if bj_ts is None:
+                            # Timestamp is missing; cannot definitively link candidate to this request
+                            continue
+                        if bj_ts < ref_ts:
+                            # Job was submitted before this pipeline job request; reject past job!
                             continue
 
                     matching_candidates.append(bj)
@@ -540,7 +565,10 @@ class JobRunner:
 
                 # Download, verify, and publish
                 await self._update_stage(job, STAGE_DOWNLOADING)
-                blob = await client.download_ota(device.configuration)
+                blob = await client.download_ota(
+                    device.configuration,
+                    platform_hint=device.target_platform,
+                )
 
                 await self._update_stage(job, STAGE_VERIFYING)
                 info = inspect_binary(

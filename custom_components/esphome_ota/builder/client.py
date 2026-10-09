@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable
+from typing import Any
 
 import aiohttp
 
 from ..const import (
     COMPILE_TIMEOUT_SECONDS,
     DOWNLOAD_TIMEOUT_SECONDS,
+    FIRMWARE_BIN,
     FIRMWARE_OTA_BIN,
 )
 from ..models import (
@@ -216,20 +218,90 @@ class BuilderClient:
         )
         return result if isinstance(result, list) else []
 
-    async def has_ota_binary(self, configuration: str) -> bool:
-        """Check if firmware.ota.bin exists for configuration."""
-        binaries = await self.get_binaries(configuration)
-        return any(b.get("file") == FIRMWARE_OTA_BIN for b in binaries)
+    async def resolve_ota_binary_file(
+        self,
+        configuration: str,
+        platform_hint: str | None = None,
+    ) -> str:
+        """Resolve the appropriate OTA binary filename for a configuration.
 
-    async def download_ota(self, configuration: str) -> bytes:
-        """Download firmware.ota.bin for configuration using single-use token."""
+        Queries Builder binaries list:
+        1. Checks for binary explicitly marked with type == 'ota'
+        2. If ESP8266, prefers 'firmware.bin'
+        3. Checks for 'firmware.ota.bin'
+        4. Checks for 'firmware.bin'
+        5. Falls back based on platform_hint or default FIRMWARE_OTA_BIN
+        """
+        try:
+            binaries = await self.get_binaries(configuration)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Could not query binaries for %s: %s", configuration, err)
+            binaries = []
+
+        is_esp8266 = bool(platform_hint and "8266" in platform_hint.lower())
+
+        if binaries:
+            # 1. Prefer explicit type == "ota"
+            for b in binaries:
+                if b.get("type") == "ota" and b.get("file"):
+                    return str(b["file"])
+
+            files = [str(b.get("file")) for b in binaries if b.get("file")]
+
+            # 2. For ESP8266, firmware.bin is the standard OTA image
+            if is_esp8266 and FIRMWARE_BIN in files:
+                return FIRMWARE_BIN
+
+            # 3. Look for standard firmware.ota.bin
+            if FIRMWARE_OTA_BIN in files:
+                return FIRMWARE_OTA_BIN
+
+            # 4. Look for firmware.bin
+            if FIRMWARE_BIN in files:
+                return FIRMWARE_BIN
+
+            # 5. Any .bin file
+            for f in files:
+                if f.endswith(".bin"):
+                    return f
+
+        if is_esp8266:
+            return FIRMWARE_BIN
+
+        return FIRMWARE_OTA_BIN
+
+    async def has_ota_binary(
+        self,
+        configuration: str,
+        platform_hint: str | None = None,
+    ) -> bool:
+        """Check if an OTA binary exists for configuration."""
+        binaries = await self.get_binaries(configuration)
+        if not binaries:
+            return False
+        files = {b.get("file") for b in binaries if b.get("file")}
+        if FIRMWARE_OTA_BIN in files or FIRMWARE_BIN in files:
+            return True
+        return any(b.get("type") == "ota" for b in binaries)
+
+    async def download_ota(
+        self,
+        configuration: str,
+        filename: str | None = None,
+        platform_hint: str | None = None,
+    ) -> bytes:
+        """Download OTA firmware binary for configuration using single-use token."""
+        target_file = filename or await self.resolve_ota_binary_file(
+            configuration=configuration,
+            platform_hint=platform_hint,
+        )
         token_info = await self.conn.command(
             "firmware/download_token",
-            {"configuration": configuration, "file": FIRMWARE_OTA_BIN},
+            {"configuration": configuration, "file": target_file},
         )
         token = token_info.get("token") if isinstance(token_info, dict) else None
         if not token:
-            raise BuilderError(f"No download token issued for {configuration}")
+            raise BuilderError(f"No download token issued for {configuration} ({target_file})")
 
         url = f"{self.conn.base_url}/api/firmware/download"
         timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT_SECONDS)
@@ -239,15 +311,15 @@ class BuilderClient:
             ) as resp:
                 if resp.status != 200:
                     raise BuilderError(
-                        f"Download of {FIRMWARE_OTA_BIN} for {configuration} failed with HTTP {resp.status}"
+                        f"Download of {target_file} for {configuration} failed with HTTP {resp.status}"
                     )
                 blob = await resp.read()
         except asyncio.TimeoutError as err:
             raise BuilderTimeoutError(
-                f"Download of {FIRMWARE_OTA_BIN} timed out after {DOWNLOAD_TIMEOUT_SECONDS}s"
+                f"Download of {target_file} timed out after {DOWNLOAD_TIMEOUT_SECONDS}s"
             ) from err
         except aiohttp.ClientError as err:
             raise BuilderConnectionError(f"Failed to download firmware binary: {err}") from err
 
-        _LOGGER.info("Downloaded %s bytes for %s", len(blob), configuration)
+        _LOGGER.info("Downloaded %s (%s bytes) for %s", target_file, len(blob), configuration)
         return blob

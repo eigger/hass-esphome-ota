@@ -334,6 +334,14 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   async buildDevice(device) {
+    const activeJob = this.jobs.find(
+      (j) => j.device_id === device.device_id && !["published", "failed", "cancelled"].includes(j.stage)
+    );
+    if (activeJob) {
+      this.openJobDialog(activeJob);
+      return;
+    }
+
     try {
       const res = await this.hass.callWS({
         type: "esphome_ota/build",
@@ -348,6 +356,13 @@ class EsphomeOtaManager extends HTMLElement {
       };
       this.openJobDialog(job);
     } catch (err) {
+      const fallbackJob = this.jobs.find(
+        (j) => j.device_id === device.device_id && !["published", "failed", "cancelled"].includes(j.stage)
+      );
+      if (fallbackJob) {
+        this.openJobDialog(fallbackJob);
+        return;
+      }
       alert(`Build error: ${err.message || err}`);
     }
   }
@@ -530,15 +545,38 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   renderCard(dev) {
-    const badgeKey = dev.status === "unmanaged" ? "badge_unmanaged"
+    const activeJob = this.jobs.find(
+      (j) => j.device_id === dev.device_id && !["published", "failed", "cancelled"].includes(j.stage)
+    );
+
+    let badgeKey = dev.status === "unmanaged" ? "badge_unmanaged"
       : dev.status === "needs_initial_install" ? "badge_initial"
       : dev.status === "update_available" ? "badge_update"
       : dev.status === "installed" ? "badge_installed" : "badge_building";
 
-    const badgeText = t(this.hass, badgeKey);
-    const badgeClass = `badge-${dev.status === "needs_initial_install" ? "initial" : dev.status === "update_available" ? "update" : dev.status === "installed" ? "installed" : "unmanaged"}`;
+    let badgeClass = `badge-${dev.status === "needs_initial_install" ? "initial" : dev.status === "update_available" ? "update" : dev.status === "installed" ? "installed" : "unmanaged"}`;
 
+    if (activeJob) {
+      if (activeJob.stage === "recovery_required") {
+        badgeKey = "stage_recovery_required";
+        badgeClass = "badge-initial";
+      } else {
+        badgeKey = "badge_building";
+        badgeClass = "badge-update";
+      }
+    }
+
+    const badgeText = t(this.hass, badgeKey);
     const isSelected = this.selectedDevices.has(dev.device_id);
+
+    let actionButton = "";
+    if (activeJob) {
+      actionButton = `<button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_view_logs"))}</button>`;
+    } else if (dev.status === "unmanaged") {
+      actionButton = `<button class="primary btn-prepare" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_prepare"))}</button>`;
+    } else {
+      actionButton = `<button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_build"))}</button>`;
+    }
 
     return `
       <div class="card" data-id="${escapeHtml(dev.device_id)}">
@@ -565,11 +603,7 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
 
         <div class="card-actions">
-          ${dev.status === "unmanaged" ? `
-            <button class="primary btn-prepare" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_prepare"))}</button>
-          ` : `
-            <button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_build"))}</button>
-          `}
+          ${actionButton}
           <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_details"))}</button>
         </div>
       </div>

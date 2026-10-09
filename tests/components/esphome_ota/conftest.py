@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
 import json
-from pathlib import Path
-from typing import Any, AsyncGenerator
-import unittest.mock
-from unittest.mock import AsyncMock, patch
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
+from typing import Any
 
-from aiohttp import web
-from homeassistant.core import HomeAssistant
 import pytest
+from aiohttp import web
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.esphome_ota.const import (
@@ -59,6 +55,8 @@ class MockBuilderServer:
         self.compile_status = "completed"
         self.issued_download_token = "valid-token-123"
         self.expected_download_token = "valid-token-123"
+        self.binaries: list[dict[str, Any]] | None = None
+        self.last_download_token_args: dict[str, Any] | None = None
         self.binary_blob = (
             b"\xe9\x00\x00\x00"  # Magic + dummy
             + b"\x00" * 8
@@ -271,13 +269,19 @@ class MockBuilderServer:
                 await ws.send_str(json.dumps(reply))
 
             elif cmd == "firmware/get_binaries":
+                bin_list = (
+                    self.binaries
+                    if self.binaries is not None
+                    else [{"file": "firmware.ota.bin", "size": len(self.binary_blob)}]
+                )
                 reply = {
                     "message_id": msg_id,
-                    "result": [{"file": "firmware.ota.bin", "size": len(self.binary_blob)}],
+                    "result": bin_list,
                 }
                 await ws.send_str(json.dumps(reply))
 
             elif cmd == "firmware/download_token":
+                self.last_download_token_args = args
                 reply = {
                     "message_id": msg_id,
                     "result": {"token": self.issued_download_token},

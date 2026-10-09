@@ -35,7 +35,7 @@ _SafeEsphomeLoader.add_multi_constructor("!", _unknown_tag)
 def parse_yaml_safe(content: str) -> dict[str, Any]:
     """Parse YAML content safely tolerating ESPHome custom tags."""
     try:
-        data = yaml.load(content, Loader=_SafeEsphomeLoader)  # noqa: S506
+        data = yaml.load(content, Loader=_SafeEsphomeLoader)
         return data if isinstance(data, dict) else {}
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Safe YAML parse warning: %s", err)
@@ -164,11 +164,13 @@ def has_unclear_project_ownership(content: str) -> bool:
         return True
 
     # Check raw content for remote github packages
-    if isinstance(content, str):
-        if re.search(r"github://", content) or re.search(r"^\s*-\s*github://", content, re.MULTILINE):
-            return True
-
-    return False
+    return bool(
+        isinstance(content, str)
+        and (
+            re.search(r"github://", content)
+            or re.search(r"^\s*-\s*github://", content, re.MULTILINE)
+        )
+    )
 
 
 def bump_patch_version(version: str) -> str:
@@ -182,6 +184,35 @@ def bump_patch_version(version: str) -> str:
     if len(parts) == 1 and parts[0].isdigit():
         return f"{parts[0]}.0.1"
     return f"{version}.1"
+
+
+def reindent_yaml_snippet(snippet: str, indent_size: int = 2) -> str:
+    """Adjust snippet indentation based on detected indent size (e.g. 2 or 4 spaces)."""
+    if indent_size == 2:
+        return snippet
+    new_snippet_lines = []
+    in_seq_map = False
+    seq_col = 0
+    for line in snippet.splitlines(keepends=True):
+        if not line.strip():
+            new_snippet_lines.append(line)
+            continue
+        stripped = line.lstrip(" ")
+        leading_spaces = len(line) - len(stripped)
+        if stripped.startswith("- "):
+            level = leading_spaces // 2
+            new_leading = " " * (level * indent_size)
+            seq_col = len(new_leading) + 2
+            in_seq_map = True
+            new_snippet_lines.append(new_leading + stripped)
+        elif in_seq_map and leading_spaces == 8:
+            new_snippet_lines.append(" " * seq_col + stripped)
+        else:
+            in_seq_map = False
+            level = leading_spaces // 2
+            new_leading = " " * (level * indent_size)
+            new_snippet_lines.append(new_leading + stripped)
+    return "".join(new_snippet_lines)
 
 
 def apply_ota_patch(
@@ -210,33 +241,78 @@ def apply_ota_patch(
 
     # Check if packages: block already exists
     has_packages = any(re.match(r"^packages\s*:", line) for line in lines)
-    in_managed_block = False
+
+    # Detect package indentation under packages:
+    base_indent = 2
+    if has_packages:
+        in_pkg = False
+        for line in lines:
+            if re.match(r"^packages\s*:", line):
+                in_pkg = True
+                continue
+            if in_pkg:
+                if not line.strip() or line.strip().startswith("#"):
+                    continue
+                if not line.startswith(" "):
+                    break
+                # Find indentation of package keys under packages:
+                m_key = re.match(r"^(\s+)[a-zA-Z0-9_-]+\s*:", line)
+                if m_key:
+                    k_indent = len(m_key.group(1))
+                    m_ota = re.match(r"^(\s+)esphome_ota\s*:", line)
+                    if m_ota:
+                        base_indent = len(m_ota.group(1))
+                        break
+                    elif base_indent == 2 and k_indent in (2, 4):
+                        base_indent = k_indent
+
+    patch_yaml = reindent_yaml_snippet(patch_yaml, indent_size=base_indent)
 
     if has_packages:
         i = 0
+        has_existing_ota = any(re.match(r"^\s+esphome_ota\s*:", l) for l in lines)
         while i < len(lines):
             line = lines[i]
             if re.match(r"^packages\s*:", line):
                 new_lines.append(line)
                 i += 1
-                # Insert the new managed block immediately under packages:
-                new_lines.append(patch_yaml)
-                # Skip any existing esphome_ota block
+                if not has_existing_ota:
+                    # Insert the new managed block immediately under packages:
+                    new_lines.append(patch_yaml)
+
+                in_managed_block = False
+                block_indent = base_indent
                 while i < len(lines):
                     sub_line = lines[i]
-                    if re.match(r"^  esphome_ota\s*:", sub_line):
+                    # Check if exiting packages block (unindented non-empty, non-comment line)
+                    if sub_line.strip() and not sub_line.startswith(" ") and not sub_line.strip().startswith("#"):
+                        break
+
+                    m_ota = re.match(r"^(\s+)esphome_ota\s*:", sub_line)
+                    if m_ota:
                         in_managed_block = True
+                        block_indent = len(m_ota.group(1))
+                        # Replace in place!
+                        new_lines.append(patch_yaml)
                         i += 1
                         continue
+
                     if in_managed_block:
-                        # Inside existing esphome_ota block (indented by >= 4 spaces or blank)
-                        if sub_line.strip() == "" or re.match(r"^    ", sub_line):
+                        if sub_line.strip() == "":
+                            i += 1
+                            continue
+                        sub_indent = len(sub_line) - len(sub_line.lstrip(" "))
+                        if sub_indent > block_indent:
+                            i += 1
+                            continue
+                        if sub_line.strip().startswith("#") and sub_indent >= block_indent:
                             i += 1
                             continue
                         in_managed_block = False
+
                     new_lines.append(sub_line)
                     i += 1
-                break
+                continue
             new_lines.append(line)
             i += 1
     else:

@@ -50,6 +50,7 @@ const translations = {
     upload_btn: "Upload & Publish",
     logs_title: "Build & Publish Progress",
     logs_cancel_btn: "Cancel Job",
+    logs_retry_btn: "Recheck / Resume",
     stage_preparing: "Preparing",
     stage_validating: "Validating YAML",
     stage_submitting: "Submitting to Builder",
@@ -61,6 +62,7 @@ const translations = {
     stage_published: "Successfully Published",
     stage_failed: "Build Failed",
     stage_cancelled: "Cancelled",
+    stage_recovery_required: "Recovery Required (Awaiting Confirmation)",
   },
   ko: {
     title: "ESPHome OTA",
@@ -109,6 +111,7 @@ const translations = {
     upload_btn: "업로드 및 게시",
     logs_title: "빌드 및 게시 진행 로그",
     logs_cancel_btn: "작업 취소",
+    logs_retry_btn: "작업 재확인",
     stage_preparing: "준비 중",
     stage_validating: "YAML 검증 중",
     stage_submitting: "빌드 요청 제출",
@@ -120,6 +123,7 @@ const translations = {
     stage_published: "게시 완료",
     stage_failed: "빌드 실패",
     stage_cancelled: "작업 취소됨",
+    stage_recovery_required: "복구 필요 (작업 확인 대기)",
   },
 };
 

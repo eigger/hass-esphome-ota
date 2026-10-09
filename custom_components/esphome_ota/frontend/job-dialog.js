@@ -74,6 +74,10 @@ const css = `
   background: #fee2e2;
   color: #991b1b;
 }
+.stage-recovery {
+  background: #fef3c7;
+  color: #92400e;
+}
 .terminal {
   background: #0f172a;
   color: #38bdf8;
@@ -104,6 +108,14 @@ button {
   border: 1px solid var(--divider-color, #d1d5db);
   background: var(--card-background-color, #ffffff);
   color: var(--primary-text-color, #1f2937);
+}
+button.secondary {
+  background: var(--secondary-background-color, #f1f5f9);
+  color: var(--primary-text-color, #1e293b);
+  border-color: var(--divider-color, #cbd5e1);
+}
+button.secondary:hover {
+  background: #e2e8f0;
 }
 button.danger {
   background: #dc2626;
@@ -168,6 +180,17 @@ class EsphomeOtaJobDialog extends HTMLElement {
     }
   }
 
+  async recheckJob() {
+    if (!this.job || !this.hass) return;
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/reconnect",
+      });
+    } catch (err) {
+      console.error("Recheck job error:", err);
+    }
+  }
+
   render() {
     if (!this.isOpen || !this.job) {
       this.shadowRoot.innerHTML = "";
@@ -185,9 +208,12 @@ class EsphomeOtaJobDialog extends HTMLElement {
       stageClass += " stage-published";
     } else if (stage === "failed" || stage === "cancelled") {
       stageClass += " stage-failed";
+    } else if (stage === "recovery_required") {
+      stageClass += " stage-recovery";
     }
 
     const isRunning = ["preparing", "validating", "submitting", "queued", "building", "downloading", "verifying", "publishing"].includes(stage);
+    const isRecovery = stage === "recovery_required";
 
     this.shadowRoot.innerHTML = `
       <style>${css}</style>
@@ -205,7 +231,8 @@ class EsphomeOtaJobDialog extends HTMLElement {
             <div class="terminal" id="terminal"></div>
           </div>
           <div class="footer">
-            ${isRunning ? `<button class="danger" id="btn-cancel">${escapeHtml(t(this.hass, "logs_cancel_btn"))}</button>` : ""}
+            ${isRecovery ? `<button class="secondary" id="btn-recheck">${escapeHtml(t(this.hass, "logs_retry_btn"))}</button>` : ""}
+            ${(isRunning || isRecovery) ? `<button class="danger" id="btn-cancel">${escapeHtml(t(this.hass, "logs_cancel_btn"))}</button>` : ""}
             <button class="primary" id="btn-close">${escapeHtml(t(this.hass, "close"))}</button>
           </div>
         </div>
@@ -220,6 +247,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
 
     this.shadowRoot.getElementById("close-x")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
+    this.shadowRoot.getElementById("btn-recheck")?.addEventListener("click", () => this.recheckJob());
     this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.cancelJob());
     this.shadowRoot.getElementById("backdrop")?.addEventListener("click", (e) => {
       if (e.target.id === "backdrop") this.close();

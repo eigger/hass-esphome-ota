@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-10  
-상태: 자동화 테스트 77개(기존 70개 + 2차 리뷰 결함 검증 7개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 88개(기존 82개 + 4차 리뷰 결함 검증 6개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -25,6 +25,8 @@
 | **8대 P1 1차 결함 회귀 테스트** | [test_p1_bugfixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_bugfixes.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
 | **2ba3cab 리뷰 결함 8건 회귀 테스트** | [test_p1_p2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_p2_review_fixes.py) | **통과 (100%)** | Builder 미선택 ingress 포트, 다이얼로그 DOM 보존, 치환문자열 버전, XSS 방지, 소켓 중단 복구, 락 내부 버전 할당, Update 엔티티 동적 감시, 자동 정리 타이머 복원 |
 | **00d085d 2차 리뷰 결함 7건 회귀 테스트** | [test_00d085d_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_00d085d_review_fixes.py) | **통과 (100%)** | 취소 빌드 게시 차단, dev Builder 하이재킹 방지, !include 관리버전 보존/검토, Update 엔티티 정밀 매칭, 컴파일 유실 복구, 기기 카드 갱신, 수동 업로드 정리 스케줄링 |
+| **ffe378c 3차 리뷰 결함 4건 회귀 테스트** | [test_ffe378c_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ffe378c_review_fixes.py) | **통과 (100%)** | `firmware/get_jobs` 공식 API 규격, 과거 이력/업로드 오연결 방지, 원격 패키지 소유권 보호, ESPHome 플랫폼 엔티티 검증 |
+| **e2369ce 4차 리뷰 결함 4건 회귀 테스트** | [test_e2369ce_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_e2369ce_review_fixes.py) | **통과 (100%)** | 직전 완료 컴파일 오연결 차단(P1), recovery_required 화면 해제/취소/재확인(P2), ESP8266 firmware.bin 다운로드(P2), 4칸 들여쓰기 YAML 패치 교정(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -128,7 +130,25 @@
 
 ---
 
-## 6. 실환경 최소 연결 진단 절차
+## 6. e2369ce 4차 리뷰 결함 4건 조치 내역 (P1 1건, P2 3건)
+
+1. **[P1-1] 제출 직전 완료된 과거 컴파일 오연결 차단 및 고유 확정 실패 시 recovery_required 유지**:
+   - 컴파일 요청 직전 Builder의 기존 작업 목록을 사전 스냅샷(`prior_job_ids`)하여, 새 요청 이전에 이미 존재했던 모든 작업 ID를 복구 대상에서 명시적으로 제외 (`jobs.py:274, 442`).
+   - 기존 60초 여유 판정(`bj_ts < job_ts - 60`)을 제거하고, 요청 제출 시각보다 과거에 시작된 작업(`bj_ts < ref_ts`)은 모두 거부하도록 엄격화.
+   - 타임스탬프가 누락되었거나 고유한 1:1 연결을 확정할 수 없는 경우 임의 연결을 중단하고 `STAGE_RECOVERY_REQUIRED` 상태를 안전하게 유지.
+2. **[P2-2] UI에서 recovery_required 작업 해제/재확인/취소 제공 및 빌드 차단 해제**:
+   - `job-dialog.js`에서 `recovery_required` 상태일 때 숨겨져 있던 취소(Cancel) 버튼을 노출하고, Builder 연결 및 작업을 즉시 재조회할 수 있는 재확인(Recheck) 버튼(`btn-recheck`)을 추가.
+   - 사용자가 취소 클릭 시 `async_cancel_job`을 통해 작업을 `STAGE_CANCELLED`로 종결하여 기기 빌드 락/진행 차단을 해제하고, 기기 카드에서 즉시 새 빌드를 재시도할 수 있도록 개선 (`manager.js`).
+3. **[P2-3] ESP8266 빌드 다운로드 시 firmware.bin 자동 선택**:
+   - ESPHome의 ESP8266 컴포넌트 공식 규격에 따라, ESP8266은 `firmware.ota.bin` 대신 `firmware.bin`을 OTA 이미지로 생성함을 반영.
+   - `resolve_ota_binary_file`을 도입하여 Builder의 `firmware/get_binaries` 목록과 `platform_hint`를 대조: explicit type="ota"를 최우선 확인하고, ESP8266인 경우 `firmware.bin`을 자동 선택하여 다운로드 실패 해결 (`client.py:220`).
+4. **[P2-4] 4칸 들여쓰기 기존 OTA package의 인플레이스 교체 및 중첩 방지**:
+   - `config_patch.py`에서 기존 2칸 하드코딩 매칭(`^  esphome_ota:`)을 제거하고, YAML `packages:` 하위의 실제 들여쓰기 깊이(2칸 또는 4칸)를 동적으로 감지.
+   - 주입할 패키지 스니펫을 감지된 들여쓰기에 맞게 정밀 재들여쓰기(`reindent_yaml_snippet`)하여, 유효한 4칸 들여쓰기 YAML에서도 기존 `esphome_ota` 블록이 새 블록 내부에 중첩되지 않고 정확히 제자리에서 교체되도록 수정.
+
+---
+
+## 7. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -171,7 +191,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 7. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 8. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -195,7 +215,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 8. 장애 유형별 원인 및 해결 가이드
+## 9. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|

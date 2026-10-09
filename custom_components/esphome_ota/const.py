@@ -67,6 +67,7 @@ YAML_MODE_LEGACY_WRAPPER = "legacy_wrapper"  # ota_server/devices/<slug>.yaml
 # Publisher Directory
 DEFAULT_PUBLISH_DIR = "esphome_ota"
 FIRMWARE_OTA_BIN = "firmware.ota.bin"
+FIRMWARE_BIN = "firmware.bin"
 
 # Limits & Timeouts
 MAX_UPLOAD_SIZE = 16 * 1024 * 1024  # 16 MiB
