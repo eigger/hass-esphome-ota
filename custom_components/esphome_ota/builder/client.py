@@ -154,14 +154,17 @@ class BuilderClient:
         result = await self.conn.command("firmware/get_job", {"job_id": job_id})
         return result if isinstance(result, dict) else {}
 
-    async def get_jobs(self) -> list[dict[str, Any]]:
+    async def get_jobs(self, configuration: str | None = None) -> list[dict[str, Any]]:
         """Query current or recently known jobs from ESPHome Builder."""
         result = await self.conn.command("firmware/get_jobs")
+        jobs: list[dict[str, Any]] = []
         if isinstance(result, list):
-            return result
-        if isinstance(result, dict) and "jobs" in result and isinstance(result["jobs"], list):
-            return result["jobs"]
-        return []
+            jobs = result
+        elif isinstance(result, dict) and "jobs" in result and isinstance(result["jobs"], list):
+            jobs = result["jobs"]
+        if configuration:
+            return [j for j in jobs if j.get("configuration") == configuration]
+        return jobs
 
     async def cancel_job(self, job_id: str) -> None:
         """Cancel a running compile job."""
@@ -227,16 +230,16 @@ class BuilderClient:
 
         Queries Builder binaries list:
         1. Checks for binary explicitly marked with type == 'ota'
-        2. If ESP8266, prefers 'firmware.bin'
-        3. Checks for 'firmware.ota.bin'
-        4. Checks for 'firmware.bin'
-        5. Falls back based on platform_hint or default FIRMWARE_OTA_BIN
+        2. Excludes any factory binaries (type == 'factory' or 'factory' in filename)
+        3. For ESP8266, selects 'firmware.bin'
+        4. For others, selects 'firmware.ota.bin' (or '*.ota.bin')
+        5. Raises BuilderError if no valid OTA binary can be confirmed.
         """
+        binaries: list[dict[str, Any]] = []
         try:
             binaries = await self.get_binaries(configuration)
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Could not query binaries for %s: %s", configuration, err)
-            binaries = []
 
         is_esp8266 = bool(platform_hint and "8266" in platform_hint.lower())
 
@@ -246,28 +249,46 @@ class BuilderClient:
                 if b.get("type") == "ota" and b.get("file"):
                     return str(b["file"])
 
-            files = [str(b.get("file")) for b in binaries if b.get("file")]
+            # 2. Filter out factory images
+            candidates: list[str] = []
+            for b in binaries:
+                f = str(b.get("file", ""))
+                b_type = str(b.get("type", "")).lower()
+                if not f or b_type == "factory" or "factory" in f.lower():
+                    continue
+                candidates.append(f)
 
-            # 2. For ESP8266, firmware.bin is the standard OTA image
-            if is_esp8266 and FIRMWARE_BIN in files:
+            # 3. For ESP8266, firmware.bin is standard OTA
+            if is_esp8266 and FIRMWARE_BIN in candidates:
                 return FIRMWARE_BIN
 
-            # 3. Look for standard firmware.ota.bin
-            if FIRMWARE_OTA_BIN in files:
+            # 4. Standard firmware.ota.bin
+            if FIRMWARE_OTA_BIN in candidates:
                 return FIRMWARE_OTA_BIN
 
-            # 4. Look for firmware.bin
-            if FIRMWARE_BIN in files:
-                return FIRMWARE_BIN
-
-            # 5. Any .bin file
-            for f in files:
-                if f.endswith(".bin"):
+            # 5. Any *.ota.bin
+            for f in candidates:
+                if f.endswith(".ota.bin"):
                     return f
 
+            # 6. For ESP8266, any non-factory .bin
+            if is_esp8266:
+                for f in candidates:
+                    if f.endswith(".bin"):
+                        return f
+
+            # 7. If no platform hint, and firmware.bin is present (without any other OTA)
+            if not platform_hint and FIRMWARE_BIN in candidates:
+                return FIRMWARE_BIN
+
+            available = [b.get("file") for b in binaries if b.get("file")]
+            raise BuilderError(
+                f"No OTA binary found for {configuration} (available binaries: {available})"
+            )
+
+        # Fallback only when Builder get_binaries returned empty/failed
         if is_esp8266:
             return FIRMWARE_BIN
-
         return FIRMWARE_OTA_BIN
 
     async def has_ota_binary(
@@ -276,13 +297,14 @@ class BuilderClient:
         platform_hint: str | None = None,
     ) -> bool:
         """Check if an OTA binary exists for configuration."""
-        binaries = await self.get_binaries(configuration)
-        if not binaries:
+        try:
+            filename = await self.resolve_ota_binary_file(
+                configuration=configuration,
+                platform_hint=platform_hint,
+            )
+            return bool(filename)
+        except BuilderError:
             return False
-        files = {b.get("file") for b in binaries if b.get("file")}
-        if FIRMWARE_OTA_BIN in files or FIRMWARE_BIN in files:
-            return True
-        return any(b.get("type") == "ota" for b in binaries)
 
     async def download_ota(
         self,

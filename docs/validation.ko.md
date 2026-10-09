@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-10  
-상태: 자동화 테스트 88개(기존 82개 + 4차 리뷰 결함 검증 6개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 93개(기존 88개 + 5차 리뷰 결함 검증 5개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -27,6 +27,7 @@
 | **00d085d 2차 리뷰 결함 7건 회귀 테스트** | [test_00d085d_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_00d085d_review_fixes.py) | **통과 (100%)** | 취소 빌드 게시 차단, dev Builder 하이재킹 방지, !include 관리버전 보존/검토, Update 엔티티 정밀 매칭, 컴파일 유실 복구, 기기 카드 갱신, 수동 업로드 정리 스케줄링 |
 | **ffe378c 3차 리뷰 결함 4건 회귀 테스트** | [test_ffe378c_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ffe378c_review_fixes.py) | **통과 (100%)** | `firmware/get_jobs` 공식 API 규격, 과거 이력/업로드 오연결 방지, 원격 패키지 소유권 보호, ESPHome 플랫폼 엔티티 검증 |
 | **e2369ce 4차 리뷰 결함 4건 회귀 테스트** | [test_e2369ce_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_e2369ce_review_fixes.py) | **통과 (100%)** | 직전 완료 컴파일 오연결 차단(P1), recovery_required 화면 해제/취소/재확인(P2), ESP8266 firmware.bin 다운로드(P2), 4칸 들여쓰기 YAML 패치 교정(P2) |
+| **ee66713 5차 리뷰 결함 3건 회귀 테스트** | [test_ee66713_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ee66713_review_fixes.py) | **통과 (100%)** | packages 직접 자식 들여쓰기 기준 정밀화(P1), BuilderClient.get_jobs(configuration=) 스냅샷 지원(P2), factory 단독 바이너리 거부 및 OTA 파일 필수화(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -148,7 +149,24 @@
 
 ---
 
-## 7. 실환경 최소 연결 진단 절차
+## 7. ee66713 5차 리뷰 결함 3건 조치 내역 (P1 1건, P2 2건)
+
+1. **[P1-1] packages 직접 자식 기준 들여쓰기 감지 및 내부 설정 들여쓰기 오인 방지**:
+   - `config_patch.py:266`에서 기존 패키지의 내부 설정(`url:`, `files:`) 등 4칸 들여쓰기가 `packages:`의 직접 자식 들여쓰기로 오인되어 `base_indent`를 4칸으로 잘못 판정하던 버그 해결.
+   - `packages:` 바로 다음의 첫 번째 직접 자식 키(들여쓰기 행)를 만나는 즉시 `base_indent`를 확정하고 루프를 탈출(`break`)하여 하위 자식 노드의 깊이에 영향을 받지 않도록 격리.
+   - `has_existing_ota` 검사 및 기존 블록 인플레이스 교체 시에도 정확히 `cur_indent == base_indent`인 최상위 패키지 키만 대조하여 타 패키지 내부의 동명 키(`esphome_ota`) 오인 치환 원천 차단.
+2. **[P2-2] BuilderClient.get_jobs(configuration=) 인자 지원 및 제출 경로 사전 스냅샷 정상화**:
+   - `BuilderClient.get_jobs()`에 `configuration: str | None = None` 인자를 추가하여 설정 파일명 기반 필터링 지원 (`client.py:149`).
+   - `jobs.py:277`에서 빌드 제출 전 호출하는 `client.get_jobs(configuration=device.configuration)`가 `TypeError` 없이 정상 수행되어, 직전 존재하는 작업 ID 스냅샷(`prior_job_ids`)이 누락 없이 기록되도록 수정.
+   - 예외 발생 시 디버그 로그로 숨기지 않고 경고(`_LOGGER.warning`)로 승격.
+3. **[P2-3] factory 전용 바이너리(firmware.factory.bin) 거부 및 OTA 파일 필수화**:
+   - ESPHome 빌드 결과에서 factory 전용 이미지(`type == "factory"` 또는 파일명에 `factory` 포함)가 임의의 `.bin` 확장자 fallback으로 인해 OTA 파일로 잘못 선택되는 현상 차단 (`client.py:263`).
+   - `resolve_ota_binary_file`에서 factory 바이너리를 엄격히 배제하고, 확인된 OTA 바이너리(`type == "ota"` 또는 순수 `.bin`)가 존재하지 않으면 `BuilderError("No OTA binary found for {configuration}...")`를 발생시켜 다운로드 및 게시를 안전하게 실패 처리.
+   - `has_ota_binary`도 이를 반영하여 factory 단독 파일만 있는 경우 `False`를 반환하도록 일관성 보장.
+
+---
+
+## 8. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -191,7 +209,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 8. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 9. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -215,7 +233,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 9. 장애 유형별 원인 및 해결 가이드
+## 10. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|
@@ -224,3 +242,4 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 | `인증 요구 (requires_auth=true)` | Builder에 사용자 로그인 암호가 설정됨 | Builder 설정에서 전용 로그인 비밀번호를 해제하고 trusted listener 환경 유지 |
 | CAS 충돌 (`CAS_CONFLICT`) | 다른 사용자가 외부에서 YAML을 동시 수정함 | 기기 상세 화면에서 최신 YAML을 다시 불러온 후 변경 적용 |
 | 칩셋 불일치 (`BinaryValidationError`) | 기기 설정 플랫폼과 빌드 결과 바이너리 칩 ID 불일치 | YAML의 `esp32: board:` 설정 확인 |
+

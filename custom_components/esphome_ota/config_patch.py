@@ -242,8 +242,9 @@ def apply_ota_patch(
     # Check if packages: block already exists
     has_packages = any(re.match(r"^packages\s*:", line) for line in lines)
 
-    # Detect package indentation under packages:
+    # Detect direct child package indentation under packages:
     base_indent = 2
+    has_existing_ota = False
     if has_packages:
         in_pkg = False
         for line in lines:
@@ -255,22 +256,30 @@ def apply_ota_patch(
                     continue
                 if not line.startswith(" "):
                     break
-                # Find indentation of package keys under packages:
-                m_key = re.match(r"^(\s+)[a-zA-Z0-9_-]+\s*:", line)
-                if m_key:
-                    k_indent = len(m_key.group(1))
-                    m_ota = re.match(r"^(\s+)esphome_ota\s*:", line)
-                    if m_ota:
-                        base_indent = len(m_ota.group(1))
-                        break
-                    elif base_indent == 2 and k_indent in (2, 4):
-                        base_indent = k_indent
+                stripped = line.lstrip(" ")
+                base_indent = len(line) - len(stripped)
+                break
+
+        in_pkg = False
+        for line in lines:
+            if re.match(r"^packages\s*:", line):
+                in_pkg = True
+                continue
+            if in_pkg:
+                if not line.strip() or line.strip().startswith("#"):
+                    continue
+                if not line.startswith(" "):
+                    break
+                stripped = line.lstrip(" ")
+                cur_indent = len(line) - len(stripped)
+                if cur_indent == base_indent and re.match(r"^esphome_ota\s*:", stripped):
+                    has_existing_ota = True
+                    break
 
     patch_yaml = reindent_yaml_snippet(patch_yaml, indent_size=base_indent)
 
     if has_packages:
         i = 0
-        has_existing_ota = any(re.match(r"^\s+esphome_ota\s*:", l) for l in lines)
         while i < len(lines):
             line = lines[i]
             if re.match(r"^packages\s*:", line):
@@ -289,7 +298,7 @@ def apply_ota_patch(
                         break
 
                     m_ota = re.match(r"^(\s+)esphome_ota\s*:", sub_line)
-                    if m_ota:
+                    if m_ota and len(m_ota.group(1)) == base_indent:
                         in_managed_block = True
                         block_indent = len(m_ota.group(1))
                         # Replace in place!

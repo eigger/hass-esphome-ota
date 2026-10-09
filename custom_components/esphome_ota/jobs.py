@@ -279,7 +279,7 @@ class JobRunner:
                         str(pj["job_id"]) for pj in prior_jobs if pj.get("job_id")
                     ]
                 except Exception as p_err:  # noqa: BLE001
-                    _LOGGER.debug("Could not snapshot prior builder jobs: %s", p_err)
+                    _LOGGER.warning("Could not snapshot prior builder jobs for %s: %s", job.job_id, p_err)
                 await self._update_stage(job, STAGE_SUBMITTING)
                 b_job_id = await client.start_compile(device.configuration)
                 job.builder_job_id = b_job_id
