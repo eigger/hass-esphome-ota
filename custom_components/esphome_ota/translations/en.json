@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ESPHome OTA Setup",
+        "description": "Automatically discovering ESPHome Builder add-ons and services..."
+      },
+      "select_builder": {
+        "title": "Select ESPHome Builder",
+        "description": "Multiple ESPHome Builder instances were discovered. Choose the one to manage OTA firmware with:",
+        "data": {
+          "builder_slug": "ESPHome Builder"
+        }
+      },
+      "confirm_settings": {
+        "title": "Configure Publishing Base URL",
+        "description": "Connected to {builder_name}. Enter the external or public Base URL that remote ESPHome devices use to reach Home Assistant:",
+        "data": {
+          "base_url": "Public Base URL"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single ESPHome OTA integration instance is supported."
+    },
+    "error": {
+      "builder_not_found": "Could not connect to the selected ESPHome Builder."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ESPHome OTA Options",
+        "data": {
+          "base_url": "Public Base URL",
+          "auto_cleanup_hours": "Auto Cleanup Period (hours)"
+        }
+      }
+    }
+  }
+}

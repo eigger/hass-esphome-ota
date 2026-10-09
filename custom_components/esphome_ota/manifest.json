@@ -1,0 +1,23 @@
+{
+  "domain": "esphome_ota",
+  "name": "ESPHome OTA",
+  "codeowners": [
+    "@eigger"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "panel_custom",
+    "websocket_api"
+  ],
+  "after_dependencies": [
+    "esphome",
+    "hassio"
+  ],
+  "documentation": "https://github.com/eigger/hass-esphome-ota",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/eigger/hass-esphome-ota/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

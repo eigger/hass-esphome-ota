@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ESPHome OTA 설정",
+        "description": "ESPHome Builder 애드온 및 서비스를 자동으로 검색하는 중입니다..."
+      },
+      "select_builder": {
+        "title": "ESPHome Builder 선택",
+        "description": "여러 ESPHome Builder 인스턴스가 발견되었습니다. OTA 펌웨어를 관리할 Builder를 선택하세요:",
+        "data": {
+          "builder_slug": "ESPHome Builder"
+        }
+      },
+      "confirm_settings": {
+        "title": "게시 기본 주소 설정",
+        "description": "{builder_name}에 연결되었습니다. 원격 ESPHome 기기가 Home Assistant에 접속할 공개 Base URL을 입력하세요:",
+        "data": {
+          "base_url": "외부 접속 URL (Base URL)"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "ESPHome OTA는 단일 인스턴스만 구성할 수 있습니다."
+    },
+    "error": {
+      "builder_not_found": "선택한 ESPHome Builder에 연결할 수 없습니다."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ESPHome OTA 옵션",
+        "data": {
+          "base_url": "외부 접속 URL (Base URL)",
+          "auto_cleanup_hours": "자동 정리 보관 시간 (시간 단위)"
+        }
+      }
+    }
+  }
+}
