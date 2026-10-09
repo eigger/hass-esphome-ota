@@ -32,7 +32,7 @@
 | **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_cf00be0_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_cf00be0_review_fixes.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
 | **c22c0a2 8차 리뷰 결함 3건 회귀 테스트** | [test_c22c0a2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_c22c0a2_review_fixes.py) | **통과 (100%)** | 새 빌드 취소 시 기존 정상 펌웨어 보존(P1), Auto-detect 옵션 정규화 및 단일 Builder 자동 연결 복원(P2), 패널 Builder 선택 영구 저장 및 재로드 유지(P2), MockBuilderServer 웹소켓 종료 타임아웃 해결 |
 | **3050dea 9차 리뷰 결함 2건 회귀 테스트** | [test_3050dea_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_3050dea_review_fixes.py) | **통과 (100%)** | 파일 교체 중 취소 시 이전 정상 펌웨어 복원(P1), Builder 변경 시 자동 재로드 억제 및 언로드 객체 재연결 방지(P2) |
-| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기, 시작 전 취소 시 즉시 잠금 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2) |
+| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 시작 전 취소 시 즉시 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2), 다중 기기 동시 배포 시 원자적 아티팩트 저장 보장(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -254,6 +254,10 @@
    - `manager.py:355`의 `async_select_builder`에서 동일한 Builder slug를 다시 선택하는 경우, HA `ConfigEntries.async_update_entry()`는 값이 동일하여 `False`를 반환하고 설정 변경 리스너를 호출하지 않음.
    - 이로 인해 증가했던 `_suppress_reload_count`가 차감되지 않고 1로 유지되어, 이후 사용자가 OptionsFlow에서 `base_url` 등 핵심 설정을 변경해도 정상적인 재로드가 억제되어 이전 주소를 계속 사용하는 결함 해결.
    - **변경 여부 검증 및 카운터 복구**: `changed = self.hass.config_entries.async_update_entry(...)` 반환값을 확인하여, 변경 사항이 없는 경우(`not changed`) 즉시 `self._suppress_reload_count = max(0, self._suppress_reload_count - 1)`로 카운터를 원복. 예외 발생 시에도 `finally/except`에서 카운터를 복구하고, `async_unload` 시 카운터를 0으로 초기화하도록 방어.
+3. **[P2] 다중 기기 동시 배포 시 저장소 덮어쓰기로 인한 공개 이력 유실 결함 해결**:
+   - `jobs.py:397` 등에서 여러 기기를 동시에 빌드·게시하거나 수동 업로드할 때, 각 작업이 `async_load_artifacts()`로 전체 이력을 읽은 후 기기 하나를 추가하여 `async_save_artifacts()`를 호출함으로써 마지막에 저장된 기기가 다른 기기의 저장 내역을 덮어쓰던 경쟁 상태 해결.
+   - **저장소 계층 락 보호 단일 갱신 함수 도입**: `StorageManager`([storage.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/storage.py))에 `_artifact_lock: asyncio.Lock`을 추가하고, 단일 기기 갱신 전용 비동기 함수 `async_save_artifact(device_id, artifact)`를 신설하여 읽기-수정-쓰기 전 과정을 원자적으로 보호.
+   - **빌드·복구·재게시·업로드 공통 적용**: `JobRunner`의 빌드 완료([jobs.py:397](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L397)), 복구 완료([jobs.py:688](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L688)), 프라이빗 재게시([jobs.py:776](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L776)), 수동 펌웨어 업로드([http.py:83](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/http.py#L83)) 전 영역에서 `async_save_artifact`를 호출하도록 통일하여 동시 배포 시에도 모든 기기의 배포 이력과 정리 타이머 복원 메타데이터가 완벽히 보존되도록 보장.
 
 ---
 

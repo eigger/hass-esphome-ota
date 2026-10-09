@@ -394,9 +394,7 @@ class JobRunner:
                     return
 
                 # Record successful publish in storage and devices
-                artifacts = await self.storage.async_load_artifacts()
-                artifacts[device.device_id] = published
-                await self.storage.async_save_artifacts(artifacts)
+                await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
                     device.device_id, published.version
                 )
@@ -685,9 +683,7 @@ class JobRunner:
                 ):
                     return
 
-                artifacts = await self.storage.async_load_artifacts()
-                artifacts[device.device_id] = published
-                await self.storage.async_save_artifacts(artifacts)
+                await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
                     device.device_id, published.version
                 )
@@ -773,9 +769,7 @@ class JobRunner:
             title=device.friendly_name,
             check_cancelled=lambda: self._unloaded,
         )
-        artifacts = await self.storage.async_load_artifacts()
-        artifacts[device.device_id] = published
-        await self.storage.async_save_artifacts(artifacts)
+        await self.storage.async_save_artifact(device.device_id, published)
         await self.device_manager.async_mark_published(device.device_id, published.version)
 
         if self.monitor:

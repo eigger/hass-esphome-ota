@@ -30,8 +30,9 @@ from custom_components.esphome_ota.const import (
 )
 from custom_components.esphome_ota.firmware import inspect_binary
 from custom_components.esphome_ota.manager import OtaManager
-from custom_components.esphome_ota.models import BuilderCandidate
+from custom_components.esphome_ota.models import BuilderCandidate, PublishedArtifact
 from custom_components.esphome_ota.publisher import ArtifactPublisher
+from custom_components.esphome_ota.storage import StorageManager
 
 from .conftest import MockBuilderServer
 
@@ -265,3 +266,106 @@ async def test_select_same_builder_restores_suppress_counter_and_allows_subseque
 
         await client.close()
         await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_concurrent_publish_artifact_storage_preserves_all_devices(
+    hass: HomeAssistant,
+) -> None:
+    """[P2] Test that concurrent artifact saves for different devices do not overwrite each other."""
+    storage = StorageManager(hass)
+
+    art1 = PublishedArtifact(
+        device_id="dev1",
+        configuration="dev1.yaml",
+        version="1.0.0",
+        chip_family="ESP32",
+        size=1024,
+        md5="md5_1",
+        sha256="sha_1",
+        published_at="2026-10-10T08:00:00Z",
+        private_path="/private/1",
+        public_bin_path="/public/1.bin",
+        public_manifest_path="/public/1.json",
+        is_public=True,
+    )
+    art2 = PublishedArtifact(
+        device_id="dev2",
+        configuration="dev2.yaml",
+        version="2.0.0",
+        chip_family="ESP32",
+        size=2048,
+        md5="md5_2",
+        sha256="sha_2",
+        published_at="2026-10-10T08:00:00Z",
+        private_path="/private/2",
+        public_bin_path="/public/2.bin",
+        public_manifest_path="/public/2.json",
+        is_public=True,
+    )
+
+    # Concurrently save artifacts for dev1 and dev2
+    await asyncio.gather(
+        storage.async_save_artifact("dev1", art1),
+        storage.async_save_artifact("dev2", art2),
+    )
+
+    loaded = await storage.async_load_artifacts()
+    assert "dev1" in loaded
+    assert "dev2" in loaded
+    assert loaded["dev1"].version == "1.0.0"
+    assert loaded["dev2"].version == "2.0.0"
+
+
+async def test_concurrent_job_runner_publish_preserves_both_devices(
+    hass: HomeAssistant,
+) -> None:
+    """[P2] Test that concurrent artifact saves through JobRunner preserve both devices."""
+    from custom_components.esphome_ota.devices import DeviceManager
+    from custom_components.esphome_ota.jobs import JobRunner
+
+    storage = StorageManager(hass)
+    device_mgr = DeviceManager(hass, storage)
+    await device_mgr.async_register_or_update("dev1", "dev1.yaml", "dev1", "Device 1")
+    await device_mgr.async_register_or_update("dev2", "dev2.yaml", "dev2", "Device 2")
+
+    publisher = ArtifactPublisher(hass)
+    runner = JobRunner(hass, storage, device_mgr, publisher=publisher)
+
+    art1 = PublishedArtifact(
+        device_id="dev1",
+        configuration="dev1.yaml",
+        version="1.0.0",
+        chip_family="ESP32",
+        size=1024,
+        md5="md5_1",
+        sha256="sha_1",
+        published_at="2026-10-10T08:00:00Z",
+        private_path="/private/1",
+        public_bin_path="/public/1.bin",
+        public_manifest_path="/public/1.json",
+        is_public=True,
+    )
+    art2 = PublishedArtifact(
+        device_id="dev2",
+        configuration="dev2.yaml",
+        version="2.0.0",
+        chip_family="ESP32",
+        size=2048,
+        md5="md5_2",
+        sha256="sha_2",
+        published_at="2026-10-10T08:00:00Z",
+        private_path="/private/2",
+        public_bin_path="/public/2.bin",
+        public_manifest_path="/public/2.json",
+        is_public=True,
+    )
+
+    await asyncio.gather(
+        runner.storage.async_save_artifact("dev1", art1),
+        runner.storage.async_save_artifact("dev2", art2),
+    )
+
+    loaded = await runner.storage.async_load_artifacts()
+    assert "dev1" in loaded and "dev2" in loaded
+    assert loaded["dev1"].version == "1.0.0"
+    assert loaded["dev2"].version == "2.0.0"

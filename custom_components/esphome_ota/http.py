@@ -80,9 +80,7 @@ class FirmwareUploadView(HomeAssistantView):
                 info=info,
                 title=dev.friendly_name,
             )
-            artifacts = await self.manager.storage.async_load_artifacts()
-            artifacts[dev.device_id] = published
-            await self.manager.storage.async_save_artifacts(artifacts)
+            await self.manager.storage.async_save_artifact(dev.device_id, published)
             await self.manager.device_manager.async_mark_published(
                 dev.device_id, published.version
             )
