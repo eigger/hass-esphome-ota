@@ -152,14 +152,14 @@ class BuilderClient:
         result = await self.conn.command("firmware/get_job", {"job_id": job_id})
         return result if isinstance(result, dict) else {}
 
-    async def list_jobs(self) -> list[dict[str, Any]]:
-        """List current or recently known compile jobs from ESPHome Builder."""
-        try:
-            result = await self.conn.command("firmware/list_jobs")
-            return result if isinstance(result, list) else []
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("firmware/list_jobs failed or not supported: %s", err)
-            return []
+    async def get_jobs(self) -> list[dict[str, Any]]:
+        """Query current or recently known jobs from ESPHome Builder."""
+        result = await self.conn.command("firmware/get_jobs")
+        if isinstance(result, list):
+            return result
+        if isinstance(result, dict) and "jobs" in result and isinstance(result["jobs"], list):
+            return result["jobs"]
+        return []
 
     async def cancel_job(self, job_id: str) -> None:
         """Cancel a running compile job."""

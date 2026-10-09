@@ -51,6 +51,25 @@ from .storage import StorageManager
 _LOGGER = logging.getLogger(__name__)
 
 
+def _parse_iso_or_timestamp(val: Any) -> float | None:
+    """Parse ISO formatted timestamp or numeric unix timestamp to float seconds."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        val_str = val.strip()
+        try:
+            return datetime.fromisoformat(val_str).timestamp()
+        except Exception:
+            pass
+        try:
+            return float(val_str)
+        except Exception:
+            pass
+    return None
+
+
 class JobRunner:
     """Orchestrates build and publish pipeline jobs with checkpoints and recovery."""
 
@@ -384,35 +403,73 @@ class JobRunner:
                     job.configuration,
                 )
                 try:
-                    builder_jobs = await client.list_jobs()
-                    matching = next(
-                        (
-                            bj
-                            for bj in builder_jobs
-                            if bj.get("configuration") == job.configuration
-                            and bj.get("status") in ("running", "queued", "completed")
-                        ),
-                        None,
-                    )
-                    if matching and matching.get("job_id"):
-                        job.builder_job_id = str(matching["job_id"])
-                        _LOGGER.info(
-                            "Recovered builder_job_id=%s for job %s",
-                            job.builder_job_id,
-                            job.job_id,
-                        )
-                        self._active_tasks[job.job_id] = asyncio.create_task(
-                            self._resume_pipeline(job, device, client, base_url)
-                        )
-                        continue
-                    else:
-                        job.error = "Compile job was not accepted by Builder before disconnect"
-                        await self._update_stage(job, STAGE_FAILED, {"error": job.error})
-                        continue
+                    builder_jobs = await client.get_jobs()
                 except Exception as rec_err:  # noqa: BLE001
-                    _LOGGER.warning("Failed checking builder jobs for recovery: %s", rec_err)
-                    job.error = f"Recovery check failed: {rec_err}"
-                    await self._update_stage(job, STAGE_FAILED, {"error": job.error})
+                    _LOGGER.warning(
+                        "Failed checking builder jobs for recovery of %s: %s. Maintaining recovery_required.",
+                        job.job_id,
+                        rec_err,
+                    )
+                    if job.stage != STAGE_RECOVERY_REQUIRED:
+                        await self._update_stage(job, STAGE_RECOVERY_REQUIRED, {"error": str(rec_err)})
+                    continue
+
+                job_ts = _parse_iso_or_timestamp(job.created_at)
+
+                matching_candidates: list[dict[str, Any]] = []
+                for bj in builder_jobs:
+                    if bj.get("configuration") != job.configuration:
+                        continue
+
+                    # Check job type (must be compile, reject upload, install, clean, etc.)
+                    bj_type = bj.get("job_type") or bj.get("type")
+                    if bj_type and str(bj_type).lower() not in ("compile", "firmware_compile"):
+                        continue
+
+                    # Check status
+                    status = str(bj.get("status", "")).lower()
+                    if status not in ("running", "queued", "completed"):
+                        continue
+
+                    # Check submission timestamp (reject jobs submitted before this pipeline job was created)
+                    raw_bj_ts = (
+                        bj.get("created_at")
+                        or bj.get("submitted_at")
+                        or bj.get("started_at")
+                        or bj.get("timestamp")
+                    )
+                    bj_ts = _parse_iso_or_timestamp(raw_bj_ts)
+                    if job_ts is not None and bj_ts is not None:
+                        # Allow 60s tolerance for slight clock skew
+                        if bj_ts < (job_ts - 60):
+                            continue
+
+                    matching_candidates.append(bj)
+
+                if len(matching_candidates) == 1 and matching_candidates[0].get("job_id"):
+                    matching = matching_candidates[0]
+                    job.builder_job_id = str(matching["job_id"])
+                    _LOGGER.info(
+                        "Recovered builder_job_id=%s for job %s",
+                        job.builder_job_id,
+                        job.job_id,
+                    )
+                    self._active_tasks[job.job_id] = asyncio.create_task(
+                        self._resume_pipeline(job, device, client, base_url)
+                    )
+                    continue
+                else:
+                    _LOGGER.warning(
+                        "Cannot uniquely connect job %s to Builder jobs (found %d candidates). Maintaining recovery_required.",
+                        job.job_id,
+                        len(matching_candidates),
+                    )
+                    if job.stage != STAGE_RECOVERY_REQUIRED:
+                        await self._update_stage(
+                            job,
+                            STAGE_RECOVERY_REQUIRED,
+                            {"detail": f"Unambiguous candidate not found ({len(matching_candidates)} candidates)"},
+                        )
                     continue
 
             if job.builder_job_id:

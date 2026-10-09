@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import aiohttp
 import pytest
 
@@ -110,3 +112,32 @@ async def test_download_ota_firmware(mock_builder: MockBuilderServer) -> None:
             await client.download_ota("livingroom")
 
         await conn.disconnect()
+
+
+async def test_get_jobs_operations(mock_builder: MockBuilderServer) -> None:
+    """Test get_jobs queries firmware/get_jobs and correctly parses list and dict payloads."""
+    async with aiohttp.ClientSession() as session:
+        conn = BuilderConnection("127.0.0.1", mock_builder.port, session)
+        await conn.connect()
+        client = BuilderClient(conn)
+
+        mock_builder.jobs["job_1"] = {
+            "configuration": "livingroom.yaml",
+            "status": "running",
+            "type": "compile",
+        }
+
+        # 1. Standard list payload from server
+        jobs = await client.get_jobs()
+        assert len(jobs) == 1
+        assert jobs[0]["job_id"] == "job_1"
+        assert jobs[0]["type"] == "compile"
+
+        # 2. Dict payload with 'jobs' key fallback
+        conn.command = AsyncMock(return_value={"jobs": [{"job_id": "job_2", "status": "completed"}]})  # type: ignore[method-assign]
+        jobs_dict = await client.get_jobs()
+        assert len(jobs_dict) == 1
+        assert jobs_dict[0]["job_id"] == "job_2"
+
+        await conn.disconnect()
+

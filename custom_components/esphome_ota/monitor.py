@@ -86,36 +86,57 @@ class InstallationMonitor:
 
             # 1. First attempt: match via Home Assistant Device Registry
             matching_ha_device_id: str | None = None
-            for ha_dev in dev_reg.devices.values():
+            for ha_dev in dev_reg.devices:
+                # Only consider devices belonging to the ESPHome domain
+                if not any(domain == "esphome" for domain, _ in ha_dev.identifiers):
+                    continue
+
+                matched = False
                 for domain, ident in ha_dev.identifiers:
                     if domain == "esphome" and str(ident).lower() in (
                         dev_name.lower(),
                         device_id.lower(),
                         norm_name,
                     ):
-                        matching_ha_device_id = ha_dev.id
+                        matched = True
                         break
-                if matching_ha_device_id:
-                    break
-                if ha_dev.name and ha_dev.name.lower() in (
+                if not matched and ha_dev.name and ha_dev.name.lower() in (
                     dev_name.lower(),
                     norm_name,
                     dev_data.get("friendly_name", "").lower(),
                 ):
+                    matched = True
+
+                if matched:
                     matching_ha_device_id = ha_dev.id
                     break
 
             if matching_ha_device_id:
                 for entity in ent_reg.entities.values():
-                    if entity.domain == "update" and entity.device_id == matching_ha_device_id:
+                    if (
+                        entity.domain == "update"
+                        and entity.platform == "esphome"
+                        and entity.device_id == matching_ha_device_id
+                    ):
                         matched_entity_id = entity.entity_id
                         break
 
-            # 2. Second attempt: match via exact naming patterns (prevent substring false matches)
+            # 2. Second attempt: match via exact naming patterns
+            # Strictly require entity.platform == "esphome" and verify device connection relationship
             if not matched_entity_id:
                 for entity in ent_reg.entities.values():
-                    if entity.domain != "update":
+                    if entity.domain != "update" or entity.platform != "esphome":
                         continue
+
+                    # If entity is attached to a HA device, verify that device is an ESPHome device
+                    if entity.device_id:
+                        ent_dev = dev_reg.async_get(entity.device_id)
+                        if ent_dev:
+                            if not any(d == "esphome" for d, _ in ent_dev.identifiers):
+                                continue
+                            if matching_ha_device_id and ent_dev.id != matching_ha_device_id:
+                                continue
+
                     obj_id = entity.entity_id.split(".", 1)[-1].lower()
                     if obj_id in (norm_name, f"{norm_name}_firmware", f"{norm_name}_update"):
                         matched_entity_id = entity.entity_id

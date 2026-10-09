@@ -83,12 +83,53 @@ def own_project_version(content: str) -> str | None:
     return None
 
 
+def _is_external_or_include_package(pkg_val: Any) -> bool:
+    """Check if a package entry references an external package or include."""
+    if isinstance(pkg_val, str):
+        val_lower = pkg_val.strip().lower()
+        if any(val_lower.startswith(prefix) for prefix in ("github://", "http://", "https://", "git://", "ssh://")):
+            return True
+        if "!include" in val_lower:
+            return True
+    elif isinstance(pkg_val, dict):
+        if "__include__" in pkg_val:
+            return True
+        if any(k in pkg_val for k in ("url", "files", "file", "repo")):
+            return True
+    return False
+
+
 def has_unclear_project_ownership(content: str) -> bool:
-    """Check if project ownership is ambiguous due to included packages/esphome configs or unresolved substitutions."""
+    """Check if project ownership is ambiguous due to included packages/esphome configs or unresolved substitutions.
+
+    Top-level explicit project.version takes precedence and clarifies ownership.
+    Remote packages (github://, url/files) or included packages without top-level version
+    are considered ambiguous.
+    """
     data = parse_yaml_safe(content)
 
-    # 1. Check if esphome block itself is an include or contains an include or unresolved substitution
+    # 1. Top-level explicit project version has precedence!
     esphome_block = data.get("esphome")
+    top_level_project_ver: str | None = None
+    if isinstance(esphome_block, dict) and "__include__" not in esphome_block:
+        project_block = esphome_block.get("project")
+        if isinstance(project_block, dict) and "__include__" not in project_block:
+            ver = project_block.get("version")
+            if ver is not None:
+                ver_str = str(ver).strip()
+                if "$" not in ver_str and "{" not in ver_str:
+                    top_level_project_ver = ver_str
+                else:
+                    resolved = own_project_version(content)
+                    if resolved and "$" not in resolved and "{" not in resolved:
+                        top_level_project_ver = resolved
+
+    if top_level_project_ver is not None:
+        # User explicitly and concretely defines project version at top-level.
+        # This overrides any packages (!include or remote github/url).
+        return False
+
+    # 2. Check if esphome block itself is an include or contains an include or unresolved substitution
     if isinstance(esphome_block, dict):
         if "__include__" in esphome_block:
             return True
@@ -99,7 +140,6 @@ def has_unclear_project_ownership(content: str) -> bool:
             ver = project_block.get("version")
             if ver is not None:
                 ver_str = str(ver).strip()
-                # Check for unresolved substitution
                 resolved = own_project_version(content)
                 if ("$" in ver_str or "{" in ver_str) and (not resolved or "$" in resolved or "{" in resolved):
                     return True
@@ -108,16 +148,25 @@ def has_unclear_project_ownership(content: str) -> bool:
     ):
         return True
 
-    # 2. Check if packages block uses includes that might contain project definitions
+    # 3. Check if packages block uses includes or remote packages (github://, url/files)
     packages = data.get("packages")
     if isinstance(packages, dict):
         for pkg_name, pkg_val in packages.items():
             if pkg_name == "esphome_ota":
                 continue
-            if isinstance(pkg_val, dict) and "__include__" in pkg_val:
+            if _is_external_or_include_package(pkg_val):
+                return True
+    elif isinstance(packages, list):
+        for pkg_val in packages:
+            if _is_external_or_include_package(pkg_val):
                 return True
     elif isinstance(content, str) and bool(re.search(r"^\s*packages:\s*!include", content, re.MULTILINE)):
         return True
+
+    # Check raw content for remote github packages
+    if isinstance(content, str):
+        if re.search(r"github://", content) or re.search(r"^\s*-\s*github://", content, re.MULTILINE):
+            return True
 
     return False
 

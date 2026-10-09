@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -241,9 +242,16 @@ class MockBuilderServer:
                 }
                 await ws.send_str(json.dumps(reply))
 
-            elif cmd == "firmware/list_jobs":
+            elif cmd == "firmware/get_jobs":
                 job_list = [
-                    {"job_id": jid, "configuration": jdata.get("configuration"), "status": jdata.get("status")}
+                    {
+                        "job_id": jid,
+                        "configuration": jdata.get("configuration"),
+                        "status": jdata.get("status"),
+                        "type": jdata.get("type", "compile"),
+                        "job_type": jdata.get("job_type", jdata.get("type", "compile")),
+                        "created_at": jdata.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    }
                     for jid, jdata in self.jobs.items()
                 ]
                 reply = {

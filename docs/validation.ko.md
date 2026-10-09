@@ -108,7 +108,27 @@
 
 ---
 
-## 5. 실환경 최소 연결 진단 절차
+## 5. ffe378c 3차 리뷰 결함 4건 조치 내역 (P1 2건, P2 2건)
+
+1. **[P1-1] 공식 작업 목록 조회 API(`firmware/get_jobs`) 규격 준수 및 복구 오류 처리 정상화**:
+   - 코드가 비공식 명령(`firmware/list_jobs`) 대신 공식 API 명세인 `firmware/get_jobs`를 호출하도록 수정 (`client.py:155`).
+   - API 호출 실패나 네트워크 오류 발생 시 빈 목록(`[]`)으로 삼키지 않고 예외를 전파하며, 복구 대기 중인 작업을 섣불리 `STAGE_FAILED`("접수되지 않음")로 종결하지 않고 `STAGE_RECOVERY_REQUIRED` 상태를 안전하게 보존.
+   - 테스트 모의 서버(`MockBuilderServer`)도 공식 명령 `firmware/get_jobs`만 지원하도록 엄격화하여 API 규격 불일치 재발 방지.
+2. **[P1-2] 복구 시 과거 이력/타 종류 작업 오연결 방지 및 고유 일치 검증**:
+   - Builder 작업 조회 결과에서 파일명뿐 아니라 **작업 종류**(`job_type == "compile"`)와 **제출 시각**(`created_at >= job.created_at - 60s`)을 엄격히 대조 (`jobs.py:388`).
+   - 과거 세션의 완료된 `upload` 작업이나 이전의 완료 컴파일 작업이 현재 컴파일의 `builder_job_id`로 오연결되는 현상 원천 차단.
+   - 일치하는 작업 후보가 유일(단 1개)하지 않거나 모호한 경우(0개 또는 2개 이상) 즉각 실패로 떨구지 않고 `STAGE_RECOVERY_REQUIRED`를 유지하여 안정적 재시도 보장.
+3. **[P2-3] 원격 패키지 참조 감지 및 최상위 프로젝트 버전 우선순위 반영**:
+   - `github://...` 단축 표기나 `url:`/`files:` 딕셔너리 형태의 원격 패키지 참조를 정확히 감지하여, 최상위 명시 설정이 없는 제3자 프로젝트의 소유권을 함부로 침해하거나 관리 버전을 주입하지 않도록 보호 (`config_patch.py:86`).
+   - 반대로 최상위 YAML에 명시적 `esphome.project.version`이 정의된 경우 최상위 우선순위를 적용하여, 레거시 패키지의 `!include`가 존재하더라도 빌드를 부당하게 차단하지 않고 정상 진행.
+4. **[P2-4] ESPHome 외 타 플랫폼 엔티티/기기 연결 오인 차단**:
+   - Update 엔티티 감시 매칭 시 `entity.domain == "update"`뿐 아니라 반드시 `entity.platform == "esphome"`인지 엄격히 검증 (`monitor.py:89`).
+   - MQTT 등 타 통합구성요소의 기기/엔티티(`update.room_firmware`)가 동명이라는 이유로 ESPHome 기기의 설치 감시 대상으로 오연결되는 결함 해결.
+   - HA Device Registry의 기기 식별자가 `domain == "esphome"`에 속하는지 실제 연결 관계를 확인.
+
+---
+
+## 6. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -151,7 +171,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 6. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 7. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -175,7 +195,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 7. 장애 유형별 원인 및 해결 가이드
+## 8. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|
