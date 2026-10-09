@@ -294,6 +294,7 @@ class OtaManager:
     async def async_unload(self) -> None:
         """Clean up resources on integration unload."""
         self._unloaded = True
+        self._suppress_reload_count = 0
         self.publisher.async_unload()
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()
@@ -354,11 +355,13 @@ class OtaManager:
 
         self._suppress_reload_count += 1
         try:
-            self.hass.config_entries.async_update_entry(
+            changed = self.hass.config_entries.async_update_entry(
                 self.entry,
                 data=new_data,
                 options=new_options,
             )
+            if not changed:
+                self._suppress_reload_count = max(0, self._suppress_reload_count - 1)
         except Exception:
             self._suppress_reload_count = max(0, self._suppress_reload_count - 1)
             raise

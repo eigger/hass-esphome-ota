@@ -31,6 +31,8 @@
 | **ae5c1bb 6차 리뷰 결함 3건 회귀 테스트** | [test_ae5c1bb_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ae5c1bb_review_fixes.py) | **통과 (100%)** | 비펌웨어/0채움 바이너리 거부(P1), 언로드 시 파이프라인 정리 및 빌더 컴파일 보존(P2), 사용자 프로젝트 버전 소유권과 OTA 설정 갱신 분리(P2) |
 | **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_cf00be0_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_cf00be0_review_fixes.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
 | **c22c0a2 8차 리뷰 결함 3건 회귀 테스트** | [test_c22c0a2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_c22c0a2_review_fixes.py) | **통과 (100%)** | 새 빌드 취소 시 기존 정상 펌웨어 보존(P1), Auto-detect 옵션 정규화 및 단일 Builder 자동 연결 복원(P2), 패널 Builder 선택 영구 저장 및 재로드 유지(P2), MockBuilderServer 웹소켓 종료 타임아웃 해결 |
+| **3050dea 9차 리뷰 결함 2건 회귀 테스트** | [test_3050dea_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_3050dea_review_fixes.py) | **통과 (100%)** | 파일 교체 중 취소 시 이전 정상 펌웨어 복원(P1), Builder 변경 시 자동 재로드 억제 및 언로드 객체 재연결 방지(P2) |
+| **2070a00 10차 리뷰 결함 2건 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -241,7 +243,20 @@
 
 ---
 
-## 12. 실환경 최소 연결 진단 절차
+## 12. 2070a00 10차 리뷰 결함 2건 조치 내역 (P1 1건, P2 1건)
+
+1. **[P1] 취소된 게시의 롤백이 이후 정상 게시까지 덮어쓰는 동시성 결함 해결**:
+   - `publisher.py:172`의 `_publish_sync`에서 이전 게시 스레드가 지연된 상태에서 새 게시(예: 1.0.2)가 성공하면, 지연되었던 이전 작업의 롤백이 새 정상 파일을 과거 백업(예: 1.0.0)으로 덮어쓰는 치명적 경쟁 상태 해결.
+   - **동일 slug 기반 게시/롤백 직렬화**: `ArtifactPublisher`에 `_slug_locks: dict[str, asyncio.Lock]` 및 `_sync_slug_locks: dict[str, threading.Lock]`을 도입하여 동일 기기(slug)에 대한 게시 및 비활성화(deactivate) 작업을 스레드 및 코루틴 수준에서 직렬화.
+   - **취소된 executor 스레드 완료 보장**: `_publish_sync`에 `(loop, done_event)`를 전달하고, 취소·예외 발생 여부와 상관없이 동기 스레드의 최종 `finally` 블록에서 `loop.call_soon_threadsafe(done_event.set)`을 호출. 비동기 `async_publish`에서는 외부 태스크가 취소되더라도 `async with lock:` 영역을 빠져나가기 전에 `while not done_event.is_set(): await done_event.wait()`로 락 유지를 쉴드하여, 취소된 executor의 롤백 및 정리가 완전히 끝날 때까지 후속 게시가 절대 진입하지 못하도록 보장.
+2. **[P2] 동일 Builder 재선택 시 재로드 억제 카운터 누적으로 인한 후속 옵션 변경 미적용 결함 해결**:
+   - `manager.py:355`의 `async_select_builder`에서 동일한 Builder slug를 다시 선택하는 경우, HA `ConfigEntries.async_update_entry()`는 값이 동일하여 `False`를 반환하고 설정 변경 리스너를 호출하지 않음.
+   - 이로 인해 증가했던 `_suppress_reload_count`가 차감되지 않고 1로 유지되어, 이후 사용자가 OptionsFlow에서 `base_url` 등 핵심 설정을 변경해도 정상적인 재로드가 억제되어 이전 주소를 계속 사용하는 결함 해결.
+   - **변경 여부 검증 및 카운터 복구**: `changed = self.hass.config_entries.async_update_entry(...)` 반환값을 확인하여, 변경 사항이 없는 경우(`not changed`) 즉시 `self._suppress_reload_count = max(0, self._suppress_reload_count - 1)`로 카운터를 원복. 예외 발생 시에도 `finally/except`에서 카운터를 복구하고, `async_unload` 시 카운터를 0으로 초기화하도록 방어.
+
+---
+
+## 13. 실환경 최소 연결 진단 절차
 
 실제 Home Assistant OS 환경에 설치 후 Builder 자동 연결을 검증하는 단계입니다.
 
@@ -284,7 +299,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 12. 실환경 엔드투엔드 파이프라인 검증 시나리오
+## 14. 실환경 엔드투엔드 파이프라인 검증 시나리오
 
 1. **통합 구성요소 추가**
    - HA 설정 → 기기 및 서비스 → 통합 구성요소 추가 → `ESPHome OTA` 선택.
@@ -308,7 +323,7 @@ asyncio.run(test_connect(<INGRESS_PORT>))
 
 ---
 
-## 13. 장애 유형별 원인 및 해결 가이드
+## 15. 장애 유형별 원인 및 해결 가이드
 
 | 증상 | 원인 | 해결 방법 |
 |---|---|---|

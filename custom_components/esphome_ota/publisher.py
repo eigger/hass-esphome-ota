@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import shutil
+import threading
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -33,6 +35,22 @@ class ArtifactPublisher:
         self.www_dir = Path(hass.config.path("www", publish_dir))
         self.private_base_dir = Path(hass.config.path("esphome_ota", "firmware"))
         self._unloaded = False
+        self._slug_locks: dict[str, asyncio.Lock] = {}
+        self._sync_slug_locks: dict[str, threading.Lock] = {}
+        self._sync_locks_guard = threading.Lock()
+
+    def _get_slug_lock(self, slug: str) -> asyncio.Lock:
+        """Get or create an asyncio.Lock for a specific slug."""
+        if slug not in self._slug_locks:
+            self._slug_locks[slug] = asyncio.Lock()
+        return self._slug_locks[slug]
+
+    def _get_sync_slug_lock(self, slug: str) -> threading.Lock:
+        """Get or create a threading.Lock for a specific slug."""
+        with self._sync_locks_guard:
+            if slug not in self._sync_slug_locks:
+                self._sync_slug_locks[slug] = threading.Lock()
+            return self._sync_slug_locks[slug]
 
     def async_unload(self) -> None:
         """Mark publisher as unloaded."""
@@ -78,118 +96,135 @@ class ArtifactPublisher:
         title: str = "",
         summary: str = "",
         check_cancelled: Callable[[], bool] | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
+        done_event: asyncio.Event | None = None,
     ) -> PublishedArtifact:
         """Synchronous publish implementation executing in executor."""
-        def _check_validity() -> None:
-            if self._unloaded:
-                raise EsphomeOtaError("Publish aborted: integration is unloaded")
-            if check_cancelled and check_cancelled():
-                raise EsphomeOtaError("Publish aborted: pipeline job was cancelled")
+        with self._get_sync_slug_lock(slug):
+            staged_files: list[Path] = []
+            backup_files: list[Path] = []
+            backup_bin: Path | None = None
+            backup_md5: Path | None = None
+            backup_manifest: Path | None = None
+            prior_bin_exists = False
+            prior_md5_exists = False
+            prior_manifest_exists = False
 
-        _check_validity()
-        self._ensure_dirs()
-        digest = info.md5
-        sha256 = info.sha256
-        version = info.authoritative_version
-        chip_family = info.chip_family
+            def _check_validity() -> None:
+                if self._unloaded:
+                    raise EsphomeOtaError("Publish aborted: integration is unloaded")
+                if check_cancelled and check_cancelled():
+                    raise EsphomeOtaError("Publish aborted: pipeline job was cancelled")
 
-        # 1. Archive in private storage
-        private_path = self._write_private_artifact(device_id, sha256, blob)
+            try:
+                _check_validity()
+                self._ensure_dirs()
+                digest = info.md5
+                sha256 = info.sha256
+                version = info.authoritative_version
+                chip_family = info.chip_family
 
-        _check_validity()
+                # 1. Archive in private storage
+                private_path = self._write_private_artifact(device_id, sha256, blob)
 
-        # 2. Write public files in atomic, manifest-last order
-        bin_name = f"{slug}.ota.bin"
-        public_bin = self.www_dir / bin_name
-        public_md5 = self.www_dir / f"{bin_name}.md5"
-        public_manifest = self.www_dir / f"{slug}.json"
+                _check_validity()
 
-        prior_bin_exists = public_bin.exists()
-        prior_md5_exists = public_md5.exists()
-        prior_manifest_exists = public_manifest.exists()
+                # 2. Write public files in atomic, manifest-last order
+                bin_name = f"{slug}.ota.bin"
+                public_bin = self.www_dir / bin_name
+                public_md5 = self.www_dir / f"{bin_name}.md5"
+                public_manifest = self.www_dir / f"{slug}.json"
 
-        tmp_id = uuid.uuid4().hex[:8]
-        stage_bin = self.www_dir / f"{bin_name}.stage_{tmp_id}"
-        stage_md5 = self.www_dir / f"{bin_name}.md5.stage_{tmp_id}"
-        stage_manifest = self.www_dir / f"{slug}.json.stage_{tmp_id}"
-        staged_files = [stage_bin, stage_md5, stage_manifest]
+                prior_bin_exists = public_bin.exists()
+                prior_md5_exists = public_md5.exists()
+                prior_manifest_exists = public_manifest.exists()
 
-        backup_bin = self.www_dir / f"{bin_name}.bak_{tmp_id}"
-        backup_md5 = self.www_dir / f"{bin_name}.md5.bak_{tmp_id}"
-        backup_manifest = self.www_dir / f"{slug}.json.bak_{tmp_id}"
-        backup_files = [backup_bin, backup_md5, backup_manifest]
+                tmp_id = uuid.uuid4().hex[:8]
+                stage_bin = self.www_dir / f"{bin_name}.stage_{tmp_id}"
+                stage_md5 = self.www_dir / f"{bin_name}.md5.stage_{tmp_id}"
+                stage_manifest = self.www_dir / f"{slug}.json.stage_{tmp_id}"
+                staged_files = [stage_bin, stage_md5, stage_manifest]
 
-        try:
-            # Build ESP-Web-Tools manifest
-            manifest: dict[str, Any] = {
-                "name": title or configuration,
-                "version": version,
-                "builds": [
-                    {
-                        "chipFamily": chip_family,
-                        "ota": {
-                            "md5": digest,
-                            "path": f"{bin_name}?v={digest[:8]}",
-                            "summary": summary or "Built by ESPHome OTA",
-                        },
-                    }
-                ],
-            }
-            if info.build_time:
-                manifest["build_time"] = info.build_time
-            if info.version_source:
-                manifest["version_source"] = info.version_source
+                backup_bin = self.www_dir / f"{bin_name}.bak_{tmp_id}"
+                backup_md5 = self.www_dir / f"{bin_name}.md5.bak_{tmp_id}"
+                backup_manifest = self.www_dir / f"{slug}.json.bak_{tmp_id}"
+                backup_files = [backup_bin, backup_md5, backup_manifest]
 
-            manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+                # Build ESP-Web-Tools manifest
+                manifest: dict[str, Any] = {
+                    "name": title or configuration,
+                    "version": version,
+                    "builds": [
+                        {
+                            "chipFamily": chip_family,
+                            "ota": {
+                                "md5": digest,
+                                "path": f"{bin_name}?v={digest[:8]}",
+                                "summary": summary or "Built by ESPHome OTA",
+                            },
+                        }
+                    ],
+                }
+                if info.build_time:
+                    manifest["build_time"] = info.build_time
+                if info.version_source:
+                    manifest["version_source"] = info.version_source
 
-            # 1. Stage files first
-            stage_bin.write_bytes(blob)
-            stage_md5.write_bytes(digest.encode("ascii"))
-            stage_manifest.write_bytes(manifest_bytes)
+                manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
 
-            # 2. Backup prior existing files for rollback if cancelled/failed during replacement
-            if prior_bin_exists:
-                shutil.copyfile(public_bin, backup_bin)
-            if prior_md5_exists:
-                shutil.copyfile(public_md5, backup_md5)
-            if prior_manifest_exists:
-                shutil.copyfile(public_manifest, backup_manifest)
+                # 1. Stage files first
+                stage_bin.write_bytes(blob)
+                stage_md5.write_bytes(digest.encode("ascii"))
+                stage_manifest.write_bytes(manifest_bytes)
 
-            # 3. Check validity before starting public file replacements
-            _check_validity()
+                # 2. Backup prior existing files for rollback if cancelled/failed during replacement
+                if prior_bin_exists:
+                    shutil.copyfile(public_bin, backup_bin)
+                if prior_md5_exists:
+                    shutil.copyfile(public_md5, backup_md5)
+                if prior_manifest_exists:
+                    shutil.copyfile(public_manifest, backup_manifest)
 
-            # 4. Atomically replace binary and MD5
-            os.replace(stage_bin, public_bin)
-            os.replace(stage_md5, public_md5)
+                # 3. Check validity before starting public file replacements
+                _check_validity()
 
-            # 5. Check validity right before manifest finalization (the atomic commit point)
-            _check_validity()
+                # 4. Atomically replace binary and MD5
+                os.replace(stage_bin, public_bin)
+                os.replace(stage_md5, public_md5)
 
-            # 6. Final atomic commit: replace manifest
-            os.replace(stage_manifest, public_manifest)
-        except Exception:
-            # Rollback: restore prior files if they existed, or unlink newly placed public files
-            if prior_bin_exists and backup_bin.exists():
-                os.replace(backup_bin, public_bin)
-            elif not prior_bin_exists:
-                public_bin.unlink(missing_ok=True)
+                # 5. Check validity right before manifest finalization (the atomic commit point)
+                _check_validity()
 
-            if prior_md5_exists and backup_md5.exists():
-                os.replace(backup_md5, public_md5)
-            elif not prior_md5_exists:
-                public_md5.unlink(missing_ok=True)
+                # 6. Final atomic commit: replace manifest
+                os.replace(stage_manifest, public_manifest)
+            except Exception:
+                # Rollback: restore prior files if they existed, or unlink newly placed public files
+                if prior_bin_exists and backup_bin is not None and backup_bin.exists():
+                    os.replace(backup_bin, public_bin)
+                elif not prior_bin_exists and "public_bin" in locals():
+                    public_bin.unlink(missing_ok=True)
 
-            if prior_manifest_exists and backup_manifest.exists():
-                os.replace(backup_manifest, public_manifest)
-            elif not prior_manifest_exists:
-                public_manifest.unlink(missing_ok=True)
+                if prior_md5_exists and backup_md5 is not None and backup_md5.exists():
+                    os.replace(backup_md5, public_md5)
+                elif not prior_md5_exists and "public_md5" in locals():
+                    public_md5.unlink(missing_ok=True)
 
-            raise
-        finally:
-            for sf in staged_files:
-                sf.unlink(missing_ok=True)
-            for bf in backup_files:
-                bf.unlink(missing_ok=True)
+                if prior_manifest_exists and backup_manifest is not None and backup_manifest.exists():
+                    os.replace(backup_manifest, public_manifest)
+                elif not prior_manifest_exists and "public_manifest" in locals():
+                    public_manifest.unlink(missing_ok=True)
+
+                raise
+            finally:
+                for sf in staged_files:
+                    sf.unlink(missing_ok=True)
+                for bf in backup_files:
+                    bf.unlink(missing_ok=True)
+                if loop and done_event:
+                    try:
+                        loop.call_soon_threadsafe(done_event.set)
+                    except RuntimeError:
+                        pass
 
         _LOGGER.info(
             "Published firmware for %s (slug=%s, version=%s, chip=%s, size=%d bytes)",
@@ -231,35 +266,52 @@ class ArtifactPublisher:
         check_cancelled: Callable[[], bool] | None = None,
     ) -> PublishedArtifact:
         """Asynchronously publish firmware binary and manifest."""
-        return await self.hass.async_add_executor_job(
-            self._publish_sync,
-            device_id,
-            configuration,
-            slug,
-            blob,
-            info,
-            title,
-            summary,
-            check_cancelled,
-        )
+        lock = self._get_slug_lock(slug)
+        async with lock:
+            done_event = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            fut = self.hass.async_add_executor_job(
+                self._publish_sync,
+                device_id,
+                configuration,
+                slug,
+                blob,
+                info,
+                title,
+                summary,
+                check_cancelled,
+                loop,
+                done_event,
+            )
+            try:
+                return await fut
+            finally:
+                while not done_event.is_set():
+                    try:
+                        await done_event.wait()
+                    except asyncio.CancelledError:
+                        pass
 
     def _deactivate_sync(self, slug: str) -> bool:
         """Hide/remove public binary from /local while keeping manifest."""
-        bin_path = self.www_dir / f"{slug}.ota.bin"
-        md5_path = self.www_dir / f"{slug}.ota.bin.md5"
+        with self._get_sync_slug_lock(slug):
+            bin_path = self.www_dir / f"{slug}.ota.bin"
+            md5_path = self.www_dir / f"{slug}.ota.bin.md5"
 
-        removed = False
-        if bin_path.exists():
-            bin_path.unlink(missing_ok=True)
-            removed = True
-        if md5_path.exists():
-            md5_path.unlink(missing_ok=True)
+            removed = False
+            if bin_path.exists():
+                bin_path.unlink(missing_ok=True)
+                removed = True
+            if md5_path.exists():
+                md5_path.unlink(missing_ok=True)
+                removed = True
 
-        return removed
+            return removed
 
     async def async_deactivate(self, slug: str) -> bool:
         """Remove public binary from /local."""
-        return await self.hass.async_add_executor_job(self._deactivate_sync, slug)
+        async with self._get_slug_lock(slug):
+            return await self.hass.async_add_executor_job(self._deactivate_sync, slug)
 
     def _load_private_artifact_sync(self, private_path: str) -> bytes:
         """Load private binary bytes."""
