@@ -13,7 +13,7 @@ const css = `
 :host {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: var(--esphome-ota-panel-height, 100%);
   min-height: 0;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -24,8 +24,11 @@ const css = `
   box-sizing: border-box;
 }
 header {
-  flex: 0 0 auto;
-  height: 56px;
+  flex: none;
+  height: var(--header-height, 56px);
+  min-height: 56px;
+  position: sticky;
+  top: 0;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -34,11 +37,30 @@ header {
   border-bottom: 1px solid var(--divider-color, #e2e8f0);
   z-index: 10;
 }
+.header-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
 h1 {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  flex: 1;
+  white-space: nowrap;
+}
+.version-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--secondary-text-color, #64748b);
+  background: var(--secondary-background-color, #f1f5f9);
+  padding: 2px 7px;
+  border-radius: 9999px;
+  line-height: 1.3;
+  border: 1px solid var(--divider-color, #e2e8f0);
 }
 .builder-badge {
   display: flex;
@@ -185,13 +207,18 @@ button.danger:hover {
   color: inherit;
 }
 
-.content {
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 12px 20px 24px;
+  scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
+}
+.content {
+  padding: 12px 20px 24px;
 }
 .grid {
   display: grid;
@@ -306,6 +333,29 @@ button.danger:hover {
   padding: 60px 20px;
   color: var(--secondary-text-color, #64748b);
 }
+@media (max-width: 650px) {
+  header {
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .header-title-wrap h1 {
+    font-size: 1.1rem;
+  }
+  .builder-badge {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+  .controls {
+    padding: 12px 12px 6px;
+  }
+  .content {
+    padding: 8px 12px 20px;
+  }
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+}
 `;
 
 function escapeHtml(str) {
@@ -336,6 +386,37 @@ class EsphomeOtaManager extends HTMLElement {
     this._domInitialized = false;
     this._migrationPreview = null;
     this._dismissedMigration = false;
+    this._panel = null;
+    this._backendVersion = null;
+    this.resizePanel = null;
+    this.panelObserver = null;
+  }
+
+  set panel(value) {
+    this._panel = value;
+    this._updateVersionTag();
+  }
+
+  get panel() {
+    return this._panel;
+  }
+
+  get version() {
+    return this._panel?.config?.version || this._backendVersion || "";
+  }
+
+  _updateVersionTag() {
+    const el = this.shadowRoot?.getElementById("panel-version");
+    if (!el) return;
+    const v = this.version;
+    if (v) {
+      el.textContent = `v${v}`;
+      const titleStr = t(this.hass, "integration_version") || "ESPHome OTA version";
+      el.title = `${titleStr} v${v}`;
+      el.style.display = "inline-flex";
+    } else {
+      el.style.display = "none";
+    }
   }
 
   set hass(value) {
@@ -350,6 +431,20 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   connectedCallback() {
+    // HA's custom-panel wrapper may have an automatic height. Bound our own
+    // panel to the available viewport so that only the content can overflow.
+    this.resizePanel = () => {
+      const height = Math.max(
+        0,
+        window.innerHeight - this.getBoundingClientRect().top,
+      );
+      this.style.setProperty("--esphome-ota-panel-height", `${height}px`);
+    };
+    this.panelObserver = new ResizeObserver(this.resizePanel);
+    this.panelObserver.observe(this);
+    window.addEventListener("resize", this.resizePanel);
+    this.resizePanel();
+
     this._initDom();
     this.render();
     if (this._hass) {
@@ -361,6 +456,9 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.panelObserver?.disconnect();
+    this.panelObserver = null;
+    window.removeEventListener("resize", this.resizePanel);
     if (this._unsubEvents) {
       this._unsubEvents();
       this._unsubEvents = null;
@@ -371,6 +469,7 @@ class EsphomeOtaManager extends HTMLElement {
     try {
       const res = await this.hass.callWS({ type: "esphome_ota/status" });
       if (res) {
+        if (res.version) this._backendVersion = res.version;
         if (res.status !== undefined) this.status = res.status;
         if (res.candidates !== undefined) this.candidates = res.candidates;
         if (res.devices) this.devices = res.devices;
@@ -408,6 +507,7 @@ class EsphomeOtaManager extends HTMLElement {
     if (!msg) return;
     const { event, data } = msg;
     if (event === "snapshot" && data) {
+      if (data.version) this._backendVersion = data.version;
       this.status = data.status || this.status;
       if (data.candidates) this.candidates = data.candidates;
       this.devices = data.devices || [];
@@ -509,7 +609,10 @@ class EsphomeOtaManager extends HTMLElement {
       <style>${css}</style>
       <header>
         <ha-menu-button></ha-menu-button>
-        <h1>${escapeHtml(t(this.hass, "title") || "ESPHome OTA")}</h1>
+        <div class="header-title-wrap">
+          <h1>${escapeHtml(t(this.hass, "title") || "ESPHome OTA")}</h1>
+          <span class="version-tag" id="panel-version" title="${escapeHtml(t(this.hass, "integration_version") || "ESPHome OTA version")}" style="display: none;"></span>
+        </div>
         <div class="builder-badge" id="builder-badge">
           <span class="status-dot"></span>
           <span id="status-text"></span>
@@ -521,23 +624,25 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
       </header>
 
-      <div id="selection-banner" class="selection-banner" style="display: none;"></div>
-      <div id="migration-banner" class="migration-banner" style="display: none;"></div>
+      <div class="dashboard-content">
+        <div id="selection-banner" class="selection-banner" style="display: none;"></div>
+        <div id="migration-banner" class="migration-banner" style="display: none;"></div>
 
-      <div class="controls">
-        <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
-        <select id="filter">
-          <option value="all">${escapeHtml(t(this.hass, "filter_all") || "All Devices")}</option>
-          <option value="managed">${escapeHtml(t(this.hass, "filter_managed") || "OTA Configured")}</option>
-          <option value="unmanaged">${escapeHtml(t(this.hass, "filter_unmanaged") || "Unmanaged")}</option>
-          <option value="initial">${escapeHtml(t(this.hass, "filter_initial") || "Initial Install Needed")}</option>
-          <option value="update">${escapeHtml(t(this.hass, "filter_update") || "Update Available")}</option>
-          <option value="installed">${escapeHtml(t(this.hass, "filter_installed") || "Installed")}</option>
-          <option value="building">${escapeHtml(t(this.hass, "filter_building") || "Building")}</option>
-        </select>
+        <div class="controls">
+          <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
+          <select id="filter">
+            <option value="all">${escapeHtml(t(this.hass, "filter_all") || "All Devices")}</option>
+            <option value="managed">${escapeHtml(t(this.hass, "filter_managed") || "OTA Configured")}</option>
+            <option value="unmanaged">${escapeHtml(t(this.hass, "filter_unmanaged") || "Unmanaged")}</option>
+            <option value="initial">${escapeHtml(t(this.hass, "filter_initial") || "Initial Install Needed")}</option>
+            <option value="update">${escapeHtml(t(this.hass, "filter_update") || "Update Available")}</option>
+            <option value="installed">${escapeHtml(t(this.hass, "filter_installed") || "Installed")}</option>
+            <option value="building">${escapeHtml(t(this.hass, "filter_building") || "Building")}</option>
+          </select>
+        </div>
+
+        <div class="content" id="content-container"></div>
       </div>
-
-      <div class="content" id="content-container"></div>
 
       <esphome-ota-job-dialog></esphome-ota-job-dialog>
       <esphome-ota-device-dialog></esphome-ota-device-dialog>
@@ -670,6 +775,7 @@ class EsphomeOtaManager extends HTMLElement {
 
   render() {
     this._initDom();
+    this._updateVersionTag();
     this._updateStatusBadge();
     this._renderSelectionBanner();
     this._renderMigrationBanner();

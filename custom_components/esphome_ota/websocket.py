@@ -10,6 +10,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.loader import async_get_integration
 
 from .config_patch import apply_ota_patch, remove_ota_patch
 from .const import DOMAIN
@@ -81,6 +82,9 @@ async def ws_status(
             "version": c.version,
         }
 
+    integration = await async_get_integration(hass, DOMAIN)
+    version = str(integration.version)
+
     connection.send_result(
         msg["id"],
         {
@@ -98,6 +102,7 @@ async def ws_status(
                 }
                 for cand in manager.resolver.candidates
             ],
+            "version": version,
         },
     )
 
