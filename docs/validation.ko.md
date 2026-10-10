@@ -261,7 +261,7 @@
 4. **[P2] 이전 버전의 정리 타이머가 새로 게시한 펌웨어를 삭제하는 결함 해결**:
    - `monitor.py:228`에서 새 펌웨어 게시 작업(`async_publish`) 진행 중 이전 버전의 정리 타이머가 만료되면, 삭제 작업(`async_deactivate`)이 게시 잠금(`_slug_locks`)을 대기. 새 게시가 완료되어 잠금이 풀리는 즉시 삭제 작업이 실행되어 방금 배포된 새 버전의 바이너리를 삭제하고 매니페스트만 남겨두던 경쟁 상태 해결.
    - **정리 작업 대상 식별자 기록 및 작업 추적**: `InstallationMonitor`([monitor.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/monitor.py))의 `schedule_cleanup`에 `artifact_id` 매개변수를 추가하여 대상 게시물의 `published_at` 타임스탬프를 보존. 만료 시 생성되는 비동기 삭제 태스크를 `_cleanup_tasks`에 등록하여 새 게시 예약이나 `cancel_cleanup` 시 대기 중인 삭제 태스크를 즉시 취소(`task.cancel()`).
-   - **게시 잠금 획득 후 식별자 일치 검증**: `ArtifactPublisher`([publisher.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/publisher.py))의 `async_deactivate` 및 `_deactivate_sync`에 `expected_artifact_id`를 전달하고, 잠금(`_get_slug_lock`) 획득 후 인메모리 `_active_artifacts` 및 디스크의 매니페스트 JSON(`published_at`, `version`, `md5`)을 대조. 대상 식별자와 일치하지 않는 경우(새 게시물이 이미 반영된 경우) 삭제를 안전하게 건너뛰어 신규 배포 바이너리를 보존.
+   - **디스크 매니페스트 우선 확인 및 언로드 객체 차단**: `ArtifactPublisher`([publisher.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/publisher.py))의 `async_deactivate` 및 `_deactivate_sync`에서 통합 재로드 등으로 언로드된 이전 publisher의 정리 작업(`if self._unloaded`)을 즉시 차단. 삭제 대상 검증 시에도 메모리 캐시보다 파일시스템의 현재 매니페스트 JSON(`published_at`, `version`, `md5`)을 최우선으로 대조하여, 새 publisher 인스턴스가 1.0.1을 게시한 후 이전 publisher의 정리 작업이 실행되더라도 신규 배포 바이너리를 보존하도록 방어.
 
 ---
 

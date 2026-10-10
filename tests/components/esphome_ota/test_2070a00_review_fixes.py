@@ -478,3 +478,39 @@ async def test_cleanup_timer_normal_expiry_deactivates_matching_firmware(
     assert manifest_path.exists()
 
     monitor.async_unload()
+
+
+async def test_unloaded_publisher_and_stale_active_artifacts_does_not_delete_new_firmware(
+    hass: HomeAssistant,
+) -> None:
+    """[P2] Test that an unloaded publisher or stale memory cache cannot delete newer firmware after reload."""
+    pub_dir = "esphome_ota_reload_cleanup_test"
+    pub1 = ArtifactPublisher(hass, publish_dir=pub_dir)
+
+    # 1. Old publisher publishes 1.0.0
+    blob_100 = _make_valid_esp32_bin("1.0.0")
+    info_100 = inspect_binary(blob_100, target_platform="esp32", reserved_version="1.0.0")
+    art1 = await pub1.async_publish("dev1", "dev1.yaml", "dev1_slug", blob_100, info_100)
+    assert (pub1.www_dir / "dev1_slug.ota.bin").exists()
+
+    # 2. Simulate reload: pub1 is unloaded
+    pub1.async_unload()
+
+    # 3. New publisher publishes 1.0.1
+    pub2 = ArtifactPublisher(hass, publish_dir=pub_dir)
+    blob_101 = _make_valid_esp32_bin("1.0.1")
+    info_101 = inspect_binary(blob_101, target_platform="esp32", reserved_version="1.0.1")
+    await pub2.async_publish("dev1", "dev1.yaml", "dev1_slug", blob_101, info_101)
+
+    # 4. Attempt cleanup from unloaded pub1 with old artifact ID
+    result1 = await pub1.async_deactivate("dev1_slug", expected_artifact_id=art1.published_at)
+    assert result1 is False
+    assert (pub2.www_dir / "dev1_slug.ota.bin").exists()
+
+    # 5. Even if a publisher instance had matching in-memory cache but on-disk manifest changed,
+    # disk manifest must take precedence and reject deactivation of 1.0.1
+    pub_stale = ArtifactPublisher(hass, publish_dir=pub_dir)
+    pub_stale._active_artifacts["dev1_slug"] = art1.published_at  # stale cache
+    result2 = await pub_stale.async_deactivate("dev1_slug", expected_artifact_id=art1.published_at)
+    assert result2 is False
+    assert (pub2.www_dir / "dev1_slug.ota.bin").exists()

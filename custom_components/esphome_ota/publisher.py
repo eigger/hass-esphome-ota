@@ -318,6 +318,10 @@ class ArtifactPublisher:
     ) -> bool:
         """Hide/remove public binary from /local while keeping manifest."""
         with self._get_sync_slug_lock(slug):
+            if self._unloaded:
+                _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+                return False
+
             manifest_path = self.www_dir / f"{slug}.json"
             if not manifest_path.exists():
                 manifest_path = self.www_dir / f"{slug}.ota.json"
@@ -326,10 +330,7 @@ class ArtifactPublisher:
 
             if expected_artifact_id is not None:
                 matches = False
-                current_pub_at = self._active_artifacts.get(slug)
-                if current_pub_at and current_pub_at == expected_artifact_id:
-                    matches = True
-                elif manifest_path.exists():
+                if manifest_path.exists():
                     try:
                         manifest_data = json.loads(
                             manifest_path.read_text(encoding="utf-8")
@@ -346,12 +347,18 @@ class ArtifactPublisher:
                             or (m_md5 and m_md5 == expected_artifact_id)
                         ):
                             matches = True
+                        if m_pub_at:
+                            self._active_artifacts[slug] = m_pub_at
                     except (OSError, json.JSONDecodeError) as err:
                         _LOGGER.warning(
                             "Error reading manifest for %s during deactivation: %s",
                             slug,
                             err,
                         )
+                else:
+                    current_pub_at = self._active_artifacts.get(slug)
+                    if current_pub_at and current_pub_at == expected_artifact_id:
+                        matches = True
 
                 if not matches:
                     _LOGGER.info(
@@ -378,7 +385,13 @@ class ArtifactPublisher:
         self, slug: str, expected_artifact_id: str | None = None
     ) -> bool:
         """Remove public binary from /local."""
+        if self._unloaded:
+            _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+            return False
         async with self._get_slug_lock(slug):
+            if self._unloaded:
+                _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+                return False
             return await self.hass.async_add_executor_job(
                 self._deactivate_sync, slug, expected_artifact_id
             )
