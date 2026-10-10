@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import logging
 import re
+import textwrap
 from typing import Any
 
 import yaml
@@ -87,15 +88,62 @@ def is_legacy_ota_server_package(pkg_val: Any) -> bool:
     """Check if a package entry references the legacy ota_server package/wrapper."""
     if isinstance(pkg_val, str):
         val_lower = pkg_val.strip().lower()
-        return "ota_server" in val_lower
+        if "ota_server" in val_lower and (
+            "!include" in val_lower
+            or any(
+                val_lower.startswith(prefix)
+                for prefix in ("github://", "http://", "https://", "git://", "ssh://")
+            )
+            or val_lower.startswith("ota_server/")
+            or "/ota_server/" in val_lower
+            or val_lower.endswith("/ota_server")
+            or val_lower == "ota_server"
+        ):
+            return True
+        return False
     if isinstance(pkg_val, dict):
         inc = pkg_val.get("__include__")
         if isinstance(inc, str) and "ota_server" in inc.lower():
             return True
-        url = pkg_val.get("url") or ""
+        url = pkg_val.get("url") or pkg_val.get("repo") or ""
         files = str(pkg_val.get("files") or pkg_val.get("file") or "")
         if "ota_server" in str(url).lower() or "ota_server" in files.lower():
             return True
+    return False
+
+
+def _is_legacy_package_entry(entry_lines: list[str]) -> bool:
+    """Determine if a packages entry is a legacy ota_server include or remote package."""
+    code_lines = [_strip_yaml_comment(entry_line) for entry_line in entry_lines]
+    entry_text = textwrap.dedent("\n".join(code_lines)).strip()
+    if entry_text:
+        parsed = parse_yaml_safe(entry_text)
+        if isinstance(parsed, dict) and len(parsed) == 1:
+            pkg_val = next(iter(parsed.values()))
+            if is_legacy_ota_server_package(pkg_val):
+                return True
+            return False
+
+    for line in code_lines:
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        if re.search(r"!include\S*\s+.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.match(r"^(url|repo)\s*:\s*.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.match(r"^files?\s*:\s*.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.search(r"github://.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.match(r"^-\s+.*ota_server", line_clean, re.IGNORECASE):
+            has_remote_meta = any(
+                re.match(r"^(url|repo|files?)\s*:", cl.strip(), re.IGNORECASE)
+                for cl in code_lines
+            )
+            if has_remote_meta:
+                return True
+
     return False
 
 
@@ -267,10 +315,7 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                             j += 1
                             continue
                         break
-                    # Check code portion only, ignoring comments
-                    code_lines = [_strip_yaml_comment(entry_line) for entry_line in entry_lines]
-                    code_str = "\n".join(code_lines).lower()
-                    if "ota_server" in code_str:
+                    if _is_legacy_package_entry(entry_lines):
                         pkg_changed = True
                         i = j
                         continue

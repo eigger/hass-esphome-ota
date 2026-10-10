@@ -182,12 +182,34 @@ async def test_remove_ota_builder_conflict_or_timeout_must_fail(
         assert msg2["error"]["code"] == "remove_failed"
         assert manager.device_manager.get_device("conflict_node") is not None
 
+        # Permission denied or file open failure must fail and NOT delete device
+        mock_client.get_config.side_effect = BuilderError(
+            "Failed to open conflict_node.yaml: Permission denied"
+        )
+        await ws.send_json(
+            {"id": 22, "type": "esphome_ota/remove_ota", "device_id": "conflict_node"}
+        )
+        msg_perm = await ws.receive_json()
+        assert msg_perm["success"] is False
+        assert msg_perm["error"]["code"] == "remove_failed"
+        assert manager.device_manager.get_device("conflict_node") is not None
+
+        # Python PermissionError must also fail
+        mock_client.get_config.side_effect = PermissionError("Permission denied")
+        await ws.send_json(
+            {"id": 23, "type": "esphome_ota/remove_ota", "device_id": "conflict_node"}
+        )
+        msg_perm2 = await ws.receive_json()
+        assert msg_perm2["success"] is False
+        assert msg_perm2["error"]["code"] == "remove_failed"
+        assert manager.device_manager.get_device("conflict_node") is not None
+
         # But if Builder explicitly returns file not found, then it should drop from list
         mock_client.get_config.side_effect = BuilderError(
             "Configuration conflict_node.yaml not found"
         )
         await ws.send_json(
-            {"id": 22, "type": "esphome_ota/remove_ota", "device_id": "conflict_node"}
+            {"id": 24, "type": "esphome_ota/remove_ota", "device_id": "conflict_node"}
         )
         msg3 = await ws.receive_json()
         assert msg3["success"] is True

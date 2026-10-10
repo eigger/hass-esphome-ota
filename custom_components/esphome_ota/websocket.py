@@ -455,10 +455,25 @@ async def ws_remove_ota(
             yaml_content = await client.get_config(config_file)
         except Exception as err:  # noqa: BLE001
             err_msg = str(err).lower()
+            # Explicit read / permission / I/O errors indicate access failure, NOT file absence
+            is_permission_or_read_err = isinstance(err, PermissionError) or any(
+                term in err_msg
+                for term in (
+                    "permission denied",
+                    "permission",
+                    "access denied",
+                    "eacces",
+                    "eperm",
+                    "read error",
+                    "io error",
+                    "input/output error",
+                )
+            )
             # ONLY consider file missing if Builder explicitly confirms file absence.
-            # Timeout, connection loss, conflict, etc. MUST fail and not delete records silently!
+            # Timeout, connection loss, conflict, permission/access errors, etc. MUST fail and not delete records silently!
             is_file_not_found = (
-                not isinstance(
+                not is_permission_or_read_err
+                and not isinstance(
                     err,
                     (
                         BuilderConnectionError,
@@ -467,15 +482,17 @@ async def ws_remove_ota(
                         ConfigConflictError,
                     ),
                 )
-                and any(
-                    term in err_msg
-                    for term in (
-                        "not found",
-                        "does not exist",
-                        "no such file",
-                        "404",
-                        "failed to open",
-                        "config_not_found",
+                and (
+                    isinstance(err, FileNotFoundError)
+                    or any(
+                        term in err_msg
+                        for term in (
+                            "not found",
+                            "does not exist",
+                            "no such file",
+                            "404",
+                            "config_not_found",
+                        )
                     )
                 )
             )

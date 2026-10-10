@@ -308,3 +308,38 @@ packages: # migrated from ota_server
     assert "esphome:" in cleaned
 
 
+def test_strip_legacy_ota_packages_preserves_regular_packages_with_ota_server_identifiers() -> None:
+    """Regular packages containing ota_server identifiers or values must not be deleted."""
+    content = """esphome:
+  name: livingroom
+
+packages:
+  diagnostics:
+    sensor:
+      - platform: status
+        name: "ESP Status"
+        id: ota_server_status
+  ota: !include ota_server/devices/livingroom.yaml
+"""
+    cleaned, changed = strip_legacy_ota_packages(content)
+    assert changed is True
+    assert "diagnostics:" in cleaned
+    assert "id: ota_server_status" in cleaned
+    assert "ota: !include" not in cleaned
+
+    content_only_diag = """esphome:
+  name: livingroom
+
+packages:
+  diagnostics:
+    sensor:
+      - platform: status
+        name: "ESP Status"
+        id: ota_server_status
+"""
+    cleaned2, changed2 = strip_legacy_ota_packages(content_only_diag)
+    assert changed2 is False
+    assert cleaned2 == content_only_diag
+
+
+
