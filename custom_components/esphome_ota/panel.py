@@ -29,33 +29,39 @@ class PanelManager:
         version = str(integration.version)
 
         # 1. Register static paths once
-        if not self._static_paths_registered:
+        if not self._static_paths_registered and getattr(self.hass, "http", None) is not None:
             frontend_dir = Path(__file__).parent / "frontend"
-            await self.hass.http.async_register_static_paths(
-                [
-                    StaticPathConfig(
-                        f"{FRONTEND_URL_PATH}/{version}",
-                        str(frontend_dir),
-                        False,
-                    )
-                ]
-            )
-            self._static_paths_registered = True
+            try:
+                await self.hass.http.async_register_static_paths(
+                    [
+                        StaticPathConfig(
+                            f"{FRONTEND_URL_PATH}/{version}",
+                            str(frontend_dir),
+                            False,
+                        )
+                    ]
+                )
+                self._static_paths_registered = True
+            except (RuntimeError, ValueError) as err:
+                _LOGGER.debug("Static paths already registered or router frozen: %s", err)
 
         # 2. Register panel
         if not self._panel_registered:
-            await panel_custom.async_register_panel(
-                self.hass,
-                PANEL_NAME,
-                "esphome-ota-manager",
-                sidebar_title=PANEL_TITLE,
-                sidebar_icon=PANEL_ICON,
-                module_url=f"{FRONTEND_URL_PATH}/{version}/manager.js",
-                config={"version": version},
-                require_admin=True,
-            )
-            self._panel_registered = True
-            _LOGGER.debug("Registered ESPHome OTA sidebar panel")
+            try:
+                await panel_custom.async_register_panel(
+                    self.hass,
+                    PANEL_NAME,
+                    "esphome-ota-manager",
+                    sidebar_title=PANEL_TITLE,
+                    sidebar_icon=PANEL_ICON,
+                    module_url=f"{FRONTEND_URL_PATH}/{version}/manager.js",
+                    config={"version": version},
+                    require_admin=True,
+                )
+                self._panel_registered = True
+                _LOGGER.debug("Registered ESPHome OTA sidebar panel")
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Panel already registered or registration failed: %s", err)
 
     def async_unregister(self) -> None:
         """Remove the custom sidebar panel."""

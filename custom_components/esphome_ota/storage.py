@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -37,6 +38,7 @@ class StorageManager:
         self._migration_store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY_MIGRATION
         )
+        self._artifact_lock: asyncio.Lock = asyncio.Lock()
 
     async def async_load_devices(self) -> dict[str, ManagedDevice]:
         """Load stored managed devices."""
@@ -72,21 +74,33 @@ class StorageManager:
 
     async def async_load_artifacts(self) -> dict[str, PublishedArtifact]:
         """Load published artifact records."""
-        data = await self._artifact_store.async_load()
-        if not data or not isinstance(data, dict):
-            return {}
-        result: dict[str, PublishedArtifact] = {}
-        for key, item in data.items():
-            if isinstance(item, dict):
-                result[key] = PublishedArtifact.from_dict(item)
-        return result
+        async with self._artifact_lock:
+            data = await self._artifact_store.async_load()
+            if not data or not isinstance(data, dict):
+                return {}
+            result: dict[str, PublishedArtifact] = {}
+            for key, item in data.items():
+                if isinstance(item, dict):
+                    result[key] = PublishedArtifact.from_dict(item)
+            return result
 
     async def async_save_artifacts(
         self, artifacts: dict[str, PublishedArtifact]
     ) -> None:
         """Save published artifact records to storage."""
-        data = {key: art.to_dict() for key, art in artifacts.items()}
-        await self._artifact_store.async_save(data)
+        async with self._artifact_lock:
+            data = {key: art.to_dict() for key, art in artifacts.items()}
+            await self._artifact_store.async_save(data)
+
+    async def async_save_artifact(
+        self, device_id: str, artifact: PublishedArtifact
+    ) -> None:
+        """Atomically record or update a single device's published artifact in storage."""
+        async with self._artifact_lock:
+            data = await self._artifact_store.async_load()
+            current: dict[str, Any] = data if isinstance(data, dict) else {}
+            current[device_id] = artifact.to_dict()
+            await self._artifact_store.async_save(current)
 
     async def async_load_migration(self) -> dict[str, Any]:
         """Load migration status record."""

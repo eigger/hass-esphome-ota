@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url
-import voluptuous as vol
 
 from .builder.ha_discovery import HaDiscoveryAdapter
 from .const import (
@@ -93,20 +92,25 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             base_url = user_input.get(CONF_BASE_URL, "").strip().rstrip("/")
             cand = self._selected_candidate
 
-            slug = cand.slug if cand else "esphome"
-            name = cand.name if cand else "ESPHome Builder"
+            data: dict[str, Any] = {
+                CONF_BASE_URL: base_url,
+            }
+            options: dict[str, Any] = {
+                CONF_BASE_URL: base_url,
+                CONF_AUTO_CLEANUP_HOURS: DEFAULT_AUTO_CLEANUP_HOURS,
+            }
+            title = "ESPHome OTA"
+            if cand and cand.slug:
+                data[CONF_BUILDER_SLUG] = cand.slug
+                data[CONF_BUILDER_NAME] = cand.name
+                options[CONF_BUILDER_SLUG] = cand.slug
+                options[CONF_BUILDER_NAME] = cand.name
+                title = f"ESPHome OTA ({cand.name})"
 
             return self.async_create_entry(
-                title=f"ESPHome OTA ({name})",
-                data={
-                    CONF_BUILDER_SLUG: slug,
-                    CONF_BUILDER_NAME: name,
-                    CONF_BASE_URL: base_url,
-                },
-                options={
-                    CONF_BASE_URL: base_url,
-                    CONF_AUTO_CLEANUP_HOURS: DEFAULT_AUTO_CLEANUP_HOURS,
-                },
+                title=title,
+                data=data,
+                options=options,
             )
 
         # Propose HA external or internal URL as base_url default
@@ -152,7 +156,41 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Manage ESPHome OTA options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            clean_options = dict(user_input)
+            # Sync builder selection to config entry data
+            if CONF_BUILDER_SLUG in user_input:
+                slug = user_input[CONF_BUILDER_SLUG]
+                new_data = dict(self.config_entry.data)
+                if slug and slug != "auto":
+                    new_data[CONF_BUILDER_SLUG] = slug
+                    clean_options[CONF_BUILDER_SLUG] = slug
+                    discovery = HaDiscoveryAdapter(self.hass)
+                    candidates = await discovery.async_discover_all()
+                    for c in candidates:
+                        if c.slug == slug:
+                            new_data[CONF_BUILDER_NAME] = c.name
+                            clean_options[CONF_BUILDER_NAME] = c.name
+                            if c.host:
+                                new_data["builder_host"] = c.host
+                                clean_options["builder_host"] = c.host
+                            if c.port:
+                                new_data["builder_port"] = c.port
+                                clean_options["builder_port"] = c.port
+                            break
+                    else:
+                        new_data.setdefault(CONF_BUILDER_NAME, slug)
+                        clean_options.setdefault(CONF_BUILDER_NAME, slug)
+                else:
+                    new_data.pop(CONF_BUILDER_SLUG, None)
+                    new_data.pop(CONF_BUILDER_NAME, None)
+                    new_data.pop("builder_host", None)
+                    new_data.pop("builder_port", None)
+                    clean_options.pop(CONF_BUILDER_SLUG, None)
+                    clean_options.pop(CONF_BUILDER_NAME, None)
+                    clean_options.pop("builder_host", None)
+                    clean_options.pop("builder_port", None)
+                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+            return self.async_create_entry(title="", data=clean_options)
 
         current_base_url = (
             self.config_entry.options.get(CONF_BASE_URL)
@@ -161,14 +199,27 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
         current_hours = self.config_entry.options.get(
             CONF_AUTO_CLEANUP_HOURS, DEFAULT_AUTO_CLEANUP_HOURS
         )
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_BASE_URL, default=current_base_url): str,
-                vol.Required(
-                    CONF_AUTO_CLEANUP_HOURS, default=current_hours
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=168)),
-            }
+        current_slug = (
+            self.config_entry.options.get(CONF_BUILDER_SLUG)
+            or self.config_entry.data.get(CONF_BUILDER_SLUG)
+            or "auto"
         )
 
-        return self.async_show_form(step_id="init", data_schema=schema)
+        discovery = HaDiscoveryAdapter(self.hass)
+        candidates = await discovery.async_discover_all()
+
+        builder_choices: dict[str, str] = {"auto": "Auto-detect"}
+        for c in candidates:
+            builder_choices[c.slug] = f"{c.name} ({c.host}:{c.port})"
+        if current_slug not in builder_choices:
+            builder_choices[current_slug] = current_slug
+
+        schema_dict: dict[Any, Any] = {
+            vol.Required(CONF_BASE_URL, default=current_base_url): str,
+            vol.Required(
+                CONF_AUTO_CLEANUP_HOURS, default=current_hours
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=168)),
+            vol.Optional(CONF_BUILDER_SLUG, default=current_slug): vol.In(builder_choices),
+        }
+
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(schema_dict))

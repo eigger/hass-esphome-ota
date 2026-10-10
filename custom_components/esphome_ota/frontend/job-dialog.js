@@ -74,6 +74,10 @@ const css = `
   background: #fee2e2;
   color: #991b1b;
 }
+.stage-recovery {
+  background: #fef3c7;
+  color: #92400e;
+}
 .terminal {
   background: #0f172a;
   color: #38bdf8;
@@ -105,6 +109,14 @@ button {
   background: var(--card-background-color, #ffffff);
   color: var(--primary-text-color, #1f2937);
 }
+button.secondary {
+  background: var(--secondary-background-color, #f1f5f9);
+  color: var(--primary-text-color, #1e293b);
+  border-color: var(--divider-color, #cbd5e1);
+}
+button.secondary:hover {
+  background: #e2e8f0;
+}
 button.danger {
   background: #dc2626;
   color: #ffffff;
@@ -116,6 +128,16 @@ button.primary {
   border-color: var(--primary-color, #0284c7);
 }
 `;
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 class EsphomeOtaJobDialog extends HTMLElement {
   constructor() {
@@ -158,6 +180,17 @@ class EsphomeOtaJobDialog extends HTMLElement {
     }
   }
 
+  async recheckJob() {
+    if (!this.job || !this.hass) return;
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/reconnect",
+      });
+    } catch (err) {
+      console.error("Recheck job error:", err);
+    }
+  }
+
   render() {
     if (!this.isOpen || !this.job) {
       this.shadowRoot.innerHTML = "";
@@ -175,28 +208,32 @@ class EsphomeOtaJobDialog extends HTMLElement {
       stageClass += " stage-published";
     } else if (stage === "failed" || stage === "cancelled") {
       stageClass += " stage-failed";
+    } else if (stage === "recovery_required") {
+      stageClass += " stage-recovery";
     }
 
     const isRunning = ["preparing", "validating", "submitting", "queued", "building", "downloading", "verifying", "publishing"].includes(stage);
+    const isRecovery = stage === "recovery_required";
 
     this.shadowRoot.innerHTML = `
       <style>${css}</style>
       <div class="backdrop" id="backdrop">
         <div class="modal">
           <div class="header">
-            <h2>${t(this.hass, "logs_title")} - ${this.job.configuration}</h2>
+            <h2>${escapeHtml(t(this.hass, "logs_title"))} - ${escapeHtml(this.job.configuration)}</h2>
             <button id="close-x">✕</button>
           </div>
           <div class="body">
             <div class="${stageClass}">
-              <span><strong>Status:</strong> ${stageText}</span>
-              ${this.job.reserved_version ? `<span>(Target Version: ${this.job.reserved_version})</span>` : ""}
+              <span><strong>Status:</strong> ${escapeHtml(stageText)}</span>
+              ${this.job.reserved_version ? `<span>(Target Version: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
             </div>
-            <div class="terminal" id="terminal">${logs}</div>
+            <div class="terminal" id="terminal"></div>
           </div>
           <div class="footer">
-            ${isRunning ? `<button class="danger" id="btn-cancel">${t(this.hass, "logs_cancel_btn")}</button>` : ""}
-            <button class="primary" id="btn-close">${t(this.hass, "close")}</button>
+            ${isRecovery ? `<button class="secondary" id="btn-recheck">${escapeHtml(t(this.hass, "logs_retry_btn"))}</button>` : ""}
+            ${(isRunning || isRecovery) ? `<button class="danger" id="btn-cancel">${escapeHtml(t(this.hass, "logs_cancel_btn"))}</button>` : ""}
+            <button class="primary" id="btn-close">${escapeHtml(t(this.hass, "close"))}</button>
           </div>
         </div>
       </div>
@@ -204,11 +241,13 @@ class EsphomeOtaJobDialog extends HTMLElement {
 
     const terminalEl = this.shadowRoot.getElementById("terminal");
     if (terminalEl) {
+      terminalEl.textContent = logs;
       terminalEl.scrollTop = terminalEl.scrollHeight;
     }
 
     this.shadowRoot.getElementById("close-x")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
+    this.shadowRoot.getElementById("btn-recheck")?.addEventListener("click", () => this.recheckJob());
     this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.cancelJob());
     this.shadowRoot.getElementById("backdrop")?.addEventListener("click", (e) => {
       if (e.target.id === "backdrop") this.close();

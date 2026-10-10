@@ -46,4 +46,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when options are updated."""
+    entry_data = hass.data.get(DOMAIN, {})
+    manager: OtaManager | None = entry_data.get("manager")
+    if manager and manager.should_suppress_reload():
+        return
     await hass.config_entries.async_reload(entry.entry_id)
+

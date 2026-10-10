@@ -25,7 +25,7 @@ from ..models import (
 )
 from .client import BuilderClient
 from .connection import BuilderConnection
-from .ha_discovery import HaDiscoveryAdapter
+from .ha_discovery import HaDiscoveryAdapter, KNOWN_ESPHOME_SLUGS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class BuilderResolver:
 
         candidate = self._choose_candidate()
         if not candidate:
-            if len(self.candidates) > 1 and not self.saved_selection:
+            if len(self.candidates) > 1 and not (self.saved_selection and self.saved_selection.slug):
                 self.status = STATUS_SELECTION_REQUIRED
                 raise BuilderConnectionError("Multiple Builder candidates found. Selection required.")
             self.status = STATUS_WAITING
@@ -73,13 +73,23 @@ class BuilderResolver:
 
     def _choose_candidate(self) -> BuilderCandidate | None:
         """Apply selection rules to choose a candidate."""
-        # 1. Saved selection takes precedence
-        if self.saved_selection:
+        # 1. Saved selection takes precedence when a specific slug was saved
+        if self.saved_selection and self.saved_selection.slug:
             for c in self.candidates:
                 if c.slug == self.saved_selection.slug:
                     return c
-            # If saved candidate not discovered by slug, use stored host/port hint
-            if self.saved_selection.host_hint and self.saved_selection.port_hint:
+
+            # Check if saved slug is standard core alias ("5c53de3b_esphome" <-> "esphome")
+            standard_aliases = {"5c53de3b_esphome", "esphome"}
+            if self.saved_selection.slug in standard_aliases:
+                for c in self.candidates:
+                    if c.slug in standard_aliases:
+                        return c
+
+            # An explicit target was saved, but not found among discovered candidates.
+            # Do NOT hijack to another candidate (e.g. esphome-dev).
+            # Fall back to hint only if no candidates were discovered at all.
+            if not self.candidates and self.saved_selection.host_hint and self.saved_selection.port_hint:
                 return BuilderCandidate(
                     slug=self.saved_selection.slug,
                     name=self.saved_selection.name,
@@ -89,7 +99,7 @@ class BuilderResolver:
                 )
             return None
 
-        # 2. HA ESPHome dashboard candidate currently in use
+        # 2. When no specific target is saved (unselected state), auto-select single or dashboard candidate
         dashboard_candidates = [c for c in self.candidates if c.source == "dashboard"]
         if len(dashboard_candidates) == 1:
             return dashboard_candidates[0]

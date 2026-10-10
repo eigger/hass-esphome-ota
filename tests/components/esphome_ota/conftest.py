@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-from pathlib import Path
-from typing import Any, AsyncGenerator
-import unittest.mock
-from unittest.mock import AsyncMock, patch
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
+from typing import Any
 
-from aiohttp import web
-from homeassistant.core import HomeAssistant
 import pytest
+from aiohttp import web
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.esphome_ota.const import (
@@ -58,6 +55,8 @@ class MockBuilderServer:
         self.compile_status = "completed"
         self.issued_download_token = "valid-token-123"
         self.expected_download_token = "valid-token-123"
+        self.binaries: list[dict[str, Any]] | None = None
+        self.last_download_token_args: dict[str, Any] | None = None
         self.binary_blob = (
             b"\xe9\x00\x00\x00"  # Magic + dummy
             + b"\x00" * 8
@@ -79,6 +78,8 @@ class MockBuilderServer:
         )
         self.last_download_token = "valid-token-123"
 
+        self.websockets: set[web.WebSocketResponse] = set()
+
     async def start(self) -> int:
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
@@ -90,6 +91,9 @@ class MockBuilderServer:
         return self.port
 
     async def stop(self) -> None:
+        for ws in list(self.websockets):
+            await ws.close()
+        self.websockets.clear()
         if self.runner:
             await self.runner.cleanup()
 
@@ -99,6 +103,7 @@ class MockBuilderServer:
 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
+        self.websockets.add(ws)
 
         # 1. Unsolicited server info frame
         server_info = {
@@ -241,6 +246,24 @@ class MockBuilderServer:
                 }
                 await ws.send_str(json.dumps(reply))
 
+            elif cmd == "firmware/get_jobs":
+                job_list = [
+                    {
+                        "job_id": jid,
+                        "configuration": jdata.get("configuration"),
+                        "status": jdata.get("status"),
+                        "type": jdata.get("type", "compile"),
+                        "job_type": jdata.get("job_type", jdata.get("type", "compile")),
+                        "created_at": jdata.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    }
+                    for jid, jdata in self.jobs.items()
+                ]
+                reply = {
+                    "message_id": msg_id,
+                    "result": job_list,
+                }
+                await ws.send_str(json.dumps(reply))
+
             elif cmd == "firmware/cancel":
                 job_id = args.get("job_id")
                 if job_id in self.jobs:
@@ -252,19 +275,26 @@ class MockBuilderServer:
                 await ws.send_str(json.dumps(reply))
 
             elif cmd == "firmware/get_binaries":
+                bin_list = (
+                    self.binaries
+                    if self.binaries is not None
+                    else [{"file": "firmware.ota.bin", "size": len(self.binary_blob)}]
+                )
                 reply = {
                     "message_id": msg_id,
-                    "result": [{"file": "firmware.ota.bin", "size": len(self.binary_blob)}],
+                    "result": bin_list,
                 }
                 await ws.send_str(json.dumps(reply))
 
             elif cmd == "firmware/download_token":
+                self.last_download_token_args = args
                 reply = {
                     "message_id": msg_id,
                     "result": {"token": self.issued_download_token},
                 }
                 await ws.send_str(json.dumps(reply))
 
+        self.websockets.discard(ws)
         return ws
 
     async def _download_handler(self, request: web.Request) -> web.Response:

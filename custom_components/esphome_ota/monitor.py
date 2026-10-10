@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import Any
 
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DEFAULT_AUTO_CLEANUP_HOURS
 from .devices import DeviceManager
-from .models import ManagedDevice
 from .publisher import ArtifactPublisher
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,32 +37,141 @@ class InstallationMonitor:
         self.cleanup_hours = cleanup_hours
         self.event_callback = event_callback
         self._unsub_listeners: list[Callable[[], None]] = []
+        self._monitored_entities: set[str] = set()
         self._cleanup_timers: dict[str, asyncio.TimerHandle] = {}
+        self._cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
 
     async def async_setup(self) -> None:
-        """Discover matching Update entities and attach state listeners."""
-        registry = er.async_get(self.hass)
+        """Discover matching Update entities, listen for new entities, and restore cleanup timers."""
+        await self.async_refresh_monitoring()
+
+        # Listen for new or updated entities in the entity registry
+        @callback
+        def _on_entity_registry_updated(event: Event) -> None:
+            self.hass.async_create_task(self.async_refresh_monitoring())
+
+        unsub_er = self.hass.bus.async_listen(
+            er.EVENT_ENTITY_REGISTRY_UPDATED, _on_entity_registry_updated
+        )
+        self._unsub_listeners.append(unsub_er)
+
+        # Restore cleanup timers for existing public artifacts from storage
+        artifacts = await self.device_manager.storage.async_load_artifacts()
+        now = datetime.now(timezone.utc)
+        for art in artifacts.values():
+            if art.is_public and art.public_bin_path and art.published_at:
+                try:
+                    pub_dt = datetime.fromisoformat(art.published_at)
+                    elapsed = (now - pub_dt).total_seconds()
+                    remaining = (self.cleanup_hours * 3600) - elapsed
+                    dev = self.device_manager.get_device(art.device_id)
+                    slug = dev.slug if dev else art.device_id
+                    self.publisher._active_artifacts[slug] = art.published_at
+                    if remaining <= 0:
+                        self.hass.async_create_task(
+                            self.publisher.async_deactivate(
+                                slug, expected_artifact_id=art.published_at
+                            )
+                        )
+                    else:
+                        self.schedule_cleanup(
+                            art.device_id,
+                            slug,
+                            delay_seconds=remaining,
+                            artifact_id=art.published_at,
+                        )
+                except Exception as ex:  # noqa: BLE001
+                    _LOGGER.debug("Could not restore cleanup timer for %s: %s", art.device_id, ex)
+
+    async def async_refresh_monitoring(self) -> None:
+        """Scan devices and attach listeners to any newly discovered Update entities."""
+        ent_reg = er.async_get(self.hass)
+        dev_reg = dr.async_get(self.hass)
         devices = self.device_manager.list_all()
 
         for dev_data in devices:
             device_id = dev_data["device_id"]
-            slug = dev_data["slug"]
             dev_name = dev_data["name"]
+            norm_name = dev_name.lower().replace("-", "_")
 
-            # Search entity registry for matching update entity
             matched_entity_id: str | None = None
-            for entity in registry.entities.values():
-                if entity.domain != "update":
+
+            # 1. First attempt: match via Home Assistant Device Registry
+            matching_ha_device_id: str | None = None
+            for ha_dev in dev_reg.devices:
+                # Only consider devices belonging to the ESPHome domain
+                if not any(domain == "esphome" for domain, _ in ha_dev.identifiers):
                     continue
-                # Match by entity unique_id or entity_id naming convention
-                if (
-                    dev_name in entity.entity_id
-                    or (entity.original_name and dev_name in entity.original_name.lower())
+
+                matched = False
+                for domain, ident in ha_dev.identifiers:
+                    if domain == "esphome" and str(ident).lower() in (
+                        dev_name.lower(),
+                        device_id.lower(),
+                        norm_name,
+                    ):
+                        matched = True
+                        break
+                if not matched and ha_dev.name and ha_dev.name.lower() in (
+                    dev_name.lower(),
+                    norm_name,
+                    dev_data.get("friendly_name", "").lower(),
                 ):
-                    matched_entity_id = entity.entity_id
+                    matched = True
+
+                if matched:
+                    matching_ha_device_id = ha_dev.id
                     break
 
-            if matched_entity_id:
+            if matching_ha_device_id:
+                for entity in ent_reg.entities.values():
+                    if (
+                        entity.domain == "update"
+                        and entity.platform == "esphome"
+                        and entity.device_id == matching_ha_device_id
+                    ):
+                        matched_entity_id = entity.entity_id
+                        break
+
+            # 2. Second attempt: match via exact naming patterns
+            # Strictly require entity.platform == "esphome" and verify device connection relationship
+            if not matched_entity_id:
+                for entity in ent_reg.entities.values():
+                    if entity.domain != "update" or entity.platform != "esphome":
+                        continue
+
+                    # If entity is attached to a HA device, verify that device is an ESPHome device
+                    if entity.device_id:
+                        ent_dev = dev_reg.async_get(entity.device_id)
+                        if ent_dev:
+                            if not any(d == "esphome" for d, _ in ent_dev.identifiers):
+                                continue
+                            if matching_ha_device_id and ent_dev.id != matching_ha_device_id:
+                                continue
+
+                    obj_id = entity.entity_id.split(".", 1)[-1].lower()
+                    if obj_id in (norm_name, f"{norm_name}_firmware", f"{norm_name}_update"):
+                        matched_entity_id = entity.entity_id
+                        break
+                    if entity.unique_id:
+                        u_id = entity.unique_id.lower()
+                        if u_id.startswith((f"{norm_name}_", f"{norm_name}-")):
+                            matched_entity_id = entity.entity_id
+                            break
+                    if entity.original_name:
+                        orig = entity.original_name.lower()
+                        if orig in (
+                            norm_name,
+                            f"{norm_name} firmware",
+                            f"{norm_name} update",
+                            dev_data.get("friendly_name", "").lower(),
+                            f"{dev_data.get('friendly_name', '').lower()} firmware",
+                        ):
+                            matched_entity_id = entity.entity_id
+                            break
+
+            if matched_entity_id and matched_entity_id not in self._monitored_entities:
+                self._monitored_entities.add(matched_entity_id)
                 self._attach_listener(device_id, matched_entity_id)
 
     def _attach_listener(self, device_id: str, entity_id: str) -> None:
@@ -82,39 +192,75 @@ class InstallationMonitor:
                 return
 
             # Check if device installed the published firmware
-            if dev.last_published_version and installed_version == dev.last_published_version:
-                if not in_progress:
-                    _LOGGER.info(
-                        "Installation verified for %s at version %s",
-                        device_id,
-                        installed_version,
-                    )
-                    self.hass.async_create_task(
-                        self.device_manager.async_mark_installed(
-                            device_id, installed_version
-                        )
+            if (
+                dev.last_published_version
+                and installed_version == dev.last_published_version
+                and not in_progress
+            ):
+                _LOGGER.info(
+                    "Installation verified for %s at version %s",
+                    device_id,
+                    installed_version,
+                )
+
+                async def _mark_and_notify() -> None:
+                    await self.device_manager.async_mark_installed(
+                        device_id, installed_version
                     )
                     if self.event_callback:
                         self.event_callback(
-                            "installation_verified",
-                            {"device_id": device_id, "version": installed_version},
+                            "devices_updated",
+                            {"devices": self.device_manager.list_all()},
                         )
+                        self.event_callback(
+                            "installation_verified",
+                            {
+                                "device_id": device_id,
+                                "version": installed_version,
+                                "devices": self.device_manager.list_all(),
+                            },
+                        )
+
+                self.hass.async_create_task(_mark_and_notify())
 
         unsub = async_track_state_change_event(self.hass, [entity_id], _state_changed)
         self._unsub_listeners.append(unsub)
 
-    def schedule_cleanup(self, device_id: str, slug: str) -> None:
+    def schedule_cleanup(
+        self,
+        device_id: str,
+        slug: str,
+        delay_seconds: float | None = None,
+        artifact_id: str | None = None,
+    ) -> None:
         """Schedule automatic public binary deactivation after expiry period."""
         self.cancel_cleanup(device_id)
 
-        delay_seconds = self.cleanup_hours * 3600
+        target_artifact_id = artifact_id
+        if target_artifact_id is None:
+            target_artifact_id = self.publisher.get_current_artifact_id(slug)
+
+        if delay_seconds is None:
+            delay = max(0.0, float(self.cleanup_hours * 3600))
+        else:
+            delay = max(0.0, float(delay_seconds))
 
         @callback
         def _run_cleanup() -> None:
-            _LOGGER.info("Running automatic cleanup for %s (slug=%s)", device_id, slug)
-            self.hass.async_create_task(self.publisher.async_deactivate(slug))
+            _LOGGER.info(
+                "Running automatic cleanup for %s (slug=%s, target_artifact=%s)",
+                device_id,
+                slug,
+                target_artifact_id,
+            )
+            task = self.hass.async_create_task(
+                self.publisher.async_deactivate(
+                    slug, expected_artifact_id=target_artifact_id
+                )
+            )
+            self._cleanup_tasks[device_id] = task
 
-        timer = self.hass.loop.call_later(delay_seconds, _run_cleanup)
+        timer = self.hass.loop.call_later(delay, _run_cleanup)
         self._cleanup_timers[device_id] = timer
 
     def cancel_cleanup(self, device_id: str) -> None:
@@ -122,13 +268,22 @@ class InstallationMonitor:
         timer = self._cleanup_timers.pop(device_id, None)
         if timer:
             timer.cancel()
+        task = self._cleanup_tasks.pop(device_id, None)
+        if task and not task.done():
+            task.cancel()
 
     def async_unload(self) -> None:
         """Clean up all listeners and timers on unload."""
         for unsub in self._unsub_listeners:
             unsub()
         self._unsub_listeners.clear()
+        self._monitored_entities.clear()
 
         for timer in self._cleanup_timers.values():
             timer.cancel()
         self._cleanup_timers.clear()
+
+        for task in self._cleanup_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._cleanup_tasks.clear()

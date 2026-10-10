@@ -80,11 +80,17 @@ class FirmwareUploadView(HomeAssistantView):
                 info=info,
                 title=dev.friendly_name,
             )
-            artifacts = await self.manager.storage.async_load_artifacts()
-            artifacts[dev.device_id] = published
-            await self.manager.storage.async_save_artifacts(artifacts)
+            await self.manager.storage.async_save_artifact(dev.device_id, published)
             await self.manager.device_manager.async_mark_published(
                 dev.device_id, published.version
+            )
+            if self.manager.monitor:
+                self.manager.monitor.schedule_cleanup(
+                    dev.device_id, dev.slug, artifact_id=published.published_at
+                )
+            self.manager._dispatch_event(
+                "devices_updated",
+                {"devices": self.manager.device_manager.list_all()},
             )
             return web.json_response(
                 {

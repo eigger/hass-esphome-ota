@@ -138,6 +138,16 @@ button.primary {
 }
 `;
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 class EsphomeOtaDeviceDialog extends HTMLElement {
   constructor() {
     super();
@@ -246,18 +256,20 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
 
     let tabContent = "";
     if (this.currentTab === "diff") {
-      const diffFormatted = (this.diffData?.diff || "Loading configuration diff...")
+      const rawDiff = this.diffData?.diff || "Loading configuration diff...";
+      const diffFormatted = rawDiff
         .split("\n")
         .map((l) => {
-          if (l.startsWith("+")) return `<span class="diff-add">${l}</span>`;
-          if (l.startsWith("-")) return `<span class="diff-del">${l}</span>`;
-          return l;
+          const escaped = escapeHtml(l);
+          if (l.startsWith("+")) return `<span class="diff-add">${escaped}</span>`;
+          if (l.startsWith("-")) return `<span class="diff-del">${escaped}</span>`;
+          return escaped;
         })
         .join("\n");
 
       tabContent = `
         <div class="notice">
-          <strong>${t(this.hass, "yaml_diff_title")}:</strong> ${t(this.hass, "yaml_diff_help")}
+          <strong>${escapeHtml(t(this.hass, "yaml_diff_title"))}:</strong> ${escapeHtml(t(this.hass, "yaml_diff_help"))}
         </div>
         <div class="diff-viewer">${diffFormatted}</div>
       `;
@@ -266,25 +278,25 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       tabContent = `
         ${needsInitial ? `
           <div class="notice">
-            <strong>${t(this.hass, "initial_install_title")}</strong><br>
-            ${t(this.hass, "initial_install_help")}
+            <strong>${escapeHtml(t(this.hass, "initial_install_title"))}</strong><br>
+            ${escapeHtml(t(this.hass, "initial_install_help"))}
           </div>
         ` : ""}
         <table class="info-table">
-          <tr><td>Name</td><td>${this.device.name}</td></tr>
-          <tr><td>Configuration</td><td>${this.device.configuration}.yaml</td></tr>
-          <tr><td>Chip Family</td><td>${this.device.chip_family}</td></tr>
-          <tr><td>Token</td><td>${this.device.token || "None (Legacy)"}</td></tr>
-          <tr><td>Public Slug</td><td>${this.device.slug}</td></tr>
-          <tr><td>Installed Version</td><td>${this.device.last_installed_version || "Not detected"}</td></tr>
-          <tr><td>Published Version</td><td>${this.device.last_published_version || "None"}</td></tr>
+          <tr><td>Name</td><td>${escapeHtml(this.device.name)}</td></tr>
+          <tr><td>Configuration</td><td>${escapeHtml(this.device.configuration)}</td></tr>
+          <tr><td>Chip Family</td><td>${escapeHtml(this.device.chip_family)}</td></tr>
+          <tr><td>Token</td><td>${escapeHtml(this.device.token || "None (Legacy)")}</td></tr>
+          <tr><td>Public Slug</td><td>${escapeHtml(this.device.slug)}</td></tr>
+          <tr><td>Installed Version</td><td>${escapeHtml(this.device.last_installed_version || "Not detected")}</td></tr>
+          <tr><td>Published Version</td><td>${escapeHtml(this.device.last_published_version || "None")}</td></tr>
         </table>
       `;
     } else if (this.currentTab === "upload") {
       tabContent = `
         <div class="notice">
-          <strong>${t(this.hass, "upload_title")}</strong><br>
-          ${t(this.hass, "upload_help")}
+          <strong>${escapeHtml(t(this.hass, "upload_title"))}</strong><br>
+          ${escapeHtml(t(this.hass, "upload_help"))}
         </div>
         <input type="file" id="firmware-file" accept=".bin" style="margin: 12px 0;">
       `;
@@ -295,27 +307,27 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       <div class="backdrop" id="backdrop">
         <div class="modal">
           <div class="header">
-            <h2>${this.device.friendly_name || this.device.name}</h2>
+            <h2>${escapeHtml(this.device.friendly_name || this.device.name)}</h2>
             <button id="close-x">✕</button>
           </div>
           <div class="tabs">
-            <button class="tab ${this.currentTab === "diff" ? "active" : ""}" data-tab="diff">${t(this.hass, "btn_prepare")}</button>
+            <button class="tab ${this.currentTab === "diff" ? "active" : ""}" data-tab="diff">${escapeHtml(t(this.hass, "btn_prepare"))}</button>
             <button class="tab ${this.currentTab === "info" ? "active" : ""}" data-tab="info">Device Info</button>
             <button class="tab ${this.currentTab === "upload" ? "active" : ""}" data-tab="upload">Manual Upload</button>
           </div>
           <div class="body">
-            ${this.statusMessage ? `<div class="notice">${this.statusMessage}</div>` : ""}
+            ${this.statusMessage ? `<div class="notice">${escapeHtml(this.statusMessage)}</div>` : ""}
             ${tabContent}
           </div>
           <div class="footer">
             ${this.currentTab === "diff" ? `
-              <button id="btn-apply">${t(this.hass, "apply_changes")}</button>
-              <button class="primary" id="btn-apply-build">${t(this.hass, "apply_and_build")}</button>
+              <button id="btn-apply">${escapeHtml(t(this.hass, "apply_changes"))}</button>
+              <button class="primary" id="btn-apply-build">${escapeHtml(t(this.hass, "apply_and_build"))}</button>
             ` : ""}
             ${this.currentTab === "upload" ? `
-              <button class="primary" id="btn-upload" ${this.uploading ? "disabled" : ""}>${t(this.hass, "upload_btn")}</button>
+              <button class="primary" id="btn-upload" ${this.uploading ? "disabled" : ""}>${escapeHtml(t(this.hass, "upload_btn"))}</button>
             ` : ""}
-            <button id="btn-close">${t(this.hass, "close")}</button>
+            <button id="btn-close">${escapeHtml(t(this.hass, "close"))}</button>
           </div>
         </div>
       </div>
