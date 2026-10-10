@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import DEFAULT_PUBLISH_DIR
 from .devices import DeviceManager
@@ -149,6 +150,10 @@ class MigrationManager:
                 _LOGGER.warning("Failed registering migrated devices: %s", err)
 
         await self.storage.async_save_migration(
-            {"completed": True, "details": result}
+            {
+                "completed": True,
+                "migrated_at": dt_util.utcnow().isoformat(),
+                "details": result,
+            }
         )
         return result

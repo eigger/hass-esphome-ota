@@ -538,7 +538,6 @@ class EsphomeOtaManager extends HTMLElement {
     migDialog?.addEventListener("migration-completed", () => {
       if (this._migrationPreview) this._migrationPreview.already_migrated = true;
       this._renderMigrationBanner();
-      this.refresh();
     });
 
     this._domInitialized = true;

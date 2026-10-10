@@ -118,6 +118,11 @@ const css = `
   color: #1e40af;
   border: 1px solid #bfdbfe;
 }
+.status-box.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
 .footer {
   padding: 14px 20px;
   border-top: 1px solid var(--divider-color, #e5e7eb);
@@ -184,6 +189,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     this.executing = false;
     this.preview = null;
     this.result = null;
+    this.error = null;
   }
 
   async open(hass) {
@@ -192,13 +198,15 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     this.loading = true;
     this.executing = false;
     this.result = null;
+    this.error = null;
     this.render();
 
     try {
       this.preview = await this._hass.callWS({ type: "esphome_ota/migrate_preview" });
     } catch (err) {
       console.error("Migration preview error:", err);
-      this.preview = { error: err.message || err };
+      this.preview = null;
+      this.error = err.message || String(err);
     } finally {
       this.loading = false;
       this.render();
@@ -213,6 +221,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
   async executeMigration() {
     if (this.executing || !this._hass) return;
     this.executing = true;
+    this.error = null;
     this.render();
 
     try {
@@ -221,7 +230,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
       this.dispatchEvent(new CustomEvent("migration-completed", { detail: res, bubbles: true, composed: true }));
     } catch (err) {
       console.error("Migration execution failed:", err);
-      alert(`Migration error: ${err.message || err}`);
+      this.error = err.message || String(err);
     } finally {
       this.executing = false;
       this.render();
@@ -239,6 +248,10 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     const closeTxt = t(this._hass, "close");
 
     let bodyContent = "";
+
+    const errorBox = this.error
+      ? `<div class="status-box error"><strong>${escapeHtml(t(this._hass, "migration_error"))}</strong><div style="margin-top: 6px;">${escapeHtml(this.error)}</div></div>`
+      : "";
 
     if (this.loading) {
       bodyContent = `
@@ -275,6 +288,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
         bodyContent = `
           <p class="help-text">${escapeHtml(help)}</p>
           ${statusMsg}
+          ${errorBox}
           <div style="text-align: center; padding: 24px; color: var(--secondary-text-color, #64748b); background: var(--secondary-background-color, #f8fafc); border-radius: 8px;">
             ${escapeHtml(t(this._hass, "migration_no_data"))}
           </div>
@@ -284,6 +298,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
         bodyContent = `
           <p class="help-text">${escapeHtml(help)}</p>
           ${statusMsg}
+          ${errorBox}
           <div class="stats-grid">
             <div class="stat-card">
               <span class="stat-label">${escapeHtml(t(this._hass, "migration_devices_found"))}</span>
@@ -294,9 +309,11 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
               <span class="stat-value">${p.binary_count}</span>
             </div>
           </div>
-          ${deviceList ? `<div><div class="stat-label" style="margin-bottom: 6px;">${escapeHtml(t(this._hass, "migration_devices_found"))}:</div><div class="device-tags">${deviceList}</div></div>` : ""}
+          ${deviceList ? `<div><div class="stat-label" style="margin-bottom: 6px;">${escapeHtml(t(this._hass, "migration_device_list"))}</div><div class="device-tags">${deviceList}</div></div>` : ""}
         `;
       }
+    } else if (this.error) {
+      bodyContent = errorBox;
     }
 
     const canMigrate = this.preview && this.preview.has_legacy_registry && this.preview.device_count > 0 && !this.result;
@@ -315,7 +332,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
           </div>
           <div class="footer">
             <button id="btn-cancel">${escapeHtml(closeTxt)}</button>
-            ${canMigrate ? `<button class="primary" id="btn-start" ${this.executing ? "disabled" : ""}>${escapeHtml(this.executing ? t(this._hass, "stage_preparing") + "..." : startBtnText)}</button>` : ""}
+            ${canMigrate ? `<button class="primary" id="btn-start" ${this.executing ? "disabled" : ""}>${escapeHtml(this.executing ? t(this._hass, "migration_importing") + "..." : startBtnText)}</button>` : ""}
           </div>
         </div>
       </div>
