@@ -85,6 +85,81 @@ async def test_device_status_transitions(hass: HomeAssistant) -> None:
     assert manager._calculate_status(dev) == DEVICE_STATUS_UPDATE_AVAILABLE
 
 
+async def test_resolve_legacy_configuration_prefers_plain_yaml(
+    hass: HomeAssistant,
+) -> None:
+    """Prefer {node}.yaml over slug-named Builder copies during migration matching."""
+    storage = StorageManager(hass)
+    manager = DeviceManager(hass, storage)
+    token = "66538f8029a9436117254bea079c279e"
+    manager.update_builder_devices(
+        [
+            {
+                "configuration": f"esp-colorado-tab5_{token}(1).yaml",
+                "name": "esp-colorado-tab5",
+                "friendly_name": "ESP Colorado TAB5",
+                "target_platform": "esp32",
+            },
+            {
+                "configuration": "esp-colorado-tab5.yaml",
+                "name": "esp-colorado-tab5",
+                "friendly_name": "ESP Colorado TAB5",
+                "target_platform": "esp32",
+            },
+        ]
+    )
+
+    device_id, configuration, raw, ambiguous = manager.resolve_legacy_configuration(
+        "esp-colorado-tab5", token
+    )
+    assert device_id == "esp-colorado-tab5"
+    assert configuration == "esp-colorado-tab5.yaml"
+    assert raw is not None
+    assert f"esp-colorado-tab5_{token}(1)" in ambiguous
+
+
+async def test_resolve_legacy_configuration_falls_back_to_slug_copy(
+    hass: HomeAssistant,
+) -> None:
+    """When only a slug-named copy exists, bind migration to that config."""
+    storage = StorageManager(hass)
+    manager = DeviceManager(hass, storage)
+    token = "a8f3b9c2e17d904f8e5b6c7a1d2e3f4a"
+    manager.update_builder_devices(
+        [
+            {
+                "configuration": f"livingroom_{token}(1).yaml",
+                "name": "livingroom",
+                "friendly_name": "Living Room",
+                "target_platform": "esp32",
+            }
+        ]
+    )
+
+    device_id, configuration, raw, ambiguous = manager.resolve_legacy_configuration(
+        "livingroom", token
+    )
+    assert device_id == f"livingroom_{token}(1)"
+    assert configuration == f"livingroom_{token}(1).yaml"
+    assert raw is not None
+    assert ambiguous == []
+
+
+async def test_async_remove_device(hass: HomeAssistant) -> None:
+    """Removing a managed device clears it from storage-backed inventory."""
+    storage = StorageManager(hass)
+    manager = DeviceManager(hass, storage)
+    await manager.async_register_or_update(
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        name="livingroom",
+        friendly_name="Living Room",
+    )
+    removed = await manager.async_remove_device("livingroom")
+    assert removed is not None
+    assert manager.get_device("livingroom") is None
+
+
 async def test_device_lock_concurrency(hass: HomeAssistant) -> None:
     """Test device lock serializes concurrent access."""
     storage = StorageManager(hass)

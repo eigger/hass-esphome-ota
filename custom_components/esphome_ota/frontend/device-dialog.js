@@ -136,6 +136,14 @@ button.primary {
   color: #ffffff;
   border-color: var(--primary-color, #0284c7);
 }
+button.danger {
+  background: #ffffff;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+button.danger:hover {
+  background: #fef2f2;
+}
 `;
 
 function escapeHtml(str) {
@@ -248,6 +256,23 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     }
   }
 
+  async removeOta() {
+    if (!this.device?.is_managed) return;
+    const confirmMsg = t(this.hass, "remove_ota_confirm");
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/remove_ota",
+        device_id: this.device.device_id,
+      });
+      this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
+      this.close();
+    } catch (err) {
+      this.statusMessage = `Remove OTA error: ${err.message || err}`;
+      this.render();
+    }
+  }
+
   render() {
     if (!this.isOpen || !this.device) {
       this.shadowRoot.innerHTML = "";
@@ -327,6 +352,9 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
             ${this.currentTab === "upload" ? `
               <button class="primary" id="btn-upload" ${this.uploading ? "disabled" : ""}>${escapeHtml(t(this.hass, "upload_btn"))}</button>
             ` : ""}
+            ${this.device.is_managed && this.currentTab === "info" ? `
+              <button class="danger" id="btn-remove-ota">${escapeHtml(t(this.hass, "btn_remove_ota"))}</button>
+            ` : ""}
             <button id="btn-close">${escapeHtml(t(this.hass, "close"))}</button>
           </div>
         </div>
@@ -350,6 +378,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
 
     this.shadowRoot.getElementById("btn-apply")?.addEventListener("click", () => this.applyDiff(false));
     this.shadowRoot.getElementById("btn-apply-build")?.addEventListener("click", () => this.applyDiff(true));
+    this.shadowRoot.getElementById("btn-remove-ota")?.addEventListener("click", () => this.removeOta());
     this.shadowRoot.getElementById("btn-upload")?.addEventListener("click", () => {
       const fileInput = this.shadowRoot.getElementById("firmware-file");
       if (fileInput && fileInput.files && fileInput.files[0]) {

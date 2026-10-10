@@ -147,6 +147,14 @@ button.primary {
 button.primary:hover {
   opacity: 0.92;
 }
+button.danger {
+  background: #ffffff;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+button.danger:hover {
+  background: #fef2f2;
+}
 
 .controls {
   flex: 0 0 auto;
@@ -255,11 +263,13 @@ button.primary:hover {
 
 .card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: auto;
 }
 .card-actions button {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   justify-content: center;
 }
 .empty-state {
@@ -734,6 +744,36 @@ class EsphomeOtaManager extends HTMLElement {
         if (dev) this.openDeviceDialog(dev, "info");
       });
     });
+
+    this.shadowRoot.querySelectorAll(".btn-remove-ota").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const id = e.target.getAttribute("data-id");
+        const dev = this.devices.find((d) => d.device_id === id);
+        if (dev) this.removeOta(dev);
+      });
+    });
+  }
+
+  async removeOta(device) {
+    const confirmMsg = t(this.hass, "remove_ota_confirm");
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/remove_ota",
+        device_id: device.device_id,
+      });
+      this.selectedDevices.delete(device.device_id);
+      try {
+        const res = await this.hass.callWS({ type: "esphome_ota/devices" });
+        if (Array.isArray(res)) this.devices = res;
+        else if (res?.devices) this.devices = res.devices;
+      } catch (_err) {
+        // devices_updated subscription will refresh the list
+      }
+      this._renderDeviceList();
+    } catch (err) {
+      alert(`Remove OTA error: ${err.message || err}`);
+    }
   }
 
   renderCard(dev) {
@@ -797,6 +837,7 @@ class EsphomeOtaManager extends HTMLElement {
         <div class="card-actions">
           ${actionButton}
           <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_details"))}</button>
+          ${dev.is_managed ? `<button class="danger btn-remove-ota" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_remove_ota"))}</button>` : ""}
         </div>
       </div>
     `;
