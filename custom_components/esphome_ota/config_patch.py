@@ -83,6 +83,208 @@ def own_project_version(content: str) -> str | None:
     return None
 
 
+def is_legacy_ota_server_package(pkg_val: Any) -> bool:
+    """Check if a package entry references the legacy ota_server package/wrapper."""
+    if isinstance(pkg_val, str):
+        val_lower = pkg_val.strip().lower()
+        return "ota_server" in val_lower
+    if isinstance(pkg_val, dict):
+        inc = pkg_val.get("__include__")
+        if isinstance(inc, str) and "ota_server" in inc.lower():
+            return True
+        url = pkg_val.get("url") or ""
+        files = str(pkg_val.get("files") or pkg_val.get("file") or "")
+        if "ota_server" in str(url).lower() or "ota_server" in files.lower():
+            return True
+    return False
+
+
+def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
+    """Strip legacy ota_server package includes and legacy substitutions from YAML text.
+
+    Returns (new_content, changed).
+    """
+    if "ota_server" not in yaml_content and "ota_device:" not in yaml_content and "ota_slug:" not in yaml_content:
+        return yaml_content, False
+
+    lines = yaml_content.splitlines(keepends=True)
+    changed = False
+
+    def _indent_of(line: str) -> int:
+        return len(line) - len(line.lstrip(" \t"))
+
+    def _is_top_level(line: str) -> bool:
+        return bool(
+            line.strip()
+            and not line.startswith((" ", "\t"))
+            and not line.lstrip().startswith("#")
+        )
+
+    # 1. Clean legacy substitutions: ota_device and ota_slug
+    sub_idx: int | None = None
+    for idx, line in enumerate(lines):
+        if re.match(r"^substitutions\s*:", line):
+            sub_idx = idx
+            break
+
+    if sub_idx is not None:
+        sub_base_indent = 2
+        for sub_line in lines[sub_idx + 1 :]:
+            if not sub_line.strip() or sub_line.lstrip().startswith("#"):
+                continue
+            if _is_top_level(sub_line):
+                break
+            sub_base_indent = _indent_of(sub_line)
+            break
+
+        new_lines: list[str] = list(lines[: sub_idx + 1])
+        sub_rem_count = 0
+        sub_changed = False
+        i = sub_idx + 1
+        after_sub_idx = len(lines)
+        while i < len(lines):
+            line = lines[i]
+            if _is_top_level(line):
+                after_sub_idx = i
+                break
+            if not line.strip() or line.lstrip().startswith("#"):
+                new_lines.append(line)
+                i += 1
+                continue
+            ind = _indent_of(line)
+            if ind == sub_base_indent and re.match(r"^[ \t]+(ota_device|ota_slug)\s*:", line):
+                sub_changed = True
+                i += 1
+                while i < len(lines):
+                    nxt = lines[i]
+                    if _is_top_level(nxt):
+                        break
+                    if not nxt.strip():
+                        i += 1
+                        continue
+                    if _indent_of(nxt) > sub_base_indent:
+                        i += 1
+                        continue
+                    break
+                continue
+            if ind == sub_base_indent:
+                sub_rem_count += 1
+            new_lines.append(line)
+            i += 1
+        after_sub_idx = i
+
+        if sub_changed:
+            changed = True
+            if sub_rem_count == 0:
+                before = lines[:sub_idx]
+                while before and not before[-1].strip():
+                    before.pop()
+                after = lines[after_sub_idx:]
+                lines = before + (["\n"] if before and after else []) + after
+            else:
+                lines = new_lines + lines[after_sub_idx:]
+
+    # 2. Clean packages: block of ota_server entries
+    packages_idx: int | None = None
+    for idx, line in enumerate(lines):
+        if re.match(r"^packages\s*:", line):
+            packages_idx = idx
+            break
+
+    if packages_idx is not None:
+        pkg_line = lines[packages_idx]
+        if "ota_server" in pkg_line:
+            lines.pop(packages_idx)
+            changed = True
+        else:
+            pkg_base_indent = 2
+            for sub_line in lines[packages_idx + 1 :]:
+                if not sub_line.strip() or sub_line.lstrip().startswith("#"):
+                    continue
+                if _is_top_level(sub_line):
+                    break
+                pkg_base_indent = _indent_of(sub_line)
+                break
+
+            before_pkg = lines[:packages_idx]
+            kept_pkg_children: list[str] = []
+            pkg_rem_count = 0
+            pkg_changed = False
+
+            i = packages_idx + 1
+            after_pkg_idx = len(lines)
+            while i < len(lines):
+                line = lines[i]
+                if _is_top_level(line):
+                    after_pkg_idx = i
+                    break
+                if not line.strip() or line.lstrip().startswith("#"):
+                    kept_pkg_children.append(line)
+                    i += 1
+                    continue
+                ind = _indent_of(line)
+                if ind == pkg_base_indent:
+                    entry_lines = [line]
+                    j = i + 1
+                    while j < len(lines):
+                        nxt = lines[j]
+                        if _is_top_level(nxt):
+                            break
+                        if not nxt.strip():
+                            j += 1
+                            continue
+                        if _indent_of(nxt) > pkg_base_indent:
+                            entry_lines.append(nxt)
+                            j += 1
+                            continue
+                        if nxt.lstrip().startswith("#") and _indent_of(nxt) >= pkg_base_indent:
+                            entry_lines.append(nxt)
+                            j += 1
+                            continue
+                        break
+                    block_str = "".join(entry_lines)
+                    if "ota_server" in block_str:
+                        pkg_changed = True
+                        i = j
+                        continue
+                    else:
+                        pkg_rem_count += 1
+                        kept_pkg_children.extend(entry_lines)
+                        i = j
+                        continue
+                kept_pkg_children.append(line)
+                i += 1
+            after_pkg_idx = i
+
+            if pkg_changed:
+                changed = True
+                after_pkg = lines[after_pkg_idx:]
+                if pkg_rem_count == 0:
+                    while before_pkg and not before_pkg[-1].strip():
+                        before_pkg.pop()
+                    if before_pkg and not before_pkg[-1].endswith("\n"):
+                        before_pkg[-1] += "\n"
+                    lines = before_pkg + after_pkg
+                else:
+                    while kept_pkg_children and not kept_pkg_children[0].strip():
+                        kept_pkg_children.pop(0)
+                    while kept_pkg_children and not kept_pkg_children[-1].strip():
+                        kept_pkg_children.pop()
+                    header = lines[packages_idx]
+                    if not header.endswith("\n"):
+                        header += "\n"
+                    body = before_pkg + [header] + kept_pkg_children
+                    if kept_pkg_children and not kept_pkg_children[-1].endswith("\n") and after_pkg:
+                        body[-1] += "\n"
+                    lines = body + after_pkg
+
+    if not changed:
+        return yaml_content, False
+
+    result = "".join(lines)
+    return re.sub(r"\n{3,}", "\n\n", result), True
+
+
 def _is_external_or_include_package(pkg_val: Any) -> bool:
     """Check if a package entry references an external package or include."""
     if isinstance(pkg_val, str):
@@ -104,7 +306,7 @@ def has_unclear_project_ownership(content: str) -> bool:
 
     Top-level explicit project.version takes precedence and clarifies ownership.
     Remote packages (github://, url/files) or included packages without top-level version
-    are considered ambiguous.
+    are considered ambiguous. Legacy ota_server packages are not ambiguous as they will be replaced.
     """
     data = parse_yaml_safe(content)
 
@@ -154,14 +356,19 @@ def has_unclear_project_ownership(content: str) -> bool:
         for pkg_name, pkg_val in packages.items():
             if pkg_name == "esphome_ota":
                 continue
+            if is_legacy_ota_server_package(pkg_val):
+                continue
             if _is_external_or_include_package(pkg_val):
                 return True
     elif isinstance(packages, list):
         for pkg_val in packages:
+            if is_legacy_ota_server_package(pkg_val):
+                continue
             if _is_external_or_include_package(pkg_val):
                 return True
     elif isinstance(content, str) and bool(re.search(r"^\s*packages:\s*!include", content, re.MULTILINE)):
-        return True
+        if "ota_server" not in content:
+            return True
 
     # Check raw content for remote github packages
     return bool(
@@ -439,8 +646,27 @@ def apply_ota_patch(
 ) -> YamlDiff:
     """Apply the managed packages.esphome_ota block into YAML while preserving comments and format."""
     original = yaml_content
-    own_ver = own_project_version(original)
-    unclear = has_unclear_project_ownership(original)
+
+    # Strip legacy ota_server packages and substitutions first
+    clean_yaml, _ = strip_legacy_ota_packages(yaml_content)
+
+    # Derive node fallback if missing
+    if not node:
+        parsed = parse_yaml_safe(clean_yaml)
+        esphome_block = parsed.get("esphome")
+        if isinstance(esphome_block, dict):
+            name_val = esphome_block.get("name")
+            if name_val:
+                node = str(name_val).strip()
+        if not node and slug:
+            node = slug.split("_")[0]
+
+    # Derive version fallback if missing
+    if not target_version:
+        target_version = "1.0.0"
+
+    own_ver = own_project_version(clean_yaml)
+    unclear = has_unclear_project_ownership(clean_yaml)
     use_project = (own_ver is None) and not unclear
 
     patch_yaml = generate_inline_ota_yaml(
@@ -451,7 +677,7 @@ def apply_ota_patch(
         use_project=use_project,
     )
 
-    lines = original.splitlines(keepends=True)
+    lines = clean_yaml.splitlines(keepends=True)
     new_lines: list[str] = []
 
     # Check if packages: block already exists

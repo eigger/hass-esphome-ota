@@ -216,3 +216,74 @@ def test_i18n_en_ko_key_parity() -> None:
         f"en-only: {sorted(en_keys - ko_keys)}; ko-only: {sorted(ko_keys - en_keys)}"
     )
     assert "batch_build" in en_keys
+
+
+async def test_migration_transforms_yaml_config_from_ota_server_to_inline_package(
+    hass: HomeAssistant,
+) -> None:
+    """Migration should transform device YAML from legacy ota_server to packages.esphome_ota with project block."""
+    esphome_dir = Path(hass.config.path("esphome"))
+    legacy_dir = esphome_dir / "ota_server"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+
+    token = "a8f3b9c2e17d904f8e5b6c7a1d2e3f4a"
+    registered_data = {
+        "livingroom": {
+            "token": token,
+            "version": "1.0.5",
+            "title": "Living Room Sensor",
+        }
+    }
+    (legacy_dir / "registered.json").write_text(
+        json.dumps(registered_data), encoding="utf-8"
+    )
+
+    # Legacy device YAML with ota_server include and legacy substitutions
+    legacy_device_yaml = """substitutions:
+  ota_device: livingroom
+  ota_slug: livingroom_a8f3b9c2e17d904f8e5b6c7a1d2e3f4a
+
+esphome:
+  name: livingroom
+  friendly_name: Living Room Sensor
+
+esp32:
+  board: esp32dev
+
+packages:
+  ota: !include ota_server/devices/livingroom.yaml
+"""
+    yaml_file = esphome_dir / "livingroom.yaml"
+    yaml_file.write_text(legacy_device_yaml, encoding="utf-8")
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
+    migrator = MigrationManager(
+        hass, storage, device_manager, publisher, base_url="https://my-ha.duckdns.org"
+    )
+
+    res = await migrator.async_migrate()
+    assert res["success"] is True
+    assert "livingroom" in res["migrated_devices"]
+    assert "livingroom" in res["migrated_yaml_configs"]
+
+    # Verify transformed YAML
+    updated_yaml = yaml_file.read_text(encoding="utf-8")
+    assert "ota_server" not in updated_yaml
+    assert "ota_device:" not in updated_yaml
+    assert "packages:" in updated_yaml
+    assert "esphome_ota:" in updated_yaml
+    assert "https://my-ha.duckdns.org" in updated_yaml
+    assert f"livingroom_{token}" in updated_yaml
+    # Critical: esphome.project block MUST be included with correct version
+    assert "project:" in updated_yaml
+    assert "local.livingroom" in updated_yaml
+    assert "1.0.5" in updated_yaml
+
+    # Verify device record
+    dev = device_manager.get_device("livingroom")
+    assert dev is not None
+    assert dev.yaml_mode == "inline_package"
+    assert dev.managed_version == "1.0.5"
+    assert dev.token == token

@@ -107,7 +107,11 @@ class OtaManager:
             self.monitor,
         )
         self.migration_manager = MigrationManager(
-            hass, self.storage, self.device_manager, self.publisher
+            hass,
+            self.storage,
+            self.device_manager,
+            self.publisher,
+            base_url=self.base_url,
         )
         self.resolver = BuilderResolver(hass, self.session, saved_selection)
         self.panel_manager = PanelManager(hass)

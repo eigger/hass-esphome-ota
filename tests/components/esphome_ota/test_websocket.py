@@ -87,3 +87,41 @@ async def test_websocket_api_commands(
         assert msg["success"] is True
 
         await ws.close()
+
+
+async def test_remove_ota_when_yaml_does_not_exist(
+    hass: HomeAssistant,
+    hass_ws_client: any,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """When removing OTA and YAML does not exist, device should simply be dropped from list."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
+        return_value=[],
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        manager = hass.data[DOMAIN]["manager"]
+        await manager.device_manager.async_register_or_update(
+            device_id="ghost_device",
+            configuration="ghost_device.yaml",
+            name="ghost_device",
+            friendly_name="Ghost Device",
+        )
+
+        assert manager.device_manager.get_device("ghost_device") is not None
+
+        ws = await hass_ws_client(hass)
+        await ws.send_json(
+            {"id": 10, "type": "esphome_ota/remove_ota", "device_id": "ghost_device"}
+        )
+        msg = await ws.receive_json()
+
+        assert msg["success"] is True
+        assert msg["result"]["yaml_removed"] is False
+        assert manager.device_manager.get_device("ghost_device") is None
+        await ws.close()
+

@@ -10,7 +10,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .const import DEFAULT_PUBLISH_DIR
+from .config_patch import apply_ota_patch
+from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
 from .firmware import inspect_binary
 from .publisher import ArtifactPublisher
@@ -28,11 +29,13 @@ class MigrationManager:
         storage: StorageManager,
         device_manager: DeviceManager,
         publisher: ArtifactPublisher,
+        base_url: str = "",
     ) -> None:
         self.hass = hass
         self.storage = storage
         self.device_manager = device_manager
         self.publisher = publisher
+        self.base_url = base_url
 
     def _inspect_legacy_data_sync(self) -> dict[str, Any]:
         """Inspect legacy directories and prepare migration preview."""
@@ -131,6 +134,8 @@ class MigrationManager:
         ambiguous_matches: dict[str, list[str]] = {}
         claimed_configs: set[str] = set()
 
+        migrated_yaml_configs: list[str] = []
+
         if legacy_reg_path.is_file():
             try:
                 content = await self.hass.async_add_executor_job(
@@ -140,6 +145,8 @@ class MigrationManager:
                 for node, rec in registered.items():
                     token = rec.get("token", "") or ""
                     title = rec.get("title") or node
+                    version = rec.get("version", "1.0.0")
+                    slug = f"{node}_{token}" if token else node
                     device_id, configuration, raw, ambiguous = (
                         self.device_manager.resolve_legacy_configuration(node, token)
                     )
@@ -155,6 +162,34 @@ class MigrationManager:
                         )
                         continue
                     claimed_configs.add(configuration)
+
+                    # Update device YAML from legacy ota_server to modern inline package
+                    cfg_path = esphome_dir / configuration
+                    is_file = await self.hass.async_add_executor_job(cfg_path.is_file)
+                    if is_file:
+                        try:
+                            orig_yaml = await self.hass.async_add_executor_job(
+                                cfg_path.read_text, "utf-8"
+                            )
+                            diff_res = apply_ota_patch(
+                                yaml_content=orig_yaml,
+                                base_url=self.base_url,
+                                slug=slug,
+                                target_version=version,
+                                node=node,
+                            )
+                            if diff_res.modified != orig_yaml:
+                                await self.hass.async_add_executor_job(
+                                    cfg_path.write_text, diff_res.modified, "utf-8"
+                                )
+                                migrated_yaml_configs.append(node)
+                                _LOGGER.info(
+                                    "Migrated YAML for %s (%s) from ota_server to packages.esphome_ota",
+                                    node,
+                                    configuration,
+                                )
+                        except Exception as y_err:  # noqa: BLE001
+                            _LOGGER.warning("Failed migrating YAML for %s: %s", node, y_err)
 
                     # Drop a previous bare-node orphan if we resolved to a different stem
                     if device_id != node and self.device_manager.get_device(node):
@@ -175,9 +210,13 @@ class MigrationManager:
                         target_platform=plat,
                         token=token,
                         has_http_ota=True,
+                        managed_version=version,
+                        yaml_mode=YAML_MODE_INLINE_PACKAGE,
                     )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed registering migrated devices: %s", err)
+
+        result["migrated_yaml_configs"] = migrated_yaml_configs
 
         if ambiguous_matches:
             result["ambiguous_matches"] = ambiguous_matches

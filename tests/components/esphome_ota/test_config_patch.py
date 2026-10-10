@@ -11,6 +11,7 @@ from custom_components.esphome_ota.config_patch import (
     own_project_version,
     remove_ota_patch,
     set_project_version,
+    strip_legacy_ota_packages,
 )
 
 
@@ -209,3 +210,84 @@ def test_version_bump() -> None:
     assert bump_patch_version("1.0.9") == "1.0.10"
     assert bump_patch_version("2.1") == "2.1.1"
     assert bump_patch_version("3") == "3.0.1"
+
+
+def test_strip_legacy_ota_packages() -> None:
+    """Test stripping legacy ota_server packages and substitutions while preserving other content."""
+    content = """substitutions:
+  ota_device: bedroom
+  ota_slug: bedroom_xyz123
+  sensor_name: "Bedroom Temperature"
+
+esphome:
+  name: bedroom
+
+packages:
+  ota: !include ota_server/devices/bedroom.yaml
+  my_sensors: !include sensors.yaml
+"""
+    cleaned, changed = strip_legacy_ota_packages(content)
+    assert changed is True
+    assert "ota_server" not in cleaned
+    assert "ota_device:" not in cleaned
+    assert "ota_slug:" not in cleaned
+    assert "sensor_name: \"Bedroom Temperature\"" in cleaned
+    assert "my_sensors: !include sensors.yaml" in cleaned
+
+
+def test_apply_ota_patch_replaces_legacy_and_includes_project() -> None:
+    """Applying OTA patch to legacy device must strip ota_server and include esphome.project."""
+    content = """substitutions:
+  ota_device: bedroom
+  ota_slug: bedroom_abc
+
+esphome:
+  name: bedroom
+
+packages:
+  ota: !include ota_server/devices/bedroom.yaml
+"""
+    diff_res = apply_ota_patch(
+        yaml_content=content,
+        base_url="https://ha.local:8123",
+        slug="bedroom_abc",
+        target_version="2.0.1",
+        node="bedroom",
+    )
+    assert "ota_server" not in diff_res.modified
+    assert "esphome_ota:" in diff_res.modified
+    # Critical: project must be included with target_version
+    assert "project:" in diff_res.modified
+    assert "local.bedroom" in diff_res.modified
+    assert "2.0.1" in diff_res.modified
+
+
+def test_apply_ota_patch_auto_deduces_node_and_target_version() -> None:
+    """When node and target_version are not passed, apply_ota_patch deduces them from YAML."""
+    content = """esphome:
+  name: livingroom
+esp32:
+  board: esp32dev
+"""
+    diff_res = apply_ota_patch(
+        yaml_content=content,
+        base_url="https://ha.local:8123",
+        slug="livingroom_123",
+    )
+    assert "esphome_ota:" in diff_res.modified
+    assert "project:" in diff_res.modified
+    assert "local.livingroom" in diff_res.modified
+    assert "1.0.0" in diff_res.modified
+
+
+def test_has_unclear_project_ownership_ignores_legacy_ota_server() -> None:
+    """A device YAML with only legacy ota_server package should not be flagged as unclear."""
+    content = """esphome:
+  name: bedroom
+esp8266:
+  board: d1_mini
+packages:
+  ota: !include ota_server/devices/bedroom.yaml
+"""
+    assert has_unclear_project_ownership(content) is False
+

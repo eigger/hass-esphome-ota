@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -435,24 +436,66 @@ async def ws_remove_ota(
         connection.send_error(msg["id"], "device_not_found", "Device not found")
         return
 
-    client = manager.resolver.active_client
-    if not client:
-        connection.send_error(
-            msg["id"],
-            "builder_disconnected",
-            "ESPHome Builder is not connected; cannot remove OTA YAML safely",
-        )
-        return
-
     config_file = manager.device_manager.get_configuration(device_id)
-    try:
-        yaml_content = await client.get_config(config_file)
-        cleaned, yaml_removed = remove_ota_patch(yaml_content)
-        if yaml_removed:
-            await client.update_config(config_file, cleaned, expected=yaml_content)
-    except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "remove_failed", str(err))
-        return
+    esphome_file = Path(hass.config.path("esphome", config_file))
+    local_file_exists = await hass.async_add_executor_job(esphome_file.is_file)
+    client = manager.resolver.active_client
+
+    yaml_removed = False
+
+    if client:
+        try:
+            yaml_content = await client.get_config(config_file)
+            if yaml_content:
+                cleaned, yaml_removed = remove_ota_patch(yaml_content)
+                if yaml_removed:
+                    await client.update_config(config_file, cleaned, expected=yaml_content)
+        except Exception as err:  # noqa: BLE001
+            err_msg = str(err).lower()
+            if (
+                any(
+                    term in err_msg
+                    for term in (
+                        "not found",
+                        "does not exist",
+                        "no such file",
+                        "404",
+                        "failed to open",
+                    )
+                )
+                or not local_file_exists
+            ):
+                _LOGGER.info(
+                    "YAML %s not found when removing OTA for %s; removing device from list directly: %s",
+                    config_file,
+                    device_id,
+                    err,
+                )
+                yaml_removed = False
+            else:
+                connection.send_error(msg["id"], "remove_failed", str(err))
+                return
+    elif local_file_exists:
+        try:
+            orig_content = await hass.async_add_executor_job(
+                esphome_file.read_text, "utf-8"
+            )
+            cleaned, yaml_removed = remove_ota_patch(orig_content)
+            if yaml_removed:
+                await hass.async_add_executor_job(
+                    esphome_file.write_text, cleaned, "utf-8"
+                )
+        except Exception as err:  # noqa: BLE001
+            connection.send_error(msg["id"], "remove_failed", str(err))
+            return
+    else:
+        # Neither builder client nor local file has this YAML; just drop from managed list
+        _LOGGER.info(
+            "YAML %s does not exist for %s; removing device from managed list directly",
+            config_file,
+            device_id,
+        )
+        yaml_removed = False
 
     binary_removed = await manager.publisher.async_deactivate(dev.slug)
 
