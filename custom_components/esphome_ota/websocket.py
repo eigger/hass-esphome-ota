@@ -467,34 +467,46 @@ async def ws_set_token(
             target_platform=plat,
             token=new_token,
         )
+        old_slug = None
     else:
         old_slug = dev.slug
         dev.token = new_token
         dev.slug = f"{dev.name}_{new_token}" if new_token else dev.name
         await manager.storage.async_save_devices(manager.device_manager._managed_devices)
 
-        # 1. Synchronize YAML if Builder is connected
-        client = manager.resolver.active_client
-        if client:
-            config_file = dev.configuration
-            try:
-                yaml_content = await client.get_config(config_file)
-                updated_yaml, changed = set_package_ota_slug(yaml_content, dev.slug)
-                if changed:
-                    await client.save_config(config_file, updated_yaml, expected=yaml_content)
-            except Exception as err:
-                _LOGGER.warning("Could not sync ota_slug to YAML for %s: %s", dev.name, err)
+    # 1. Synchronize YAML if Builder is connected
+    client = manager.resolver.active_client
+    if client and dev.configuration:
+        config_file = dev.configuration
+        try:
+            yaml_content = await client.get_config(config_file)
+            updated_yaml, changed = set_package_ota_slug(yaml_content, dev.slug)
+            if changed:
+                await client.update_config(config_file, updated_yaml, expected=yaml_content)
+        except Exception as err:
+            _LOGGER.warning("Could not sync ota_slug to YAML for %s: %s", dev.name, err)
 
-        # 2. Synchronize published binary and manifest if active artifact exists
-        if old_slug != dev.slug:
-            artifacts = await manager.storage.async_load_artifacts()
-            art = artifacts.get(dev.device_id)
-            if art and dev.last_published_version and dev.has_public_binary:
-                try:
-                    await manager.publisher.async_deactivate(old_slug)
-                    await manager.job_runner.async_republish(dev, art)
-                except Exception as err:
-                    _LOGGER.warning("Could not republish artifact under new slug for %s: %s", dev.name, err)
+    # 2. Synchronize published binary and manifest if active artifact exists
+    if old_slug and old_slug != dev.slug:
+        artifacts = await manager.storage.async_load_artifacts()
+        art = artifacts.get(dev.device_id)
+        has_pub_bin = False
+        try:
+            has_pub_bin = (manager.publisher.www_dir / f"{old_slug}.ota.bin").is_file()
+        except Exception:
+            has_pub_bin = False
+
+        if art and dev.last_published_version and has_pub_bin:
+            try:
+                await manager.publisher.async_deactivate(old_slug)
+                await manager.job_runner.async_republish(dev, art)
+            except Exception as err:
+                _LOGGER.warning("Could not republish artifact under new slug for %s: %s", dev.name, err)
+        try:
+            (manager.publisher.www_dir / f"{old_slug}.json").unlink(missing_ok=True)
+            (manager.publisher.www_dir / f"{old_slug}.ota.json").unlink(missing_ok=True)
+        except Exception:
+            pass
 
     manager._dispatch_event("devices_updated", {"devices": manager.device_manager.list_all()})
     connection.send_result(msg["id"], {"success": True, "token": dev.token, "slug": dev.slug})
