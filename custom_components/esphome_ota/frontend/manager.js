@@ -207,17 +207,13 @@ button.danger:hover {
   color: inherit;
 }
 
-.dashboard-content {
-  display: flex;
-  flex-direction: column;
+.content {
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
-}
-.content {
   padding: 12px 20px 24px;
 }
 .grid {
@@ -624,25 +620,23 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
       </header>
 
-      <div class="dashboard-content">
-        <div id="selection-banner" class="selection-banner" style="display: none;"></div>
-        <div id="migration-banner" class="migration-banner" style="display: none;"></div>
+      <div id="selection-banner" class="selection-banner" style="display: none;"></div>
+      <div id="migration-banner" class="migration-banner" style="display: none;"></div>
 
-        <div class="controls">
-          <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
-          <select id="filter">
-            <option value="all">${escapeHtml(t(this.hass, "filter_all") || "All Devices")}</option>
-            <option value="managed">${escapeHtml(t(this.hass, "filter_managed") || "OTA Configured")}</option>
-            <option value="unmanaged">${escapeHtml(t(this.hass, "filter_unmanaged") || "Unmanaged")}</option>
-            <option value="initial">${escapeHtml(t(this.hass, "filter_initial") || "Initial Install Needed")}</option>
-            <option value="update">${escapeHtml(t(this.hass, "filter_update") || "Update Available")}</option>
-            <option value="installed">${escapeHtml(t(this.hass, "filter_installed") || "Installed")}</option>
-            <option value="building">${escapeHtml(t(this.hass, "filter_building") || "Building")}</option>
-          </select>
-        </div>
-
-        <div class="content" id="content-container"></div>
+      <div class="controls">
+        <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
+        <select id="filter">
+          <option value="all">${escapeHtml(t(this.hass, "filter_all") || "All Devices")}</option>
+          <option value="managed">${escapeHtml(t(this.hass, "filter_managed") || "OTA Configured")}</option>
+          <option value="unmanaged">${escapeHtml(t(this.hass, "filter_unmanaged") || "Unmanaged")}</option>
+          <option value="initial">${escapeHtml(t(this.hass, "filter_initial") || "Initial Install Needed")}</option>
+          <option value="update">${escapeHtml(t(this.hass, "filter_update") || "Update Available")}</option>
+          <option value="installed">${escapeHtml(t(this.hass, "filter_installed") || "Installed")}</option>
+          <option value="building">${escapeHtml(t(this.hass, "filter_building") || "Building")}</option>
+        </select>
       </div>
+
+      <div class="content" id="content-container"></div>
 
       <esphome-ota-job-dialog></esphome-ota-job-dialog>
       <esphome-ota-device-dialog></esphome-ota-device-dialog>

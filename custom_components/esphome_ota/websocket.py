@@ -12,7 +12,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.loader import async_get_integration
 
-from .config_patch import apply_ota_patch, remove_ota_patch
+from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
 from .models import (
     BuilderConnectionError,
@@ -38,6 +38,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_batch_build)
     websocket_api.async_register_command(hass, ws_republish)
     websocket_api.async_register_command(hass, ws_deactivate)
+    websocket_api.async_register_command(hass, ws_set_token)
     websocket_api.async_register_command(hass, ws_remove_ota)
     websocket_api.async_register_command(hass, ws_cancel_job)
     websocket_api.async_register_command(hass, ws_select_builder)
@@ -429,6 +430,74 @@ async def ws_deactivate(
         "devices_updated",
         {"devices": manager.device_manager.list_all()},
     )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "esphome_ota/set_token",
+        vol.Required("device_id"): str,
+        vol.Required("token"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_set_token(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Update device token, synchronizing slug, YAML, and published files."""
+    manager = _get_manager(hass)
+    device_id = msg["device_id"]
+    new_token = msg["token"].strip()
+
+    clean_dev_id = device_id.replace(".yaml", "")
+    dev = manager.device_manager.get_device(clean_dev_id)
+    if not dev:
+        config_file = manager.device_manager.get_configuration(clean_dev_id)
+        raw_info = manager.device_manager.get_builder_raw(clean_dev_id)
+        dev_name = raw_info.get("name") if raw_info else clean_dev_id
+        friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
+        plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
+        dev = await manager.device_manager.async_register_or_update(
+            device_id=clean_dev_id,
+            configuration=config_file,
+            name=dev_name,
+            friendly_name=friendly,
+            target_platform=plat,
+            token=new_token,
+        )
+    else:
+        old_slug = dev.slug
+        dev.token = new_token
+        dev.slug = f"{dev.name}_{new_token}" if new_token else dev.name
+        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+
+        # 1. Synchronize YAML if Builder is connected
+        client = manager.resolver.active_client
+        if client:
+            config_file = dev.configuration
+            try:
+                yaml_content = await client.get_config(config_file)
+                updated_yaml, changed = set_package_ota_slug(yaml_content, dev.slug)
+                if changed:
+                    await client.save_config(config_file, updated_yaml, expected=yaml_content)
+            except Exception as err:
+                _LOGGER.warning("Could not sync ota_slug to YAML for %s: %s", dev.name, err)
+
+        # 2. Synchronize published binary and manifest if active artifact exists
+        if old_slug != dev.slug:
+            artifacts = await manager.storage.async_load_artifacts()
+            art = artifacts.get(dev.device_id)
+            if art and dev.last_published_version and dev.has_public_binary:
+                try:
+                    await manager.publisher.async_deactivate(old_slug)
+                    await manager.job_runner.async_republish(dev, art)
+                except Exception as err:
+                    _LOGGER.warning("Could not republish artifact under new slug for %s: %s", dev.name, err)
+
+    manager._dispatch_event("devices_updated", {"devices": manager.device_manager.list_all()})
+    connection.send_result(msg["id"], {"success": True, "token": dev.token, "slug": dev.slug})
 
 
 @websocket_api.require_admin
