@@ -2,7 +2,7 @@
 
 [![HACS Custom Integration](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-54%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-124%20Passed-brightgreen.svg)]()
 
 [English Documentation (README.md)](README.md)
 

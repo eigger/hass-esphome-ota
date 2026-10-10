@@ -1,7 +1,7 @@
 # ESPHome OTA 검증 및 실환경 진단 가이드
 
 작성일: 2026-10-10  
-상태: 자동화 테스트 112개(기존 106개 + 8차 리뷰 결함 검증 6개) 전체 통과, 실환경 런타임 검증 대기 (미검증 명시)
+상태: 자동화 테스트 124개(하위 테스트 12개 포함) 전체 통과, 실환경 런타임 검증 대기 (실환경 미검증 명시)
 
 본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
@@ -32,7 +32,7 @@
 | **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_cf00be0_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_cf00be0_review_fixes.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
 | **c22c0a2 8차 리뷰 결함 3건 회귀 테스트** | [test_c22c0a2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_c22c0a2_review_fixes.py) | **통과 (100%)** | 새 빌드 취소 시 기존 정상 펌웨어 보존(P1), Auto-detect 옵션 정규화 및 단일 Builder 자동 연결 복원(P2), 패널 Builder 선택 영구 저장 및 재로드 유지(P2), MockBuilderServer 웹소켓 종료 타임아웃 해결 |
 | **3050dea 9차 리뷰 결함 2건 회귀 테스트** | [test_3050dea_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_3050dea_review_fixes.py) | **통과 (100%)** | 파일 교체 중 취소 시 이전 정상 펌웨어 복원(P1), Builder 변경 시 자동 재로드 억제 및 언로드 객체 재연결 방지(P2) |
-| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 시작 전 취소 시 즉시 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2), 다중 기기 동시 배포 시 원자적 아티팩트 저장 보장(P2), 이전 버전 정리 타이머의 새 펌웨어 삭제 방지(P2) |
+| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 시작 전 취소 시 즉시 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2), 다중 기기 동시 배포 시 원자적 아티팩트 저장 보장(P2), 이전 버전 정리 타이머의 새 펌웨어 삭제 방지(P2), 디스크 매니페스트 우선 확인 및 언로드된 publisher 삭제 차단(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
