@@ -260,6 +260,8 @@ class DeviceManager:
         token: str | None = None,
         own_project_version: str | None = None,
         has_http_ota: bool = False,
+        managed_version: str | None = None,
+        yaml_mode: str | None = None,
     ) -> ManagedDevice:
         """Register a new managed device or update existing record."""
         clean_dev_id = device_id.replace(".yaml", "")
@@ -276,6 +278,10 @@ class DeviceManager:
                 existing.chip_family = chip
             if own_project_version is not None:
                 existing.own_project_version = own_project_version
+            if managed_version is not None:
+                existing.managed_version = managed_version
+            if yaml_mode is not None:
+                existing.yaml_mode = yaml_mode
             if token is not None:
                 existing.token = token
                 existing.slug = f"{name}_{token}" if token else name
@@ -296,7 +302,9 @@ class DeviceManager:
                 slug=slug,
                 target_platform=target_platform,
                 chip_family=chip or "ESP32",
+                yaml_mode=yaml_mode or YAML_MODE_INLINE_PACKAGE,
                 own_project_version=own_project_version,
+                managed_version=managed_version or "1.0.0",
                 has_http_ota=has_http_ota,
             )
             self._managed_devices[clean_dev_id] = device

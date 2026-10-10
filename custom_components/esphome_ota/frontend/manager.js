@@ -547,9 +547,11 @@ class EsphomeOtaManager extends HTMLElement {
     });
 
     const migDialog = this.shadowRoot.querySelector("esphome-ota-migration-dialog");
-    migDialog?.addEventListener("migration-completed", () => {
-      if (this._migrationPreview) this._migrationPreview.already_migrated = true;
-      this._renderMigrationBanner();
+    migDialog?.addEventListener("migration-completed", (e) => {
+      if (e.detail?.success) {
+        if (this._migrationPreview) this._migrationPreview.already_migrated = true;
+        this._renderMigrationBanner();
+      }
     });
 
     const buildDialog = this.shadowRoot.querySelector("esphome-ota-build-dialog");

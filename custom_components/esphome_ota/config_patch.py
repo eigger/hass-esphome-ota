@@ -5,6 +5,7 @@ from __future__ import annotations
 import difflib
 import logging
 import re
+import textwrap
 from typing import Any
 
 import yaml
@@ -83,6 +84,318 @@ def own_project_version(content: str) -> str | None:
     return None
 
 
+def is_legacy_ota_server_package(pkg_val: Any) -> bool:
+    """Check if a package entry references the legacy ota_server package/wrapper."""
+    if isinstance(pkg_val, str):
+        val_lower = pkg_val.strip().lower()
+        if "ota_server" in val_lower and (
+            "!include" in val_lower
+            or any(
+                val_lower.startswith(prefix)
+                for prefix in ("github://", "http://", "https://", "git://", "ssh://")
+            )
+            or val_lower.startswith("ota_server/")
+            or "/ota_server/" in val_lower
+            or val_lower.endswith("/ota_server")
+            or val_lower == "ota_server"
+        ):
+            return True
+        return False
+    if isinstance(pkg_val, dict):
+        inc = pkg_val.get("__include__")
+        if isinstance(inc, str) and "ota_server" in inc.lower():
+            return True
+        url = pkg_val.get("url") or pkg_val.get("repo") or ""
+        files = str(pkg_val.get("files") or pkg_val.get("file") or "")
+        if "ota_server" in str(url).lower() or "ota_server" in files.lower():
+            return True
+    return False
+
+
+def _is_legacy_package_entry(entry_lines: list[str]) -> bool:
+    """Determine if a packages entry is a legacy ota_server include or remote package."""
+    code_lines = [_strip_yaml_comment(entry_line) for entry_line in entry_lines]
+    entry_text = textwrap.dedent("\n".join(code_lines)).strip()
+    if entry_text:
+        parsed = parse_yaml_safe(entry_text)
+        if isinstance(parsed, dict) and len(parsed) == 1:
+            pkg_val = next(iter(parsed.values()))
+            if is_legacy_ota_server_package(pkg_val):
+                return True
+            return False
+
+    for line in code_lines:
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        if re.search(r"!include\S*\s+.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.match(r"^(url|repo)\s*:\s*.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.match(r"^files?\s*:\s*.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.search(r"github://.*ota_server", line_clean, re.IGNORECASE):
+            return True
+        if re.match(r"^-\s+.*ota_server", line_clean, re.IGNORECASE):
+            has_remote_meta = any(
+                re.match(r"^(url|repo|files?)\s*:", cl.strip(), re.IGNORECASE)
+                for cl in code_lines
+            )
+            if has_remote_meta:
+                return True
+
+    return False
+
+
+def _strip_yaml_comment(line: str) -> str:
+    """Strip comment from a YAML line while respecting basic quotes."""
+    in_quote: str | None = None
+    escaped = False
+    for i, ch in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\":
+            escaped = True
+            continue
+        if ch in ('"', "'"):
+            if in_quote == ch:
+                in_quote = None
+            elif in_quote is None:
+                in_quote = ch
+            continue
+        if ch == "#" and in_quote is None:
+            return line[:i].rstrip()
+    return line.rstrip("\r\n")
+
+
+def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
+    """Strip legacy ota_server package includes and legacy substitutions from YAML text.
+
+    Returns (new_content, changed).
+    """
+    if "ota_server" not in yaml_content and "ota_device:" not in yaml_content and "ota_slug:" not in yaml_content:
+        return yaml_content, False
+
+    lines = yaml_content.splitlines(keepends=True)
+    changed = False
+
+    def _indent_of(line: str) -> int:
+        return len(line) - len(line.lstrip(" \t"))
+
+    def _is_top_level(line: str) -> bool:
+        return bool(
+            line.strip()
+            and not line.startswith((" ", "\t"))
+            and not line.lstrip().startswith("#")
+        )
+
+    # 1. Clean legacy substitutions: ota_device and ota_slug
+    sub_idx: int | None = None
+    for idx, line in enumerate(lines):
+        if re.match(r"^substitutions\s*:", line):
+            sub_idx = idx
+            break
+
+    if sub_idx is not None:
+        # First gather values of ota_device and ota_slug from parsed YAML if possible
+        parsed_subs = parse_yaml_safe(yaml_content).get("substitutions")
+        legacy_subs: dict[str, str] = {}
+        if isinstance(parsed_subs, dict):
+            for k in ("ota_device", "ota_slug"):
+                if k in parsed_subs and parsed_subs[k] is not None:
+                    legacy_subs[k] = str(parsed_subs[k]).strip()
+
+        sub_base_indent = 2
+        for sub_line in lines[sub_idx + 1 :]:
+            if not sub_line.strip() or sub_line.lstrip().startswith("#"):
+                continue
+            if _is_top_level(sub_line):
+                break
+            sub_base_indent = _indent_of(sub_line)
+            break
+
+        new_lines: list[str] = list(lines[: sub_idx + 1])
+        sub_rem_count = 0
+        sub_changed = False
+        i = sub_idx + 1
+        after_sub_idx = len(lines)
+        while i < len(lines):
+            line = lines[i]
+            if _is_top_level(line):
+                after_sub_idx = i
+                break
+            if not line.strip() or line.lstrip().startswith("#"):
+                new_lines.append(line)
+                i += 1
+                continue
+            ind = _indent_of(line)
+            line_code = _strip_yaml_comment(line)
+            match_sub = re.match(r"^[ \t]+(ota_device|ota_slug)\s*:\s*(.*)", line_code)
+            if ind == sub_base_indent and match_sub:
+                sub_name = match_sub.group(1)
+                raw_val = match_sub.group(2).strip()
+                if (raw_val.startswith('"') and raw_val.endswith('"')) or (
+                    raw_val.startswith("'") and raw_val.endswith("'")
+                ):
+                    raw_val = raw_val[1:-1]
+                if raw_val and sub_name not in legacy_subs:
+                    legacy_subs[sub_name] = raw_val
+
+                sub_changed = True
+                i += 1
+                while i < len(lines):
+                    nxt = lines[i]
+                    if _is_top_level(nxt):
+                        break
+                    if not nxt.strip():
+                        i += 1
+                        continue
+                    if _indent_of(nxt) > sub_base_indent:
+                        if sub_name not in legacy_subs:
+                            nxt_val = _strip_yaml_comment(nxt).strip()
+                            if (nxt_val.startswith('"') and nxt_val.endswith('"')) or (
+                                nxt_val.startswith("'") and nxt_val.endswith("'")
+                            ):
+                                nxt_val = nxt_val[1:-1]
+                            if nxt_val:
+                                legacy_subs[sub_name] = nxt_val
+                        i += 1
+                        continue
+                    break
+                continue
+            if ind == sub_base_indent:
+                sub_rem_count += 1
+            new_lines.append(line)
+            i += 1
+        after_sub_idx = i
+
+        if sub_changed:
+            changed = True
+            if sub_rem_count == 0:
+                before = lines[:sub_idx]
+                while before and not before[-1].strip():
+                    before.pop()
+                after = lines[after_sub_idx:]
+                lines = before + (["\n"] if before and after else []) + after
+            else:
+                lines = new_lines + lines[after_sub_idx:]
+
+            # Replace any lingering references to legacy substitutions throughout the remaining YAML
+            if legacy_subs:
+                replaced_lines: list[str] = []
+                for cur_line in lines:
+                    line_replaced = cur_line
+                    for var_name, var_val in legacy_subs.items():
+                        pat = re.compile(rf"\$\{{{var_name}\}}|\${var_name}\b")
+                        line_replaced = pat.sub(var_val, line_replaced)
+                    if line_replaced != cur_line:
+                        changed = True
+                    replaced_lines.append(line_replaced)
+                lines = replaced_lines
+
+    # 2. Clean packages: block of ota_server entries
+    packages_idx: int | None = None
+    for idx, line in enumerate(lines):
+        if re.match(r"^packages\s*:", line):
+            packages_idx = idx
+            break
+
+    if packages_idx is not None:
+        pkg_line = lines[packages_idx]
+        pkg_code = _strip_yaml_comment(pkg_line).strip()
+        # Only drop the packages: line itself if it is a standalone !include to ota_server
+        if re.match(r"^packages\s*:\s*!include\b", pkg_code) and "ota_server" in pkg_code.lower():
+            lines.pop(packages_idx)
+            changed = True
+        else:
+            pkg_base_indent = 2
+            for sub_line in lines[packages_idx + 1 :]:
+                if not sub_line.strip() or sub_line.lstrip().startswith("#"):
+                    continue
+                if _is_top_level(sub_line):
+                    break
+                pkg_base_indent = _indent_of(sub_line)
+                break
+
+            before_pkg = lines[:packages_idx]
+            kept_pkg_children: list[str] = []
+            pkg_rem_count = 0
+            pkg_changed = False
+
+            i = packages_idx + 1
+            after_pkg_idx = len(lines)
+            while i < len(lines):
+                line = lines[i]
+                if _is_top_level(line):
+                    after_pkg_idx = i
+                    break
+                if not line.strip() or line.lstrip().startswith("#"):
+                    kept_pkg_children.append(line)
+                    i += 1
+                    continue
+                ind = _indent_of(line)
+                if ind == pkg_base_indent:
+                    entry_lines = [line]
+                    j = i + 1
+                    while j < len(lines):
+                        nxt = lines[j]
+                        if _is_top_level(nxt):
+                            break
+                        if not nxt.strip():
+                            j += 1
+                            continue
+                        if _indent_of(nxt) > pkg_base_indent:
+                            entry_lines.append(nxt)
+                            j += 1
+                            continue
+                        if nxt.lstrip().startswith("#") and _indent_of(nxt) >= pkg_base_indent:
+                            entry_lines.append(nxt)
+                            j += 1
+                            continue
+                        break
+                    if _is_legacy_package_entry(entry_lines):
+                        pkg_changed = True
+                        i = j
+                        continue
+                    else:
+                        pkg_rem_count += 1
+                        kept_pkg_children.extend(entry_lines)
+                        i = j
+                        continue
+                kept_pkg_children.append(line)
+                i += 1
+            after_pkg_idx = i
+
+            if pkg_changed:
+                changed = True
+                after_pkg = lines[after_pkg_idx:]
+                if pkg_rem_count == 0:
+                    while before_pkg and not before_pkg[-1].strip():
+                        before_pkg.pop()
+                    if before_pkg and not before_pkg[-1].endswith("\n"):
+                        before_pkg[-1] += "\n"
+                    lines = before_pkg + after_pkg
+                else:
+                    while kept_pkg_children and not kept_pkg_children[0].strip():
+                        kept_pkg_children.pop(0)
+                    while kept_pkg_children and not kept_pkg_children[-1].strip():
+                        kept_pkg_children.pop()
+                    header = lines[packages_idx]
+                    if not header.endswith("\n"):
+                        header += "\n"
+                    body = before_pkg + [header] + kept_pkg_children
+                    if kept_pkg_children and not kept_pkg_children[-1].endswith("\n") and after_pkg:
+                        body[-1] += "\n"
+                    lines = body + after_pkg
+
+    if not changed:
+        return yaml_content, False
+
+    result = "".join(lines)
+    return re.sub(r"\n{3,}", "\n\n", result), True
+
+
 def _is_external_or_include_package(pkg_val: Any) -> bool:
     """Check if a package entry references an external package or include."""
     if isinstance(pkg_val, str):
@@ -104,7 +417,7 @@ def has_unclear_project_ownership(content: str) -> bool:
 
     Top-level explicit project.version takes precedence and clarifies ownership.
     Remote packages (github://, url/files) or included packages without top-level version
-    are considered ambiguous.
+    are considered ambiguous. Legacy ota_server packages are not ambiguous as they will be replaced.
     """
     data = parse_yaml_safe(content)
 
@@ -154,14 +467,22 @@ def has_unclear_project_ownership(content: str) -> bool:
         for pkg_name, pkg_val in packages.items():
             if pkg_name == "esphome_ota":
                 continue
+            if is_legacy_ota_server_package(pkg_val):
+                continue
             if _is_external_or_include_package(pkg_val):
                 return True
     elif isinstance(packages, list):
         for pkg_val in packages:
+            if is_legacy_ota_server_package(pkg_val):
+                continue
             if _is_external_or_include_package(pkg_val):
                 return True
-    elif isinstance(content, str) and bool(re.search(r"^\s*packages:\s*!include", content, re.MULTILINE)):
-        return True
+    elif isinstance(content, str):
+        match_pkg_inc = re.search(r"^\s*packages:\s*!include\s+(.*)$", content, re.MULTILINE)
+        if match_pkg_inc:
+            target = _strip_yaml_comment(match_pkg_inc.group(1)).lower()
+            if "ota_server" not in target:
+                return True
 
     # Check raw content for remote github packages
     return bool(
@@ -439,8 +760,27 @@ def apply_ota_patch(
 ) -> YamlDiff:
     """Apply the managed packages.esphome_ota block into YAML while preserving comments and format."""
     original = yaml_content
-    own_ver = own_project_version(original)
-    unclear = has_unclear_project_ownership(original)
+
+    # Strip legacy ota_server packages and substitutions first
+    clean_yaml, _ = strip_legacy_ota_packages(yaml_content)
+
+    # Derive node fallback if missing
+    if not node:
+        parsed = parse_yaml_safe(clean_yaml)
+        esphome_block = parsed.get("esphome")
+        if isinstance(esphome_block, dict):
+            name_val = esphome_block.get("name")
+            if name_val:
+                node = str(name_val).strip()
+        if not node and slug:
+            node = slug.split("_")[0]
+
+    # Derive version fallback if missing
+    if not target_version:
+        target_version = "1.0.0"
+
+    own_ver = own_project_version(clean_yaml)
+    unclear = has_unclear_project_ownership(clean_yaml)
     use_project = (own_ver is None) and not unclear
 
     patch_yaml = generate_inline_ota_yaml(
@@ -451,7 +791,7 @@ def apply_ota_patch(
         use_project=use_project,
     )
 
-    lines = original.splitlines(keepends=True)
+    lines = clean_yaml.splitlines(keepends=True)
     new_lines: list[str] = []
 
     # Check if packages: block already exists

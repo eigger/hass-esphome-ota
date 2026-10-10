@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -11,6 +13,11 @@ from homeassistant.core import HomeAssistant, callback
 
 from .config_patch import apply_ota_patch, remove_ota_patch
 from .const import DOMAIN
+from .models import (
+    BuilderConnectionError,
+    BuilderTimeoutError,
+    ConfigConflictError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -435,24 +442,118 @@ async def ws_remove_ota(
         connection.send_error(msg["id"], "device_not_found", "Device not found")
         return
 
-    client = manager.resolver.active_client
-    if not client:
-        connection.send_error(
-            msg["id"],
-            "builder_disconnected",
-            "ESPHome Builder is not connected; cannot remove OTA YAML safely",
-        )
-        return
-
     config_file = manager.device_manager.get_configuration(device_id)
-    try:
-        yaml_content = await client.get_config(config_file)
-        cleaned, yaml_removed = remove_ota_patch(yaml_content)
-        if yaml_removed:
-            await client.update_config(config_file, cleaned, expected=yaml_content)
-    except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "remove_failed", str(err))
-        return
+    esphome_file = Path(hass.config.path("esphome", config_file))
+    local_file_exists = await hass.async_add_executor_job(esphome_file.is_file)
+    client = manager.resolver.active_client
+
+    yaml_removed = False
+
+    if client:
+        # Step 1: Query YAML content from Builder
+        try:
+            yaml_content = await client.get_config(config_file)
+        except Exception as err:  # noqa: BLE001
+            err_msg = str(err).lower()
+            # Explicit read / permission / I/O errors indicate access failure, NOT file absence
+            is_permission_or_read_err = isinstance(err, PermissionError) or any(
+                term in err_msg
+                for term in (
+                    "permission denied",
+                    "permission",
+                    "access denied",
+                    "eacces",
+                    "eperm",
+                    "read error",
+                    "io error",
+                    "input/output error",
+                )
+            )
+            # ONLY consider file missing if Builder explicitly confirms file absence.
+            # Timeout, connection loss, conflict, permission/access errors, etc. MUST fail and not delete records silently!
+            is_file_not_found = (
+                not is_permission_or_read_err
+                and not isinstance(
+                    err,
+                    (
+                        BuilderConnectionError,
+                        BuilderTimeoutError,
+                        asyncio.TimeoutError,
+                        ConfigConflictError,
+                    ),
+                )
+                and (
+                    isinstance(err, FileNotFoundError)
+                    or any(
+                        term in err_msg
+                        for term in (
+                            "not found",
+                            "does not exist",
+                            "no such file",
+                            "404",
+                            "config_not_found",
+                        )
+                    )
+                )
+            )
+            if is_file_not_found:
+                _LOGGER.info(
+                    "YAML %s confirmed missing on builder for %s; removing device record directly: %s",
+                    config_file,
+                    device_id,
+                    err,
+                )
+                yaml_content = None
+            else:
+                _LOGGER.warning(
+                    "Failed fetching YAML %s from builder for %s: %s",
+                    config_file,
+                    device_id,
+                    err,
+                )
+                connection.send_error(msg["id"], "remove_failed", str(err))
+                return
+
+        # Step 2: If YAML exists on Builder, patch it and update config via CAS
+        if yaml_content is not None:
+            cleaned, yaml_removed = remove_ota_patch(yaml_content)
+            if yaml_removed:
+                try:
+                    await client.update_config(
+                        config_file, cleaned, expected=yaml_content
+                    )
+                except Exception as err:  # noqa: BLE001
+                    # Update config errors (e.g. CAS conflict, timeout) must NEVER be ignored!
+                    _LOGGER.warning(
+                        "Failed updating YAML %s on builder for %s: %s",
+                        config_file,
+                        device_id,
+                        err,
+                    )
+                    connection.send_error(msg["id"], "remove_failed", str(err))
+                    return
+
+    elif local_file_exists:
+        try:
+            orig_content = await hass.async_add_executor_job(
+                esphome_file.read_text, "utf-8"
+            )
+            cleaned, yaml_removed = remove_ota_patch(orig_content)
+            if yaml_removed:
+                await hass.async_add_executor_job(
+                    esphome_file.write_text, cleaned, "utf-8"
+                )
+        except Exception as err:  # noqa: BLE001
+            connection.send_error(msg["id"], "remove_failed", str(err))
+            return
+    else:
+        # Neither builder client is connected nor local file exists
+        _LOGGER.info(
+            "YAML %s does not exist for %s; removing device from managed list directly",
+            config_file,
+            device_id,
+        )
+        yaml_removed = False
 
     binary_removed = await manager.publisher.async_deactivate(dev.slug)
 

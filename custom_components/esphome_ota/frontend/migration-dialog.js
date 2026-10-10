@@ -124,6 +124,11 @@ const css = `
   color: #991b1b;
   border: 1px solid #fecaca;
 }
+.status-box.warning {
+  background: #fefce8;
+  color: #854d0e;
+  border: 1px solid #fef08a;
+}
 .footer {
   padding: 14px 20px;
   border-top: 1px solid var(--divider-color, #e5e7eb);
@@ -223,12 +228,15 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     if (this.executing || !this._hass) return;
     this.executing = true;
     this.error = null;
+    this.result = null;
     this.render();
 
     try {
       const res = await this._hass.callWS({ type: "esphome_ota/migrate_execute" });
       this.result = res;
-      this.dispatchEvent(new CustomEvent("migration-completed", { detail: res, bubbles: true, composed: true }));
+      if (res && res.success) {
+        this.dispatchEvent(new CustomEvent("migration-completed", { detail: res, bubbles: true, composed: true }));
+      }
     } catch (err) {
       console.error("Migration execution failed:", err);
       this.error = err.message || String(err);
@@ -261,8 +269,12 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
         </div>
       `;
     } else if (this.result) {
+      const isSuccess = !!this.result.success;
       const devCount = this.result.migrated_devices?.length || 0;
       const artCount = this.result.migrated_artifacts?.length || 0;
+      const failedDevices = this.result.failed_devices || {};
+      const failedNodes = Object.keys(failedDevices);
+      const failedCount = failedNodes.length;
       const ambiguous = this.result.ambiguous_matches || {};
       const ambiguousNodes = Object.keys(ambiguous);
       const ambiguousHtml = ambiguousNodes.length
@@ -276,16 +288,49 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
             </ul>
           </div>`
         : "";
-      bodyContent = `
-        <div class="status-box success">
-          <strong>${escapeHtml(t(this._hass, "migration_success"))}</strong>
-          <div style="margin-top: 6px;">
-            ${escapeHtml(t(this._hass, "migration_devices_found"))}: <strong>${devCount}</strong> • 
-            ${escapeHtml(t(this._hass, "migration_binaries_found"))}: <strong>${artCount}</strong>
+
+      if (isSuccess && failedCount === 0) {
+        bodyContent = `
+          <div class="status-box success">
+            <strong>${escapeHtml(t(this._hass, "migration_success"))}</strong>
+            <div style="margin-top: 6px;">
+              ${escapeHtml(t(this._hass, "migration_devices_found"))}: <strong>${devCount}</strong> • 
+              ${escapeHtml(t(this._hass, "migration_binaries_found"))}: <strong>${artCount}</strong>
+            </div>
           </div>
-        </div>
-        ${ambiguousHtml}
-      `;
+          ${ambiguousHtml}
+        `;
+      } else {
+        const errorMsg = this.result.error || "";
+        const failedHtml = failedNodes.length
+          ? `<div class="status-box error" style="margin-top: 10px;">
+              <strong>${escapeHtml(t(this._hass, "migration_failed_devices"))}</strong>
+              <ul style="margin: 8px 0 0; padding-left: 18px;">
+                ${failedNodes.map((node) => `<li><code>${escapeHtml(node)}</code>: ${escapeHtml(failedDevices[node])}</li>`).join("")}
+              </ul>
+            </div>`
+          : "";
+
+        const summaryBox = devCount > 0
+          ? `<div class="status-box warning">
+              <strong>${escapeHtml(t(this._hass, "migration_partial_success"))}</strong>
+              <div style="margin-top: 6px;">
+                ${escapeHtml(t(this._hass, "migration_devices_found"))}: <strong>${devCount}</strong> • 
+                ${escapeHtml(t(this._hass, "migration_failed_count"))}: <strong>${failedCount}</strong>
+              </div>
+            </div>`
+          : `<div class="status-box error">
+              <strong>${escapeHtml(t(this._hass, "migration_error"))}</strong>
+              ${errorMsg ? `<div style="margin-top: 6px;">${escapeHtml(errorMsg)}</div>` : ""}
+            </div>`;
+
+        bodyContent = `
+          ${errorBox}
+          ${summaryBox}
+          ${failedHtml}
+          ${ambiguousHtml}
+        `;
+      }
     } else if (this.preview) {
       const p = this.preview;
       const hasData = p.has_legacy_registry && p.device_count > 0;
@@ -331,8 +376,13 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
       bodyContent = errorBox;
     }
 
-    const canMigrate = this.preview && this.preview.has_legacy_registry && this.preview.device_count > 0 && !this.result;
-    const startBtnText = this.preview?.already_migrated ? t(this._hass, "migration_reimport_btn") : t(this._hass, "migration_start_btn");
+    const isSuccess = !!this.result?.success;
+    const hasFailedResult = (this.result && !isSuccess) || !!this.error;
+    const canMigrate = (this.preview && this.preview.has_legacy_registry && this.preview.device_count > 0 && !isSuccess) || hasFailedResult;
+    let startBtnText = this.preview?.already_migrated ? t(this._hass, "migration_reimport_btn") : t(this._hass, "migration_start_btn");
+    if (hasFailedResult) {
+      startBtnText = t(this._hass, "migration_retry_btn");
+    }
 
     this.shadowRoot.innerHTML = `
       <style>${css}</style>
