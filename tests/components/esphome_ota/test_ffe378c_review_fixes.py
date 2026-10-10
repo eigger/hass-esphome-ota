@@ -251,12 +251,20 @@ def test_issue3_project_ownership_remote_and_top_level_precedence() -> None:
     assert own_project_version(url_files_pkg_yaml) is None
     assert has_unclear_project_ownership(url_files_pkg_yaml) is True
 
-    # Both remote package configurations should NOT be blindly patched with managed project version
+    # When user does not own project version, apply_ota_patch injects managed project
+    # inside packages.esphome_ota rather than altering top-level esphome.
     diff_github = apply_ota_patch(github_pkg_yaml, "https://ha.local", "shelly_plug", "1.0.0")
-    assert "project:" not in diff_github.modified
+    assert "project:" in diff_github.modified
+    assert 'name: "local.shelly_plug"' in diff_github.modified
+    assert 'version: "1.0.0"' in diff_github.modified
+    # Once patched with managed packages.esphome_ota, ownership is clarified
+    assert has_unclear_project_ownership(diff_github.modified) is False
 
     diff_url = apply_ota_patch(url_files_pkg_yaml, "https://ha.local", "m5stack_core", "1.0.0")
-    assert "project:" not in diff_url.modified
+    assert "project:" in diff_url.modified
+    assert 'name: "local.m5stack_core"' in diff_url.modified
+    assert 'version: "1.0.0"' in diff_url.modified
+    assert has_unclear_project_ownership(diff_url.modified) is False
 
 
 async def test_issue4_monitor_rejects_non_esphome_entities_and_devices(
