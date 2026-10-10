@@ -338,8 +338,9 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
       let statusMsg = "";
       if (p.already_migrated) {
         statusMsg = `
-          <div class="status-box info">
-            ✓ ${escapeHtml(t(this._hass, "migration_already_done"))}${p.migrated_at ? ` (${escapeHtml(new Date(p.migrated_at).toLocaleString())})` : ""}
+          <div class="status-box info" style="display: flex; align-items: center; gap: 8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>${escapeHtml(t(this._hass, "migration_already_done"))}${p.migrated_at ? ` (${escapeHtml(new Date(p.migrated_at).toLocaleString())})` : ""}</span>
           </div>
         `;
       }
@@ -390,7 +391,9 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
         <div class="modal">
           <div class="header">
             <h2>${escapeHtml(title)}</h2>
-            <button class="btn-close" id="btn-close">✕</button>
+            <button class="btn-close" id="btn-close" aria-label="Close">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
           <div class="body">
             ${bodyContent}

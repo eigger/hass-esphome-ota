@@ -44,7 +44,7 @@ async def test_websocket_api_commands(
         assert msg["success"] is True
         assert "status" in msg["result"]
         assert msg["result"]["base_url"] == "https://my-ha.duckdns.org"
-        assert msg["result"]["version"] == "1.0.6"
+        assert msg["result"]["version"] == "1.0.7"
 
         # 2. devices
         await ws.send_json({"id": 2, "type": "esphome_ota/devices"})

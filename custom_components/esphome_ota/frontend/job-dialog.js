@@ -101,6 +101,20 @@ const css = `
   border-top: 1px solid var(--divider-color, #e5e7eb);
   background: var(--card-background-color, #ffffff);
 }
+#close-x {
+  background: transparent;
+  border: none;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--secondary-text-color, #6b7280);
+  transition: all 0.15s ease-in-out;
+}
+#close-x:hover {
+  background: var(--secondary-background-color, #f1f5f9);
+  color: var(--primary-text-color, #1f2937);
+}
 button {
   padding: 8px 16px;
   border-radius: 8px;
@@ -110,6 +124,11 @@ button {
   border: 1px solid var(--divider-color, #d1d5db);
   background: var(--card-background-color, #ffffff);
   color: var(--primary-text-color, #1f2937);
+  transition: all 0.15s ease-in-out;
+}
+button:hover {
+  background: var(--secondary-background-color, #f1f5f9);
+  border-color: var(--divider-color, #9ca3af);
 }
 button.secondary {
   background: var(--secondary-background-color, #f1f5f9);
@@ -124,9 +143,17 @@ button.danger {
   color: #ffffff;
   border-color: #dc2626;
 }
+button.danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
 button.primary {
   background: var(--primary-color, #0284c7);
   color: #ffffff;
+  border-color: var(--primary-color, #0284c7);
+}
+button.primary:hover {
+  opacity: 0.92;
   border-color: var(--primary-color, #0284c7);
 }
 `;
@@ -326,7 +353,9 @@ class EsphomeOtaJobDialog extends HTMLElement {
         <div class="modal">
           <div class="header">
             <h2>${escapeHtml(t(this.hass, "logs_title"))} - ${escapeHtml(this.job.configuration)}</h2>
-            <button id="close-x">✕</button>
+            <button id="close-x" aria-label="Close">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
           <div class="body">
             <div class="${stageClass}">
