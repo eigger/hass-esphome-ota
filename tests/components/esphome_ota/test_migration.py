@@ -191,6 +191,7 @@ def test_migration_frontend_components() -> None:
     assert "esphome_ota/migrate_execute" in mig_dialog_js
     assert "migration-completed" in mig_dialog_js
     assert "if (res && res.success)" in mig_dialog_js
+    assert "this.result = null;" in mig_dialog_js
     assert "failed_devices" in mig_dialog_js
     assert "migration_failed_devices" in mig_dialog_js
     assert "migration_partial_success" in mig_dialog_js

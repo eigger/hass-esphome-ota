@@ -228,6 +228,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     if (this.executing || !this._hass) return;
     this.executing = true;
     this.error = null;
+    this.result = null;
     this.render();
 
     try {
@@ -324,6 +325,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
             </div>`;
 
         bodyContent = `
+          ${errorBox}
           ${summaryBox}
           ${failedHtml}
           ${ambiguousHtml}
@@ -375,8 +377,8 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     }
 
     const isSuccess = !!this.result?.success;
-    const hasFailedResult = this.result && !isSuccess;
-    const canMigrate = (this.preview && this.preview.has_legacy_registry && this.preview.device_count > 0 && !this.result) || hasFailedResult;
+    const hasFailedResult = (this.result && !isSuccess) || !!this.error;
+    const canMigrate = (this.preview && this.preview.has_legacy_registry && this.preview.device_count > 0 && !isSuccess) || hasFailedResult;
     let startBtnText = this.preview?.already_migrated ? t(this._hass, "migration_reimport_btn") : t(this._hass, "migration_start_btn");
     if (hasFailedResult) {
       startBtnText = t(this._hass, "migration_retry_btn");
