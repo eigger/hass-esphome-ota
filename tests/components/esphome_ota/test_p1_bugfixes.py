@@ -372,6 +372,61 @@ esp32:
         assert 'version: "1.0.0"' not in final_yaml
 
 
+async def test_build_pipeline_explicit_version_with_package_include(
+    hass: HomeAssistant, mock_builder: MockBuilderServer
+) -> None:
+    """Explicit target_version should clear !include ownership ambiguity and build."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_include_ver_test")
+
+    mock_builder.configs["livingroom.yaml"] = """esphome:
+  name: livingroom
+esp32:
+  board: esp32dev
+packages:
+  common: !include common.yaml
+"""
+
+    dev = await device_manager.async_register_or_update(
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        name="livingroom",
+        friendly_name="Living Room",
+    )
+
+    runner = JobRunner(hass, storage, device_manager, publisher)
+
+    async with aiohttp.ClientSession() as session:
+        conn = BuilderConnection("127.0.0.1", mock_builder.port, session)
+        await conn.connect()
+        client = BuilderClient(conn)
+
+        mock_builder.binary_blob = mock_builder.binary_blob.replace(
+            b"version 1.0.0\x00", b"version v260901 rev.1\x00"
+        )
+
+        job_id = await runner.async_start_build_pipeline(
+            device=dev,
+            client=client,
+            base_url="http://ha.local:8123",
+            target_version="v260901 rev.1",
+        )
+
+        task = runner._active_tasks.get(job_id)
+        assert task is not None
+        await task
+
+        job = runner.get_job(job_id)
+        assert job is not None
+        assert job.stage == STAGE_PUBLISHED, job.error
+        assert job.reserved_version == "v260901 rev.1"
+
+        final_yaml = await client.get_config("livingroom.yaml")
+        assert 'version: "v260901 rev.1"' in final_yaml
+        assert "common: !include common.yaml" in final_yaml
+
+
 async def test_p1_issue8_prepare_ota_includes_cas_expected(
     hass: HomeAssistant,
     hass_ws_client: Any,

@@ -306,6 +306,101 @@ def set_project_version(content: str, new_version: str) -> tuple[str, bool]:
     return "".join(lines), True
 
 
+def ensure_project_version(
+    content: str,
+    new_version: str,
+    project_name: str = "esphome_ota.device",
+) -> tuple[str, bool]:
+    """Ensure top-level ``esphome.project.version`` is set to ``new_version``.
+
+    Updates an existing version (or its local substitution). If ``project`` /
+    ``version`` is missing under a concrete ``esphome:`` mapping, inserts them.
+    Returns (new_content, changed).
+    """
+    new_version = str(new_version).strip()
+    if not new_version:
+        return content, False
+
+    updated, changed = set_project_version(content, new_version)
+    if changed:
+        return updated, True
+
+    data = parse_yaml_safe(content)
+    esphome_block = data.get("esphome")
+    if not isinstance(esphome_block, dict) or "__include__" in esphome_block:
+        return content, False
+    if isinstance(content, str) and re.search(
+        r"^\s*esphome:\s*!include", content, re.MULTILINE
+    ):
+        return content, False
+
+    formatted = _format_yaml_scalar(new_version)
+    name_formatted = _format_yaml_scalar(project_name)
+    lines = content.splitlines(keepends=True)
+
+    esphome_idx: int | None = None
+    esphome_indent = 0
+    project_idx: int | None = None
+    project_indent: int | None = None
+    child_indent: int | None = None
+
+    for idx, line in enumerate(lines):
+        stripped = line.lstrip(" ")
+        if not stripped.strip() or stripped.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(stripped)
+        if re.match(r"^esphome\s*:", line):
+            esphome_idx = idx
+            esphome_indent = indent
+            continue
+        if esphome_idx is None:
+            continue
+        if indent <= esphome_indent and re.match(r"^\S", stripped):
+            break
+        if child_indent is None and indent > esphome_indent:
+            child_indent = indent
+        if re.match(r"^project\s*:", stripped) and indent > esphome_indent:
+            project_idx = idx
+            project_indent = indent
+            break
+
+    if esphome_idx is None:
+        return content, False
+
+    child_indent = child_indent if child_indent is not None else esphome_indent + 2
+    nl = "\n"
+    if lines[esphome_idx].endswith("\r\n"):
+        nl = "\r\n"
+
+    if project_idx is not None and project_indent is not None:
+        # Insert version as first child of existing project: block
+        insert_at = project_idx + 1
+        version_indent = project_indent + (child_indent - esphome_indent)
+        # Prefer indent of existing project children when present
+        for sub in lines[project_idx + 1 :]:
+            if not sub.strip() or sub.lstrip().startswith("#"):
+                continue
+            sub_indent = len(sub) - len(sub.lstrip(" "))
+            if sub_indent > project_indent:
+                version_indent = sub_indent
+            break
+        lines.insert(
+            insert_at,
+            f"{' ' * version_indent}version: {formatted}{nl}",
+        )
+        return "".join(lines), True
+
+    # Insert a full project block under esphome:
+    insert_at = esphome_idx + 1
+    block = (
+        f"{' ' * child_indent}project:{nl}"
+        f"{' ' * (child_indent + (child_indent - esphome_indent))}name: {name_formatted}{nl}"
+        f"{' ' * (child_indent + (child_indent - esphome_indent))}version: {formatted}{nl}"
+    )
+    lines.insert(insert_at, block)
+    return "".join(lines), True
+
+
 def reindent_yaml_snippet(snippet: str, indent_size: int = 2) -> str:
     """Adjust snippet indentation based on detected indent size (e.g. 2 or 4 spaces)."""
     if indent_size == 2:
