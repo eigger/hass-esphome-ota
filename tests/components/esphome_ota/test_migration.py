@@ -21,7 +21,11 @@ _FRONTEND_DIR = (
 
 def _i18n_keys(i18n_js: str, lang: str) -> set[str]:
     """Extract translation keys for a language block from i18n.js source."""
-    match = re.search(rf"{lang}:\s*\{{(.*?)\n  \}},", i18n_js, re.DOTALL)
+    match = re.search(
+        rf"^\s{{2}}{lang}:\s*\{{(.*?)^\s{{2}}\}},",
+        i18n_js,
+        re.DOTALL | re.MULTILINE,
+    )
     assert match is not None, f"Missing {lang} translation block"
     return set(re.findall(r"^\s{4}(\w+):", match.group(1), re.MULTILINE))
 
@@ -124,6 +128,10 @@ def test_migration_frontend_components() -> None:
     assert "migration_banner_title" in i18n_js
     assert "migration_dialog_title" in i18n_js
     assert 'batch_build: "Build & Publish Selected"' in i18n_js
+    assert "filter_managed" in i18n_js
+    assert 'value="managed"' in manager_js
+    assert "_filterDefaulted" in manager_js
+    assert "_syncDefaultFilter" in manager_js
 
 
 def test_i18n_en_ko_key_parity() -> None:
