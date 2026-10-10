@@ -186,6 +186,7 @@ class BuilderClient:
         Does NOT accept 'unknown'.
         """
         status: str | None = None
+        has_success_log = False
         async for frame in self.follow_job(job_id, timeout=timeout):
             event = frame.get("event")
             data = frame.get("data")
@@ -196,8 +197,12 @@ class BuilderClient:
             if event == "output" and on_output and isinstance(data, str):
                 for line in data.splitlines():
                     on_output(line)
+                    if "successfully compiled program" in line.lower():
+                        has_success_log = True
             elif event == "result" and isinstance(data, dict):
-                status = data.get("status")
+                status = data.get("status") or (
+                    "completed" if data.get("success") is True or data.get("code") == 0 else None
+                )
             elif isinstance(data, dict) and "status" in data:
                 status = data["status"]
 
@@ -206,13 +211,25 @@ class BuilderClient:
             job_info = await self.get_job(job_id)
             status = job_info.get("status")
 
+        # If compiler explicitly reported compilation success in output stream, accept it
+        if has_success_log and (not status or status in ("unknown", "0", 0)):
+            status = "completed"
+
+        is_success = False
+        if isinstance(status, str) and status.strip().lower() in ("completed", "success", "done", "ok", "0"):
+            is_success = True
+        elif status == 0 or status is True:
+            is_success = True
+        elif has_success_log:
+            is_success = True
+
         _LOGGER.info("Compile of %s (job %s) ended with status=%s", configuration, job_id, status)
-        if status != "completed":
+        if not is_success:
             raise BuilderError(
                 f"Compile of {configuration} did not complete successfully: status='{status}'"
             )
 
-        return status
+        return str(status or "completed")
 
     async def get_binaries(self, configuration: str) -> list[dict[str, Any]]:
         """Get compiled binaries for a configuration."""

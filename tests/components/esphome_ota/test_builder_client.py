@@ -141,3 +141,27 @@ async def test_get_jobs_operations(mock_builder: MockBuilderServer) -> None:
 
         await conn.disconnect()
 
+
+async def test_compile_succeeds_when_log_reports_successful_compilation(
+    mock_builder: MockBuilderServer,
+) -> None:
+    """When compiler logs explicitly declare success, compilation is accepted even if status frame is untyped or 0."""
+    async with aiohttp.ClientSession() as session:
+        conn = BuilderConnection("127.0.0.1", mock_builder.port, session)
+        await conn.connect()
+        client = BuilderClient(conn)
+
+        async def _mock_follow(*args: any, **kwargs: any) -> any:
+            yield {
+                "event": "output",
+                "data": "INFO Compiling...\nINFO Successfully compiled program.\n",
+            }
+            yield {"event": "result", "data": {"code": 0}}
+
+        client.follow_job = _mock_follow  # type: ignore[method-assign]
+        status = await client.wait_for_compile_completion("livingroom", "j123")
+        assert status == "completed"
+
+        await conn.disconnect()
+
+

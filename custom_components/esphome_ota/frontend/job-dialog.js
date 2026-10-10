@@ -287,14 +287,14 @@ class EsphomeOtaJobDialog extends HTMLElement {
     const stageText = t(this.hass, `stage_${stage}`) || stage;
     const logLines = (this.job.log_tail || []).join("\n").trim();
     let logs = logLines;
-    if (!logs) {
-      if ((stage === "failed" || stage === "cancelled") && this.job.error) {
-        logs = this.job.error;
-      } else if (stage === "failed" || stage === "cancelled") {
-        logs = stageText;
+    if (this.job.error && (stage === "failed" || stage === "cancelled")) {
+      if (logs) {
+        logs += `\n\n\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`;
       } else {
-        logs = "Waiting for compiler output...";
+        logs = `\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`;
       }
+    } else if (!logs) {
+      logs = "Waiting for compiler output...";
     }
 
     let stageClass = "stage-banner";
@@ -323,7 +323,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
             <div class="${stageClass}">
               <span><strong>Status:</strong> ${escapeHtml(stageText)}</span>
               ${this.job.reserved_version ? `<span>(Target Version: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
-              ${this.job.error && stage !== "failed" && stage !== "cancelled" ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
+              ${this.job.error ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
             </div>
             <div class="terminal" id="terminal"></div>
           </div>

@@ -401,6 +401,7 @@ class JobRunner:
                     )
                 job.binary_version = info.authoritative_version
                 job.chip_family = info.chip_family
+                device.chip_family = info.chip_family
                 job.size = info.size
                 job.md5 = info.md5
                 job.sha256 = info.sha256

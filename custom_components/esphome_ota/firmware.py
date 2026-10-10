@@ -69,9 +69,12 @@ def chip_id_from_binary(blob: bytes) -> int | None:
     """Read esp_image_header_t.chip_id, or None when this isn't an ESP32 image."""
     if len(blob) < ESP_IMAGE_HEADER_LEN or blob[0] != ESP_IMAGE_MAGIC:
         return None
-    if blob[19:23] != b"\x00\x00\x00\x00" or blob[23] > 1:
-        return None
-    return int.from_bytes(blob[12:14], "little")
+    chip_id = int.from_bytes(blob[12:14], "little")
+    if chip_id in CHIP_IDS:
+        return chip_id
+    if blob[19:23] == b"\x00\x00\x00\x00" and blob[23] <= 1:
+        return chip_id
+    return None
 
 
 def chip_family_from_binary(blob: bytes) -> str | None:
@@ -218,9 +221,12 @@ def inspect_binary(
         )
 
     if expected_chip and chip != expected_chip:
-        raise BinaryValidationError(
-            f"Chip family mismatch: binary is {chip}, but target device expected {expected_chip}"
-        )
+        # If target device was registered as general "ESP32", allow specific ESP32 variants (ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-P4, etc.)
+        is_esp32_compat = expected_chip == "ESP32" and chip.startswith("ESP32")
+        if not is_esp32_compat:
+            raise BinaryValidationError(
+                f"Chip family mismatch: binary is {chip}, but target device expected {expected_chip}"
+            )
 
     mapped_target = VARIANTS.get(normalise_platform(target_platform))
     if mapped_target and mapped_target != "ESP32" and chip != mapped_target:
