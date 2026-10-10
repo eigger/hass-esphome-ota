@@ -108,54 +108,82 @@ class InstallationMonitor:
 
             # 1. Identify matching HA device in Device Registry
             matching_ha_device_id: str | None = None
+            # Pass A: Match via explicit device identifiers (e.g. esphome, mqtt, etc.)
             for ha_dev in dev_reg.devices:
-                # Only consider devices belonging to the ESPHome domain
-                if not any(domain == "esphome" for domain, _ in ha_dev.identifiers):
-                    continue
-
-                matched = False
-                for domain, ident in ha_dev.identifiers:
-                    if domain == "esphome" and str(ident).lower() in (
+                for _domain, ident in ha_dev.identifiers:
+                    if str(ident).lower() in (
                         dev_name.lower(),
                         device_id.lower(),
                         norm_name,
                         norm_title,
                     ):
-                        matched = True
+                        matching_ha_device_id = ha_dev.id
                         break
-                if (
-                    not matched
-                    and ha_dev.name
-                    and ha_dev.name.lower()
-                    in (
-                        dev_name.lower(),
-                        norm_name,
-                        dev_friendly.lower(),
-                        norm_title,
-                    )
-                ):
-                    matched = True
-
-                if matched:
-                    matching_ha_device_id = ha_dev.id
+                if matching_ha_device_id:
                     break
 
-            # Helper to strictly verify an entity belongs to platform "esphome" and is connected to the target device
-            def _is_valid_esphome_entity(ent: er.RegistryEntry | None) -> bool:
-                if not ent or ent.domain != "update" or ent.platform != "esphome":
+            # Pass B: Match via device name if no identifier matched directly
+            if not matching_ha_device_id:
+                for ha_dev in dev_reg.devices:
+                    if (
+                        ha_dev.name
+                        and ha_dev.name.lower()
+                        in (
+                            dev_name.lower(),
+                            norm_name,
+                            dev_friendly.lower(),
+                            norm_title,
+                        )
+                    ):
+                        # Avoid matching a device whose identifier explicitly belongs to a different node
+                        has_conflicting_ident = False
+                        for _domain, ident in ha_dev.identifiers:
+                            ident_str = str(ident).lower()
+                            if ident_str not in (
+                                dev_name.lower(),
+                                device_id.lower(),
+                                norm_name,
+                                norm_title,
+                            ) and (
+                                ident_str.startswith(f"{dev_name.lower()}_")
+                                or ident_str.startswith(f"{norm_name}_")
+                                or f"_{norm_name}_" in ident_str
+                            ):
+                                has_conflicting_ident = True
+                                break
+                        if not has_conflicting_ident:
+                            matching_ha_device_id = ha_dev.id
+                            break
+
+            # Helper to strictly verify an update entity and its device connection
+            def _is_valid_update_entity(ent: er.RegistryEntry | None) -> bool:
+                if not ent or ent.domain != "update":
                     return False
                 if ent.device_id:
                     ent_dev = dev_reg.async_get(ent.device_id)
-                    if not ent_dev or not any(d == "esphome" for d, _ in ent_dev.identifiers):
+                    if not ent_dev:
                         return False
                     if matching_ha_device_id and ent_dev.id != matching_ha_device_id:
                         return False
+                    for _domain, ident in ent_dev.identifiers:
+                        ident_str = str(ident).lower()
+                        if ident_str not in (
+                            dev_name.lower(),
+                            device_id.lower(),
+                            norm_name,
+                            norm_title,
+                        ) and (
+                            ident_str.startswith(f"{dev_name.lower()}_")
+                            or ident_str.startswith(f"{norm_name}_")
+                            or f"_{norm_name}_" in ident_str
+                        ):
+                            return False
                 return True
 
             # 0. Check if device already has a valid known update_entity_id
             if dev and dev.update_entity_id:
                 known_ent = ent_reg.async_get(dev.update_entity_id)
-                if _is_valid_esphome_entity(known_ent):
+                if _is_valid_update_entity(known_ent):
                     matched_entity_id = dev.update_entity_id
 
             # 1. First attempt: match entities attached directly to the matching HA device
@@ -163,13 +191,12 @@ class InstallationMonitor:
                 for entity in ent_reg.entities.values():
                     if (
                         entity.domain == "update"
-                        and entity.platform == "esphome"
                         and entity.device_id == matching_ha_device_id
                     ):
                         matched_entity_id = entity.entity_id
                         break
 
-            # 2. Second attempt: match via exact naming patterns with strict platform & device validation
+            # 2. Second attempt: match via exact naming patterns with strict device validation
             if not matched_entity_id:
                 candidate_eids = [
                     f"update.{norm_name}",
@@ -187,14 +214,14 @@ class InstallationMonitor:
 
                 for cand in candidate_eids:
                     ent = ent_reg.async_get(cand)
-                    if _is_valid_esphome_entity(ent):
+                    if _is_valid_update_entity(ent):
                         matched_entity_id = cand
                         break
 
             # 3. Third attempt: match via entity original_name or unique_id
             if not matched_entity_id:
                 for entity in ent_reg.entities.values():
-                    if not _is_valid_esphome_entity(entity):
+                    if not _is_valid_update_entity(entity):
                         continue
 
                     obj_id = entity.entity_id.split(".", 1)[-1].lower()

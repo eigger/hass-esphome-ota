@@ -237,15 +237,21 @@ async def test_entity_platform_and_device_relationship_validation(hass: HomeAssi
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
 
-    # 1. Non-esphome platform should be ignored even if name matches
+    # 1. Non-esphome platform (e.g. MQTT) matching device is accepted
+    await device_manager.async_register_or_update(
+        device_id="esp_node_0",
+        configuration="esp_node_0",
+        name="esp_node_0",
+        friendly_name="ESP Node 0",
+    )
     ent_reg.async_get_or_create(
         domain="update",
-        platform="other_platform",
-        unique_id="esp_node_1_other",
-        suggested_object_id="esp_node_1",
+        platform="mqtt",
+        unique_id="esp_node_0_mqtt",
+        suggested_object_id="esp_node_0",
     )
     hass.states.async_set(
-        "update.esp_node_1",
+        "update.esp_node_0",
         "off",
         {"installed_version": "1.0.0", "in_progress": False},
     )
@@ -254,7 +260,7 @@ async def test_entity_platform_and_device_relationship_validation(hass: HomeAssi
     await monitor.async_setup()
     await hass.async_block_till_done()
 
-    assert monitor.device_manager.get_device("esp_node_1").last_installed_version is None
+    assert monitor.device_manager.get_device("esp_node_0").last_installed_version == "1.0.0"
     monitor.async_unload()
 
     entry = MockConfigEntry(domain="esphome", entry_id="esphome_mock_entry")
