@@ -743,7 +743,15 @@ class EsphomeOtaManager extends HTMLElement {
       if (this.filter === "unmanaged") return dev.status === "unmanaged";
       if (this.filter === "initial") return dev.status === "needs_initial_install";
       if (this.filter === "update") return dev.status === "update_available";
-      if (this.filter === "installed") return dev.status === "installed";
+      if (this.filter === "installed") {
+        return (
+          dev.status === "installed" ||
+          (dev.status === "ready" && !!dev.last_installed_version) ||
+          (!!dev.last_installed_version &&
+            dev.status !== "needs_initial_install" &&
+            dev.status !== "update_available")
+        );
+      }
       if (this.filter === "building") return !!this._getActiveJob(dev.device_id);
       return true;
     });

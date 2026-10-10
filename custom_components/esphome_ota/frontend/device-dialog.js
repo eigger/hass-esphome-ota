@@ -25,7 +25,9 @@ const css = `
   color: var(--primary-text-color, #1f2937);
   width: 100%;
   max-width: 780px;
+  height: min(580px, 85vh);
   max-height: 85vh;
+  min-height: min(480px, 85vh);
   border-radius: 14px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
   display: flex;
@@ -68,6 +70,7 @@ const css = `
 .body {
   padding: 18px 20px;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -90,7 +93,8 @@ const css = `
   line-height: 1.45;
   padding: 14px;
   border-radius: 8px;
-  max-height: 380px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   white-space: pre;
 }
@@ -365,8 +369,16 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
 
     this.shadowRoot.getElementById("close-x")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
-    this.shadowRoot.getElementById("backdrop")?.addEventListener("click", (e) => {
-      if (e.target.id === "backdrop") this.close();
+    let mouseDownTarget = null;
+    const backdrop = this.shadowRoot.getElementById("backdrop");
+    backdrop?.addEventListener("mousedown", (e) => {
+      mouseDownTarget = e.target;
+    });
+    backdrop?.addEventListener("click", (e) => {
+      if (e.target.id === "backdrop" && mouseDownTarget?.id === "backdrop") {
+        this.close();
+      }
+      mouseDownTarget = null;
     });
 
     this.shadowRoot.querySelectorAll(".tab").forEach((tabBtn) => {

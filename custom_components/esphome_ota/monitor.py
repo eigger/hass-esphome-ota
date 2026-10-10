@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -94,95 +95,178 @@ class InstallationMonitor:
         for dev_data in devices:
             device_id = dev_data["device_id"]
             dev_name = dev_data["name"]
+            dev_friendly = dev_data.get("friendly_name") or dev_name
             norm_name = dev_name.lower().replace("-", "_")
+            norm_title = re.sub(
+                r"[^a-z0-9_]",
+                "",
+                dev_friendly.lower().replace(" ", "_").replace("-", "_"),
+            )
 
             matched_entity_id: str | None = None
+            dev = self.device_manager.get_device(device_id)
 
-            # 1. First attempt: match via Home Assistant Device Registry
+            # 1. Identify matching HA device in Device Registry
             matching_ha_device_id: str | None = None
+            # Pass A: Match via explicit device identifiers (e.g. esphome, mqtt, etc.)
             for ha_dev in dev_reg.devices:
-                # Only consider devices belonging to the ESPHome domain
-                if not any(domain == "esphome" for domain, _ in ha_dev.identifiers):
-                    continue
-
-                matched = False
-                for domain, ident in ha_dev.identifiers:
-                    if domain == "esphome" and str(ident).lower() in (
+                for _domain, ident in ha_dev.identifiers:
+                    if str(ident).lower() in (
                         dev_name.lower(),
                         device_id.lower(),
                         norm_name,
+                        norm_title,
                     ):
-                        matched = True
+                        matching_ha_device_id = ha_dev.id
                         break
-                if (
-                    not matched
-                    and ha_dev.name
-                    and ha_dev.name.lower()
-                    in (
-                        dev_name.lower(),
-                        norm_name,
-                        dev_data.get("friendly_name", "").lower(),
-                    )
-                ):
-                    matched = True
-
-                if matched:
-                    matching_ha_device_id = ha_dev.id
+                if matching_ha_device_id:
                     break
 
-            if matching_ha_device_id:
+            # Pass B: Match via device name if no identifier matched directly
+            if not matching_ha_device_id:
+                for ha_dev in dev_reg.devices:
+                    if (
+                        ha_dev.name
+                        and ha_dev.name.lower()
+                        in (
+                            dev_name.lower(),
+                            norm_name,
+                            dev_friendly.lower(),
+                            norm_title,
+                        )
+                    ):
+                        # Avoid matching a device whose identifier explicitly belongs to a different node
+                        has_conflicting_ident = False
+                        for _domain, ident in ha_dev.identifiers:
+                            ident_str = str(ident).lower()
+                            if ident_str not in (
+                                dev_name.lower(),
+                                device_id.lower(),
+                                norm_name,
+                                norm_title,
+                            ) and (
+                                ident_str.startswith(f"{dev_name.lower()}_")
+                                or ident_str.startswith(f"{norm_name}_")
+                                or f"_{norm_name}_" in ident_str
+                            ):
+                                has_conflicting_ident = True
+                                break
+                        if not has_conflicting_ident:
+                            matching_ha_device_id = ha_dev.id
+                            break
+
+            # Helper to strictly verify an update entity and its device connection
+            def _is_valid_update_entity(ent: er.RegistryEntry | None) -> bool:
+                if not ent or ent.domain != "update":
+                    return False
+                if ent.device_id:
+                    ent_dev = dev_reg.async_get(ent.device_id)
+                    if not ent_dev:
+                        return False
+                    if matching_ha_device_id and ent_dev.id != matching_ha_device_id:
+                        return False
+                    for _domain, ident in ent_dev.identifiers:
+                        ident_str = str(ident).lower()
+                        if ident_str not in (
+                            dev_name.lower(),
+                            device_id.lower(),
+                            norm_name,
+                            norm_title,
+                        ) and (
+                            ident_str.startswith(f"{dev_name.lower()}_")
+                            or ident_str.startswith(f"{norm_name}_")
+                            or f"_{norm_name}_" in ident_str
+                        ):
+                            return False
+                return True
+
+            # 0. Check if device already has a valid known update_entity_id
+            if dev and dev.update_entity_id:
+                known_ent = ent_reg.async_get(dev.update_entity_id)
+                if _is_valid_update_entity(known_ent):
+                    matched_entity_id = dev.update_entity_id
+
+            # 1. First attempt: match entities attached directly to the matching HA device
+            if not matched_entity_id and matching_ha_device_id:
                 for entity in ent_reg.entities.values():
                     if (
                         entity.domain == "update"
-                        and entity.platform == "esphome"
                         and entity.device_id == matching_ha_device_id
                     ):
                         matched_entity_id = entity.entity_id
                         break
 
-            # 2. Second attempt: match via exact naming patterns
-            # Strictly require entity.platform == "esphome" and verify device connection relationship
+            # 2. Second attempt: match via exact naming patterns with strict device validation
+            if not matched_entity_id:
+                candidate_eids = [
+                    f"update.{norm_name}",
+                    f"update.{norm_name}_firmware",
+                    f"update.{norm_name}_ota_update",
+                    f"update.{norm_name}_update",
+                ]
+                if norm_title and norm_title != norm_name:
+                    candidate_eids.extend([
+                        f"update.{norm_title}",
+                        f"update.{norm_title}_firmware",
+                        f"update.{norm_title}_ota_update",
+                        f"update.{norm_title}_update",
+                    ])
+
+                for cand in candidate_eids:
+                    ent = ent_reg.async_get(cand)
+                    if _is_valid_update_entity(ent):
+                        matched_entity_id = cand
+                        break
+
+            # 3. Third attempt: match via entity original_name or unique_id
             if not matched_entity_id:
                 for entity in ent_reg.entities.values():
-                    if entity.domain != "update" or entity.platform != "esphome":
+                    if not _is_valid_update_entity(entity):
                         continue
-
-                    # If entity is attached to a HA device, verify that device is an ESPHome device
-                    if entity.device_id:
-                        ent_dev = dev_reg.async_get(entity.device_id)
-                        if ent_dev:
-                            if not any(d == "esphome" for d, _ in ent_dev.identifiers):
-                                continue
-                            if (
-                                matching_ha_device_id
-                                and ent_dev.id != matching_ha_device_id
-                            ):
-                                continue
 
                     obj_id = entity.entity_id.split(".", 1)[-1].lower()
                     if obj_id in (
                         norm_name,
                         f"{norm_name}_firmware",
+                        f"{norm_name}_ota_update",
                         f"{norm_name}_update",
+                        norm_title,
+                        f"{norm_title}_firmware",
+                        f"{norm_title}_ota_update",
+                        f"{norm_title}_update",
                     ):
                         matched_entity_id = entity.entity_id
                         break
                     if entity.unique_id:
                         u_id = entity.unique_id.lower()
-                        if u_id.startswith((f"{norm_name}_", f"{norm_name}-")):
+                        if u_id.startswith(
+                            (
+                                f"{norm_name}_",
+                                f"{norm_name}-",
+                                f"{norm_title}_",
+                                f"{norm_title}-",
+                            )
+                        ):
                             matched_entity_id = entity.entity_id
                             break
                     if entity.original_name:
                         orig = entity.original_name.lower()
+                        # Device-specific names matching node or friendly name
                         if orig in (
                             norm_name,
                             f"{norm_name} firmware",
                             f"{norm_name} update",
-                            dev_data.get("friendly_name", "").lower(),
-                            f"{dev_data.get('friendly_name', '').lower()} firmware",
+                            dev_friendly.lower(),
+                            f"{dev_friendly.lower()} firmware",
+                            f"{dev_friendly.lower()} update",
                         ):
                             matched_entity_id = entity.entity_id
                             break
+                        # Generic common names like "Firmware" ONLY if confirmed attached to matching HA device
+                        if matching_ha_device_id and entity.device_id == matching_ha_device_id:
+                            if orig in ("firmware", "firmware update", "ota update"):
+                                matched_entity_id = entity.entity_id
+                                break
 
             if matched_entity_id:
                 dev = self.device_manager.get_device(device_id)
@@ -196,6 +280,39 @@ class InstallationMonitor:
                 if matched_entity_id not in self._monitored_entities:
                     self._monitored_entities.add(matched_entity_id)
                     self._attach_listener(device_id, matched_entity_id)
+
+                # Immediately sync initial state if entity is already active in HA
+                current_state = self.hass.states.get(matched_entity_id)
+                if current_state and current_state.state not in (
+                    "unavailable",
+                    "unknown",
+                ):
+                    attrs = current_state.attributes
+                    installed_ver = attrs.get("installed_version")
+                    in_progress = attrs.get("in_progress", False)
+                    if dev and installed_ver and not in_progress:
+                        if dev.last_installed_version != installed_ver:
+                            await self.device_manager.async_mark_installed(
+                                device_id, installed_ver
+                            )
+                            if (
+                                dev.last_published_version
+                                and installed_ver == dev.last_published_version
+                            ):
+                                if self.event_callback:
+                                    self.event_callback(
+                                        "installation_verified",
+                                        {
+                                            "device_id": device_id,
+                                            "version": installed_ver,
+                                            "devices": self.device_manager.list_all(),
+                                        },
+                                    )
+                            elif self.event_callback:
+                                self.event_callback(
+                                    "devices_updated",
+                                    {"devices": self.device_manager.list_all()},
+                                )
 
     async def async_refresh_entity(self, device_id: str) -> None:
         """Trigger immediate state update for the device's Update entity."""
@@ -239,6 +356,9 @@ class InstallationMonitor:
             installed_version = attrs.get("installed_version")
             in_progress = attrs.get("in_progress", False)
 
+            if in_progress:
+                return
+
             dev = self.device_manager.get_device(device_id)
             if not dev or not installed_version:
                 return
@@ -255,7 +375,7 @@ class InstallationMonitor:
                     installed_version,
                 )
 
-                async def _mark_and_notify() -> None:
+                async def _mark_and_notify_verified() -> None:
                     await self.device_manager.async_mark_installed(
                         device_id, installed_version
                     )
@@ -273,7 +393,25 @@ class InstallationMonitor:
                             },
                         )
 
-                self.hass.async_create_task(_mark_and_notify())
+                self.hass.async_create_task(_mark_and_notify_verified())
+            elif dev.last_installed_version != installed_version:
+                _LOGGER.info(
+                    "Discovered installed version %s for %s",
+                    installed_version,
+                    device_id,
+                )
+
+                async def _mark_and_notify_updated() -> None:
+                    await self.device_manager.async_mark_installed(
+                        device_id, installed_version
+                    )
+                    if self.event_callback:
+                        self.event_callback(
+                            "devices_updated",
+                            {"devices": self.device_manager.list_all()},
+                        )
+
+                self.hass.async_create_task(_mark_and_notify_updated())
 
         unsub = async_track_state_change_event(self.hass, [entity_id], _state_changed)
         self._unsub_listeners.append(unsub)
