@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,11 @@ from homeassistant.core import HomeAssistant, callback
 
 from .config_patch import apply_ota_patch, remove_ota_patch
 from .const import DOMAIN
+from .models import (
+    BuilderConnectionError,
+    BuilderTimeoutError,
+    ConfigConflictError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -444,16 +450,24 @@ async def ws_remove_ota(
     yaml_removed = False
 
     if client:
+        # Step 1: Query YAML content from Builder
         try:
             yaml_content = await client.get_config(config_file)
-            if yaml_content:
-                cleaned, yaml_removed = remove_ota_patch(yaml_content)
-                if yaml_removed:
-                    await client.update_config(config_file, cleaned, expected=yaml_content)
         except Exception as err:  # noqa: BLE001
             err_msg = str(err).lower()
-            if (
-                any(
+            # ONLY consider file missing if Builder explicitly confirms file absence.
+            # Timeout, connection loss, conflict, etc. MUST fail and not delete records silently!
+            is_file_not_found = (
+                not isinstance(
+                    err,
+                    (
+                        BuilderConnectionError,
+                        BuilderTimeoutError,
+                        asyncio.TimeoutError,
+                        ConfigConflictError,
+                    ),
+                )
+                and any(
                     term in err_msg
                     for term in (
                         "not found",
@@ -461,20 +475,47 @@ async def ws_remove_ota(
                         "no such file",
                         "404",
                         "failed to open",
+                        "config_not_found",
                     )
                 )
-                or not local_file_exists
-            ):
+            )
+            if is_file_not_found:
                 _LOGGER.info(
-                    "YAML %s not found when removing OTA for %s; removing device from list directly: %s",
+                    "YAML %s confirmed missing on builder for %s; removing device record directly: %s",
                     config_file,
                     device_id,
                     err,
                 )
-                yaml_removed = False
+                yaml_content = None
             else:
+                _LOGGER.warning(
+                    "Failed fetching YAML %s from builder for %s: %s",
+                    config_file,
+                    device_id,
+                    err,
+                )
                 connection.send_error(msg["id"], "remove_failed", str(err))
                 return
+
+        # Step 2: If YAML exists on Builder, patch it and update config via CAS
+        if yaml_content is not None:
+            cleaned, yaml_removed = remove_ota_patch(yaml_content)
+            if yaml_removed:
+                try:
+                    await client.update_config(
+                        config_file, cleaned, expected=yaml_content
+                    )
+                except Exception as err:  # noqa: BLE001
+                    # Update config errors (e.g. CAS conflict, timeout) must NEVER be ignored!
+                    _LOGGER.warning(
+                        "Failed updating YAML %s on builder for %s: %s",
+                        config_file,
+                        device_id,
+                        err,
+                    )
+                    connection.send_error(msg["id"], "remove_failed", str(err))
+                    return
+
     elif local_file_exists:
         try:
             orig_content = await hass.async_add_executor_job(
@@ -489,7 +530,7 @@ async def ws_remove_ota(
             connection.send_error(msg["id"], "remove_failed", str(err))
             return
     else:
-        # Neither builder client nor local file has this YAML; just drop from managed list
+        # Neither builder client is connected nor local file exists
         _LOGGER.info(
             "YAML %s does not exist for %s; removing device from managed list directly",
             config_file,

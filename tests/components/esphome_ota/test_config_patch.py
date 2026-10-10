@@ -291,3 +291,20 @@ packages:
 """
     assert has_unclear_project_ownership(content) is False
 
+
+def test_strip_legacy_ota_packages_preserves_packages_header_with_comment() -> None:
+    """Comments containing ota_server must not cause packages header or other packages to be deleted."""
+    content = """esphome:
+  name: livingroom
+
+packages: # migrated from ota_server
+  sensors: !include sensors.yaml
+  custom: !include custom.yaml # previously ota_server
+"""
+    cleaned, changed = strip_legacy_ota_packages(content)
+    assert "packages: # migrated from ota_server" in cleaned
+    assert "sensors: !include sensors.yaml" in cleaned
+    assert "custom: !include custom.yaml" in cleaned
+    assert "esphome:" in cleaned
+
+

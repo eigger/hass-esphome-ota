@@ -99,6 +99,28 @@ def is_legacy_ota_server_package(pkg_val: Any) -> bool:
     return False
 
 
+def _strip_yaml_comment(line: str) -> str:
+    """Strip comment from a YAML line while respecting basic quotes."""
+    in_quote: str | None = None
+    escaped = False
+    for i, ch in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\":
+            escaped = True
+            continue
+        if ch in ('"', "'"):
+            if in_quote == ch:
+                in_quote = None
+            elif in_quote is None:
+                in_quote = ch
+            continue
+        if ch == "#" and in_quote is None:
+            return line[:i].rstrip()
+    return line.rstrip("\r\n")
+
+
 def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
     """Strip legacy ota_server package includes and legacy substitutions from YAML text.
 
@@ -152,7 +174,8 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                 i += 1
                 continue
             ind = _indent_of(line)
-            if ind == sub_base_indent and re.match(r"^[ \t]+(ota_device|ota_slug)\s*:", line):
+            line_code = _strip_yaml_comment(line)
+            if ind == sub_base_indent and re.match(r"^[ \t]+(ota_device|ota_slug)\s*:", line_code):
                 sub_changed = True
                 i += 1
                 while i < len(lines):
@@ -193,7 +216,9 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
 
     if packages_idx is not None:
         pkg_line = lines[packages_idx]
-        if "ota_server" in pkg_line:
+        pkg_code = _strip_yaml_comment(pkg_line).strip()
+        # Only drop the packages: line itself if it is a standalone !include to ota_server
+        if re.match(r"^packages\s*:\s*!include\b", pkg_code) and "ota_server" in pkg_code.lower():
             lines.pop(packages_idx)
             changed = True
         else:
@@ -242,8 +267,10 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                             j += 1
                             continue
                         break
-                    block_str = "".join(entry_lines)
-                    if "ota_server" in block_str:
+                    # Check code portion only, ignoring comments
+                    code_lines = [_strip_yaml_comment(entry_line) for entry_line in entry_lines]
+                    code_str = "\n".join(code_lines).lower()
+                    if "ota_server" in code_str:
                         pkg_changed = True
                         i = j
                         continue
@@ -366,9 +393,12 @@ def has_unclear_project_ownership(content: str) -> bool:
                 continue
             if _is_external_or_include_package(pkg_val):
                 return True
-    elif isinstance(content, str) and bool(re.search(r"^\s*packages:\s*!include", content, re.MULTILINE)):
-        if "ota_server" not in content:
-            return True
+    elif isinstance(content, str):
+        match_pkg_inc = re.search(r"^\s*packages:\s*!include\s+(.*)$", content, re.MULTILINE)
+        if match_pkg_inc:
+            target = _strip_yaml_comment(match_pkg_inc.group(1)).lower()
+            if "ota_server" not in target:
+                return True
 
     # Check raw content for remote github packages
     return bool(
