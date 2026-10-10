@@ -379,6 +379,8 @@ class InstallationMonitor:
                     await self.device_manager.async_mark_installed(
                         device_id, installed_version
                     )
+                    self.cancel_cleanup(device_id)
+                    await self.publisher.async_deactivate(dev.slug)
                     if self.event_callback:
                         self.event_callback(
                             "devices_updated",
@@ -443,11 +445,18 @@ class InstallationMonitor:
                 slug,
                 target_artifact_id,
             )
-            task = self.hass.async_create_task(
-                self.publisher.async_deactivate(
+
+            async def _deactivate_and_notify() -> None:
+                await self.publisher.async_deactivate(
                     slug, expected_artifact_id=target_artifact_id
                 )
-            )
+                if self.event_callback:
+                    self.event_callback(
+                        "devices_updated",
+                        {"devices": self.device_manager.list_all()},
+                    )
+
+            task = self.hass.async_create_task(_deactivate_and_notify())
             self._cleanup_tasks[device_id] = task
 
         timer = self.hass.loop.call_later(delay, _run_cleanup)

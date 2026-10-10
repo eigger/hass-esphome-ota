@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
+
 from homeassistant.core import HomeAssistant
 
 from custom_components.esphome_ota.const import (
+    DEFAULT_PUBLISH_DIR,
     DEVICE_STATUS_INSTALLED,
     DEVICE_STATUS_NEEDS_INITIAL_INSTALL,
     DEVICE_STATUS_UPDATE_AVAILABLE,
@@ -178,3 +181,38 @@ async def test_device_lock_concurrency(hass: HomeAssistant) -> None:
 
     await asyncio.gather(_worker(1, 0.05), _worker(2, 0.01))
     assert execution_order == [1, 2]
+
+
+async def test_list_all_has_public_binary(hass: HomeAssistant) -> None:
+    """Device list_all accurately reports has_public_binary reflecting filesystem state."""
+    storage = StorageManager(hass)
+    manager = DeviceManager(hass, storage)
+
+    dev = await manager.async_register_or_update(
+        device_id="office",
+        configuration="office.yaml",
+        name="office",
+        friendly_name="Office Sensor",
+    )
+
+    # 1. Without public binary file
+    devices = manager.list_all()
+    dev_entry = next(d for d in devices if d["device_id"] == "office")
+    assert dev_entry["has_public_binary"] is False
+
+    # 2. When public binary file exists in www/DEFAULT_PUBLISH_DIR
+    pub_dir = Path(hass.config.path("www", DEFAULT_PUBLISH_DIR))
+    pub_dir.mkdir(parents=True, exist_ok=True)
+    bin_file = pub_dir / f"{dev.slug}.ota.bin"
+    bin_file.write_bytes(b"dummy")
+
+    devices = manager.list_all()
+    dev_entry = next(d for d in devices if d["device_id"] == "office")
+    assert dev_entry["has_public_binary"] is True
+
+    # 3. When binary is deactivated / removed
+    bin_file.unlink()
+    devices = manager.list_all()
+    dev_entry = next(d for d in devices if d["device_id"] == "office")
+    assert dev_entry["has_public_binary"] is False
+

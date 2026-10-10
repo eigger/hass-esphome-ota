@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -47,6 +48,18 @@ async def test_installation_state_change_tracking(hass: HomeAssistant) -> None:
         suggested_object_id="livingroom_firmware",
     )
 
+    # Pre-populate public binary and cleanup timer
+    dev = device_manager.get_device("livingroom")
+    assert dev is not None
+    pub_dir = Path(hass.config.path("www", "esphome_ota_mon_test"))
+    pub_dir.mkdir(parents=True, exist_ok=True)
+    bin_file = pub_dir / f"{dev.slug}.ota.bin"
+    bin_file.write_bytes(b"mock_bin")
+    assert bin_file.is_file()
+
+    monitor.schedule_cleanup("livingroom", dev.slug)
+    assert "livingroom" in monitor._cleanup_timers
+
     await monitor.async_setup()
 
     # 1. State change to in_progress=True (flashing) -> not installed yet
@@ -58,6 +71,7 @@ async def test_installation_state_change_tracking(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     updated_dev = device_manager.get_device("livingroom")
     assert updated_dev.last_installed_version is None
+    assert bin_file.is_file()
 
     # 2. State change to unavailable -> ignored
     hass.states.async_set(
@@ -68,6 +82,7 @@ async def test_installation_state_change_tracking(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     # 3. State change to installed_version == 2.0.0 and in_progress=False -> installation verified!
+    # Triggers auto-hide (unlinking public binary) and cancels scheduled cleanup timer
     hass.states.async_set(
         "update.livingroom_firmware",
         "off",
@@ -80,6 +95,8 @@ async def test_installation_state_change_tracking(hass: HomeAssistant) -> None:
     assert verified_dev.has_http_ota is True
     assert verified_dev.update_entity_id == "update.livingroom_firmware"
     assert any(e.get("version") == "2.0.0" for e in events)
+    assert not bin_file.is_file()
+    assert "livingroom" not in monitor._cleanup_timers
 
     monitor.async_unload()
 

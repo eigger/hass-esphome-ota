@@ -118,6 +118,32 @@ const css = `
   color: var(--secondary-text-color, #6b7280);
   width: 35%;
 }
+.binary-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+.binary-active {
+  background: #dcfce7;
+  color: #166534;
+}
+.binary-hidden {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.status-dot-sm {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot-sm.ok { background: #16a34a; }
+.status-dot-sm.neutral { background: #94a3b8; }
 .footer {
   padding: 14px 20px;
   display: flex;
@@ -278,6 +304,38 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     }
   }
 
+  async hideBinary() {
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/deactivate",
+        device_id: this.device.device_id,
+      });
+      this.device.has_public_binary = false;
+      this.statusMessage = t(this.hass, "hide_success");
+      this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
+      this.render();
+    } catch (err) {
+      this.statusMessage = `Hide error: ${err.message || err}`;
+      this.render();
+    }
+  }
+
+  async republishBinary() {
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/republish",
+        device_id: this.device.device_id,
+      });
+      this.device.has_public_binary = true;
+      this.statusMessage = t(this.hass, "republish_success");
+      this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
+      this.render();
+    } catch (err) {
+      this.statusMessage = `Republish error: ${err.message || err}`;
+      this.render();
+    }
+  }
+
   render() {
     if (!this.isOpen || !this.device) {
       this.shadowRoot.innerHTML = "";
@@ -320,6 +378,23 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           <tr><td>Public Slug</td><td>${escapeHtml(this.device.slug)}</td></tr>
           <tr><td>Installed Version</td><td>${escapeHtml(this.device.last_installed_version || "Not detected")}</td></tr>
           <tr><td>Published Version</td><td>${escapeHtml(this.device.last_published_version || "None")}</td></tr>
+          ${this.device.last_published_version ? `
+            <tr>
+              <td>${escapeHtml(t(this.hass, "firmware_binary"))}</td>
+              <td>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                  <span class="binary-status ${this.device.has_public_binary ? "binary-active" : "binary-hidden"}">
+                    <span class="status-dot-sm ${this.device.has_public_binary ? "ok" : "neutral"}"></span>
+                    ${escapeHtml(t(this.hass, this.device.has_public_binary ? "status_active" : "status_hidden"))}
+                  </span>
+                  ${this.device.has_public_binary
+                    ? `<button class="btn-hide" style="padding: 4px 10px; font-size: 0.8rem;">${escapeHtml(t(this.hass, "btn_hide"))}</button>`
+                    : `<button class="btn-republish primary" style="padding: 4px 10px; font-size: 0.8rem;">${escapeHtml(t(this.hass, "btn_republish"))}</button>`
+                  }
+                </div>
+              </td>
+            </tr>
+          ` : ""}
           ${this.device.update_entity_id ? `<tr><td>Update Entity</td><td><code>${escapeHtml(this.device.update_entity_id)}</code></td></tr>` : ""}
         </table>
       `;
@@ -393,6 +468,8 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-apply")?.addEventListener("click", () => this.applyDiff(false));
     this.shadowRoot.getElementById("btn-apply-build")?.addEventListener("click", () => this.applyDiff(true));
     this.shadowRoot.getElementById("btn-remove-ota")?.addEventListener("click", () => this.removeOta());
+    this.shadowRoot.querySelector(".btn-hide")?.addEventListener("click", () => this.hideBinary());
+    this.shadowRoot.querySelector(".btn-republish")?.addEventListener("click", () => this.republishBinary());
     this.shadowRoot.getElementById("btn-upload")?.addEventListener("click", () => {
       const fileInput = this.shadowRoot.getElementById("firmware-file");
       if (fileInput && fileInput.files && fileInput.files[0]) {

@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 import logging
 import re
 import secrets
+from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 
 from .config_patch import bump_patch_version
 from .const import (
+    DEFAULT_PUBLISH_DIR,
     DEVICE_STATUS_INSTALLED,
     DEVICE_STATUS_NEEDS_INITIAL_INSTALL,
     DEVICE_STATUS_READY,
@@ -156,6 +158,20 @@ class DeviceManager:
         results: list[dict[str, Any]] = []
         seen_configurations: set[str] = set()
 
+        pub_dir: Path | None = None
+        try:
+            pub_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
+        except Exception:
+            pub_dir = None
+
+        def _has_public_bin(slug: str) -> bool:
+            if not pub_dir:
+                return False
+            try:
+                return (pub_dir / f"{slug}.ota.bin").is_file()
+            except Exception:
+                return False
+
         # Iterate over devices reported by Builder
         for raw in self._builder_devices:
             # Builder device dict contains "configuration" (e.g. "livingroom.yaml") and "name"
@@ -203,6 +219,7 @@ class DeviceManager:
                         "last_published_version": managed.last_published_version,
                         "last_installed_version": live_installed,
                         "has_http_ota": managed.has_http_ota,
+                        "has_public_binary": _has_public_bin(managed.slug),
                         "status": status,
                         "update_entity_id": managed.update_entity_id,
                         "builder_present": True,
@@ -227,6 +244,7 @@ class DeviceManager:
                         "last_published_version": None,
                         "last_installed_version": raw.get("current_version"),
                         "has_http_ota": False,
+                        "has_public_binary": False,
                         "status": DEVICE_STATUS_UNMANAGED,
                         "update_entity_id": None,
                         "builder_present": True,
@@ -261,6 +279,7 @@ class DeviceManager:
                         "last_published_version": managed.last_published_version,
                         "last_installed_version": live_installed,
                         "has_http_ota": managed.has_http_ota,
+                        "has_public_binary": _has_public_bin(managed.slug),
                         "status": status,
                         "update_entity_id": managed.update_entity_id,
                         "builder_present": False,

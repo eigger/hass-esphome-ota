@@ -263,6 +263,32 @@ button.danger:hover {
 .stat-val {
   font-weight: 600;
 }
+.binary-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+.binary-active {
+  background: #dcfce7;
+  color: #166534;
+}
+.binary-hidden {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.status-dot-sm {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot-sm.ok { background: #16a34a; }
+.status-dot-sm.neutral { background: #94a3b8; }
 
 .card-actions {
   display: flex;
@@ -807,6 +833,22 @@ class EsphomeOtaManager extends HTMLElement {
       });
     });
 
+    this.shadowRoot.querySelectorAll(".btn-hide").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const id = e.target.getAttribute("data-id");
+        const dev = this.devices.find((d) => d.device_id === id);
+        if (dev) this.hideBinary(dev);
+      });
+    });
+
+    this.shadowRoot.querySelectorAll(".btn-republish").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const id = e.target.getAttribute("data-id");
+        const dev = this.devices.find((d) => d.device_id === id);
+        if (dev) this.republishBinary(dev);
+      });
+    });
+
     this.shadowRoot.querySelectorAll(".btn-details").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const id = e.target.getAttribute("data-id");
@@ -822,6 +864,44 @@ class EsphomeOtaManager extends HTMLElement {
         if (dev) this.removeOta(dev);
       });
     });
+  }
+
+  async hideBinary(device) {
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/deactivate",
+        device_id: device.device_id,
+      });
+      device.has_public_binary = false;
+      this._renderDeviceList();
+      this.showToast(t(this.hass, "hide_success"));
+    } catch (err) {
+      alert(`Hide error: ${err.message || err}`);
+    }
+  }
+
+  async republishBinary(device) {
+    try {
+      await this.hass.callWS({
+        type: "esphome_ota/republish",
+        device_id: device.device_id,
+      });
+      device.has_public_binary = true;
+      this._renderDeviceList();
+      this.showToast(t(this.hass, "republish_success"));
+    } catch (err) {
+      alert(`Republish error: ${err.message || err}`);
+    }
+  }
+
+  showToast(message) {
+    this.dispatchEvent(
+      new CustomEvent("hass-notification", {
+        detail: { message },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   async removeOta(device) {
@@ -888,12 +968,24 @@ class EsphomeOtaManager extends HTMLElement {
           </div>
           <div class="stat-item">
             <span class="stat-label">${escapeHtml(t(this.hass, "published_version"))}</span>
-            <span class="stat-val">${escapeHtml(dev.last_published_version || "—")}</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="stat-val">${escapeHtml(dev.last_published_version || "—")}</span>
+              ${dev.last_published_version ? (
+                dev.has_public_binary
+                  ? `<span class="binary-status binary-active" title="${escapeHtml(t(this.hass, "status_active"))}"><span class="status-dot-sm ok"></span> ${escapeHtml(t(this.hass, "status_active"))}</span>`
+                  : `<span class="binary-status binary-hidden" title="${escapeHtml(t(this.hass, "status_hidden"))}"><span class="status-dot-sm neutral"></span> ${escapeHtml(t(this.hass, "status_hidden"))}</span>`
+              ) : ""}
+            </div>
           </div>
         </div>
 
         <div class="card-actions">
           ${actionButton}
+          ${dev.last_published_version && !activeJob ? (
+            dev.has_public_binary
+              ? `<button class="btn-hide" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_hide"))}</button>`
+              : `<button class="btn-republish" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_republish"))}</button>`
+          ) : ""}
           <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_details"))}</button>
           ${dev.is_managed ? `<button class="danger btn-remove-ota" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_remove_ota"))}</button>` : ""}
         </div>

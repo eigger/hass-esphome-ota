@@ -418,7 +418,12 @@ async def ws_deactivate(
         return
 
     removed = await manager.publisher.async_deactivate(dev.slug)
+    manager.monitor.cancel_cleanup(device_id)
     connection.send_result(msg["id"], {"success": True, "removed": removed})
+    manager._dispatch_event(
+        "devices_updated",
+        {"devices": manager.device_manager.list_all()},
+    )
 
 
 @websocket_api.require_admin
