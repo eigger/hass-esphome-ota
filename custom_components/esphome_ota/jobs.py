@@ -17,6 +17,7 @@ from .config_patch import (
     bump_patch_version,
     has_unclear_project_ownership,
     own_project_version,
+    set_project_version,
 )
 from .const import (
     MAX_LOG_TAIL_LINES,
@@ -152,6 +153,7 @@ class JobRunner:
         client: BuilderClient,
         base_url: str,
         request_id: str | None = None,
+        target_version: str | None = None,
     ) -> str:
         """Start an asynchronous compile-download-verify-publish pipeline.
 
@@ -178,12 +180,15 @@ class JobRunner:
         self._in_flight_requests.add(device_req_key)
 
         # Version allocation (provisional; re-evaluated under device lock)
-        if device.own_project_version:
-            target_version = device.own_project_version
+        override = (target_version or "").strip() or None
+        if override:
+            provisional_version = override
+        elif device.own_project_version:
+            provisional_version = device.own_project_version
         elif device.last_published_version:
-            target_version = bump_patch_version(device.last_published_version)
+            provisional_version = bump_patch_version(device.last_published_version)
         else:
-            target_version = device.managed_version or "1.0.0"
+            provisional_version = device.managed_version or "1.0.0"
 
         job = PipelineJob(
             job_id=job_id,
@@ -191,7 +196,8 @@ class JobRunner:
             configuration=device.configuration,
             request_id=req_id,
             stage=STAGE_PREPARING,
-            reserved_version=target_version,
+            reserved_version=provisional_version,
+            checkpoint={"version_override": override} if override else {},
         )
         self._active_jobs[job_id] = job
         await self.storage.async_save_jobs(self._active_jobs)
@@ -219,17 +225,15 @@ class JobRunner:
                 # 1. Preparing YAML configuration and managing version under lock
                 await self._update_stage(job, STAGE_PREPARING)
                 current_yaml = await client.get_config(device.configuration)
+                original_yaml = current_yaml
                 own_ver = own_project_version(current_yaml)
                 unclear = has_unclear_project_ownership(current_yaml)
 
-                # Re-evaluate version based on latest published version inside lock
-                if not own_ver and not unclear:
-                    if device.last_published_version:
-                        target_version = bump_patch_version(device.last_published_version)
-                    else:
-                        target_version = device.managed_version or "1.0.0"
-                    job.reserved_version = target_version
-                    self._notify_job_update(job)
+                # Re-evaluate version based on override or latest published version inside lock
+                version_override = job.checkpoint.get("version_override")
+                override = (
+                    str(version_override).strip() if version_override else None
+                ) or None
 
                 # Query builder for evaluated device version if available
                 builder_version = None
@@ -254,7 +258,32 @@ class JobRunner:
                         f"Cannot build {device.configuration}: project ownership is ambiguous due to external configuration includes or unresolved substitutions. Manual review required."
                     )
 
-                if own_ver:
+                if override:
+                    if own_ver:
+                        updated_yaml, changed = set_project_version(
+                            current_yaml, override
+                        )
+                        if not changed:
+                            raise BuilderError(
+                                f"Cannot update project.version in {device.configuration} to '{override}'. Manual YAML edit required."
+                            )
+                        current_yaml = updated_yaml
+                        own_ver = own_project_version(current_yaml) or override
+                        job.reserved_version = override
+                        device.own_project_version = override
+                    else:
+                        job.reserved_version = override
+                    self._notify_job_update(job)
+                elif not own_ver:
+                    if device.last_published_version:
+                        job.reserved_version = bump_patch_version(
+                            device.last_published_version
+                        )
+                    else:
+                        job.reserved_version = device.managed_version or "1.0.0"
+                    self._notify_job_update(job)
+
+                if own_ver and not override:
                     # User or external file owns the project version
                     if ("$" in own_ver or "{" in own_ver) and builder_version:
                         job.reserved_version = builder_version
@@ -262,6 +291,8 @@ class JobRunner:
                     else:
                         job.reserved_version = own_ver
                         device.own_project_version = own_ver
+                    target_patch_version = None
+                elif own_ver and override:
                     target_patch_version = None
                 else:
                     device.own_project_version = None
@@ -275,7 +306,8 @@ class JobRunner:
                     target_version=target_patch_version,
                     node=device.name,
                 )
-                if diff_res.modified != current_yaml:
+                final_yaml = diff_res.modified
+                if final_yaml != original_yaml:
                     _LOGGER.info(
                         "Updating YAML for %s (version: %s) prior to compile",
                         device.configuration,
@@ -283,8 +315,8 @@ class JobRunner:
                     )
                     await client.update_config(
                         configuration=device.configuration,
-                        content=diff_res.modified,
-                        expected=current_yaml,
+                        content=final_yaml,
+                        expected=original_yaml,
                     )
 
                 await self.storage.async_save_devices(self.device_manager._managed_devices)

@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
-from .config_patch import apply_ota_patch
+from .config_patch import apply_ota_patch, remove_ota_patch
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_batch_build)
     websocket_api.async_register_command(hass, ws_republish)
     websocket_api.async_register_command(hass, ws_deactivate)
+    websocket_api.async_register_command(hass, ws_remove_ota)
     websocket_api.async_register_command(hass, ws_cancel_job)
     websocket_api.async_register_command(hass, ws_select_builder)
     websocket_api.async_register_command(hass, ws_reconnect)
@@ -252,6 +253,7 @@ async def ws_apply_ota(
         vol.Required("type"): "esphome_ota/build",
         vol.Required("device_id"): str,
         vol.Optional("request_id"): str,
+        vol.Optional("target_version"): str,
     }
 )
 @websocket_api.async_response
@@ -264,11 +266,18 @@ async def ws_build(
     manager = _get_manager(hass)
     device_id = msg["device_id"]
     req_id = msg.get("request_id")
+    target_version = msg.get("target_version")
 
     client = manager.resolver.active_client
     if not client:
         connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
         return
+
+    if target_version is not None:
+        target_version = str(target_version).strip()
+        if not target_version:
+            connection.send_error(msg["id"], "invalid_version", "Target version cannot be empty")
+            return
 
     dev = manager.device_manager.get_device(device_id)
     if not dev:
@@ -291,6 +300,7 @@ async def ws_build(
             client=client,
             base_url=manager.base_url,
             request_id=req_id,
+            target_version=target_version,
         )
         connection.send_result(msg["id"], {"job_id": job_id})
     except Exception as err:  # noqa: BLE001
@@ -402,6 +412,71 @@ async def ws_deactivate(
 
     removed = await manager.publisher.async_deactivate(dev.slug)
     connection.send_result(msg["id"], {"success": True, "removed": removed})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "esphome_ota/remove_ota",
+        vol.Required("device_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_remove_ota(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Remove managed OTA config from YAML and drop the managed device record."""
+    manager = _get_manager(hass)
+    device_id = msg["device_id"]
+    dev = manager.device_manager.get_device(device_id)
+    if not dev:
+        connection.send_error(msg["id"], "device_not_found", "Device not found")
+        return
+
+    client = manager.resolver.active_client
+    if not client:
+        connection.send_error(
+            msg["id"],
+            "builder_disconnected",
+            "ESPHome Builder is not connected; cannot remove OTA YAML safely",
+        )
+        return
+
+    config_file = manager.device_manager.get_configuration(device_id)
+    try:
+        yaml_content = await client.get_config(config_file)
+        cleaned, yaml_removed = remove_ota_patch(yaml_content)
+        if yaml_removed:
+            await client.update_config(config_file, cleaned, expected=yaml_content)
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "remove_failed", str(err))
+        return
+
+    binary_removed = await manager.publisher.async_deactivate(dev.slug)
+
+    artifacts = await manager.storage.async_load_artifacts()
+    if device_id in artifacts or dev.device_id in artifacts:
+        artifacts.pop(device_id, None)
+        artifacts.pop(dev.device_id, None)
+        await manager.storage.async_save_artifacts(artifacts)
+
+    await manager.device_manager.async_remove_device(dev.device_id)
+    await manager.refresh_devices()
+    await manager.monitor.async_refresh_monitoring()
+    manager._dispatch_event(
+        "devices_updated",
+        {"devices": manager.device_manager.list_all()},
+    )
+    connection.send_result(
+        msg["id"],
+        {
+            "success": True,
+            "yaml_removed": yaml_removed,
+            "binary_removed": binary_removed,
+        },
+    )
 
 
 @websocket_api.require_admin

@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { definePanelElement } from "./elements.js";
 
 const css = `
 :host {
@@ -197,9 +198,19 @@ class EsphomeOtaJobDialog extends HTMLElement {
       return;
     }
 
-    const logs = (this.job.log_tail || []).join("\n") || "Waiting for compiler output...";
     const stage = this.job.stage || "preparing";
     const stageText = t(this.hass, `stage_${stage}`) || stage;
+    const logLines = (this.job.log_tail || []).join("\n").trim();
+    let logs = logLines;
+    if (!logs) {
+      if ((stage === "failed" || stage === "cancelled") && this.job.error) {
+        logs = this.job.error;
+      } else if (stage === "failed" || stage === "cancelled") {
+        logs = stageText;
+      } else {
+        logs = "Waiting for compiler output...";
+      }
+    }
 
     let stageClass = "stage-banner";
     if (stage === "building" || stage === "downloading" || stage === "submitting") {
@@ -227,6 +238,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
             <div class="${stageClass}">
               <span><strong>Status:</strong> ${escapeHtml(stageText)}</span>
               ${this.job.reserved_version ? `<span>(Target Version: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
+              ${this.job.error && stage !== "failed" && stage !== "cancelled" ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
             </div>
             <div class="terminal" id="terminal"></div>
           </div>
@@ -255,4 +267,4 @@ class EsphomeOtaJobDialog extends HTMLElement {
   }
 }
 
-customElements.define("esphome-ota-job-dialog", EsphomeOtaJobDialog);
+definePanelElement("esphome-ota-job-dialog", EsphomeOtaJobDialog);

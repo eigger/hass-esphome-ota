@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import logging
+import re
 import secrets
 from typing import Any
 
@@ -23,6 +24,9 @@ from .models import ManagedDevice
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# ESPHome Dashboard may append "(1)" when a config name collides.
+_COPY_SUFFIX_RE = re.compile(r"\(\d+\)$")
 
 
 class DeviceManager:
@@ -75,6 +79,61 @@ class DeviceManager:
         if device_id.endswith(".yaml"):
             return device_id
         return f"{device_id}.yaml"
+
+    @staticmethod
+    def _cfg_stem(configuration: str) -> str:
+        """Normalize a configuration filename to its stem."""
+        if configuration.endswith(".yaml"):
+            return configuration[:-5]
+        return configuration
+
+    def resolve_legacy_configuration(
+        self, node: str, token: str = ""
+    ) -> tuple[str, str, dict[str, Any] | None, list[str]]:
+        """Map a legacy registry node to the best Builder configuration.
+
+        Returns (device_id, configuration, raw_builder_or_none, ambiguous_stems).
+        Prefers the plain ``{node}.yaml`` over slug-named copies such as
+        ``{node}_{token}(1).yaml`` so migration does not attach to duplicates.
+        """
+        scored: list[tuple[int, str, str, dict[str, Any]]] = []
+        for raw in self._builder_devices:
+            cfg_file = raw.get("configuration", "")
+            if not cfg_file and raw.get("name"):
+                cfg_file = f"{raw['name']}.yaml"
+            if not cfg_file:
+                continue
+            stem = self._cfg_stem(cfg_file)
+            base_stem = _COPY_SUFFIX_RE.sub("", stem)
+            score = 0
+            if stem == node:
+                score = 100
+            elif token and stem == f"{node}_{token}":
+                score = 90
+            elif token and base_stem == f"{node}_{token}":
+                score = 85
+            elif token and stem.startswith(f"{node}_") and token in stem:
+                score = 70
+            elif raw.get("name") == node:
+                score = 60
+            elif (raw.get("friendly_name") or "").strip() and (
+                raw.get("friendly_name") or ""
+            ).strip() == node:
+                score = 50
+            if score:
+                scored.append((score, stem, cfg_file if cfg_file.endswith(".yaml") else f"{cfg_file}.yaml", raw))
+
+        if not scored:
+            return node, f"{node}.yaml", None, []
+
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        best_score = scored[0][0]
+        top = [item for item in scored if item[0] == best_score]
+        # Prefer the shortest/plain stem when scores tie (node.yaml over node_token(1).yaml)
+        top.sort(key=lambda item: (len(item[1]), item[1]))
+        _, stem, cfg_file, raw = top[0]
+        ambiguous = [item[1] for item in scored if item[1] != stem]
+        return stem, cfg_file, raw, ambiguous
 
     def list_all(self) -> list[dict[str, Any]]:
         """Combine Builder devices and managed records into a unified list."""
@@ -217,6 +276,9 @@ class DeviceManager:
                 existing.chip_family = chip
             if own_project_version is not None:
                 existing.own_project_version = own_project_version
+            if token is not None:
+                existing.token = token
+                existing.slug = f"{name}_{token}" if token else name
             if has_http_ota:
                 existing.has_http_ota = True
             existing.updated_at = datetime.now(timezone.utc).isoformat()
@@ -268,3 +330,12 @@ class DeviceManager:
         dev.has_http_ota = True
         dev.updated_at = datetime.now(timezone.utc).isoformat()
         await self.storage.async_save_devices(self._managed_devices)
+
+    async def async_remove_device(self, device_id: str) -> ManagedDevice | None:
+        """Remove a managed device record from memory and storage."""
+        clean_id = device_id.replace(".yaml", "")
+        removed = self._managed_devices.pop(clean_id, None)
+        if removed is None:
+            return None
+        await self.storage.async_save_devices(self._managed_devices)
+        return removed

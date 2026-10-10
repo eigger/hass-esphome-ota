@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { definePanelElement } from "./elements.js";
 
 const css = `
 :host {
@@ -262,6 +263,19 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     } else if (this.result) {
       const devCount = this.result.migrated_devices?.length || 0;
       const artCount = this.result.migrated_artifacts?.length || 0;
+      const ambiguous = this.result.ambiguous_matches || {};
+      const ambiguousNodes = Object.keys(ambiguous);
+      const ambiguousHtml = ambiguousNodes.length
+        ? `<div class="status-box info" style="margin-top: 10px;">
+            ${escapeHtml(t(this._hass, "migration_ambiguous"))}
+            <ul style="margin: 8px 0 0; padding-left: 18px;">
+              ${ambiguousNodes.map((node) => {
+                const extras = (ambiguous[node] || []).map((s) => escapeHtml(s)).join(", ");
+                return `<li><code>${escapeHtml(node)}</code>: ${extras}</li>`;
+              }).join("")}
+            </ul>
+          </div>`
+        : "";
       bodyContent = `
         <div class="status-box success">
           <strong>${escapeHtml(t(this._hass, "migration_success"))}</strong>
@@ -270,6 +284,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
             ${escapeHtml(t(this._hass, "migration_binaries_found"))}: <strong>${artCount}</strong>
           </div>
         </div>
+        ${ambiguousHtml}
       `;
     } else if (this.preview) {
       const p = this.preview;
@@ -347,4 +362,4 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
   }
 }
 
-customElements.define("esphome-ota-migration-dialog", EsphomeOtaMigrationDialog);
+definePanelElement("esphome-ota-migration-dialog", EsphomeOtaMigrationDialog);

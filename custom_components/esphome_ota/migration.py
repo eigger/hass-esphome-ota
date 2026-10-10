@@ -125,9 +125,11 @@ class MigrationManager:
         """Execute legacy migration and update storage."""
         result = await self.hass.async_add_executor_job(self._execute_migration_sync)
 
-        # Reload devices in device_manager
+        # Reload devices in device_manager, matching Builder YAML when possible
         esphome_dir = Path(self.hass.config.path("esphome"))
         legacy_reg_path = esphome_dir / "ota_server" / "registered.json"
+        ambiguous_matches: dict[str, list[str]] = {}
+        claimed_configs: set[str] = set()
 
         if legacy_reg_path.is_file():
             try:
@@ -136,18 +138,49 @@ class MigrationManager:
                 )
                 registered = json.loads(content)
                 for node, rec in registered.items():
-                    token = rec.get("token", "")
+                    token = rec.get("token", "") or ""
                     title = rec.get("title") or node
+                    device_id, configuration, raw, ambiguous = (
+                        self.device_manager.resolve_legacy_configuration(node, token)
+                    )
+                    if ambiguous:
+                        ambiguous_matches[node] = ambiguous
+
+                    # Avoid attaching two legacy nodes to the same Builder config
+                    if configuration in claimed_configs:
+                        _LOGGER.warning(
+                            "Skipping migration for %s: configuration %s already claimed",
+                            node,
+                            configuration,
+                        )
+                        continue
+                    claimed_configs.add(configuration)
+
+                    # Drop a previous bare-node orphan if we resolved to a different stem
+                    if device_id != node and self.device_manager.get_device(node):
+                        orphan = self.device_manager.get_device(node)
+                        if orphan and orphan.configuration in {f"{node}.yaml", node}:
+                            await self.device_manager.async_remove_device(node)
+
+                    plat = (
+                        raw.get("target_platform", "esp32")
+                        if raw
+                        else "esp32"
+                    )
                     await self.device_manager.async_register_or_update(
-                        device_id=node,
-                        configuration=f"{node}.yaml",
+                        device_id=device_id,
+                        configuration=configuration,
                         name=node,
                         friendly_name=title,
+                        target_platform=plat,
                         token=token,
                         has_http_ota=True,
                     )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed registering migrated devices: %s", err)
+
+        if ambiguous_matches:
+            result["ambiguous_matches"] = ambiguous_matches
 
         await self.storage.async_save_migration(
             {

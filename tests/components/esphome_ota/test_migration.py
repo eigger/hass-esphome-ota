@@ -107,6 +107,69 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     assert res2["success"] is True
 
 
+async def test_migration_matches_builder_and_reports_ambiguous(
+    hass: HomeAssistant,
+) -> None:
+    """Migration should attach to plain YAML and report slug-named copies."""
+    esphome_dir = Path(hass.config.path("esphome"))
+    legacy_dir = esphome_dir / "ota_server"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    token = "66538f8029a9436117254bea079c279e"
+    (legacy_dir / "registered.json").write_text(
+        json.dumps(
+            {
+                "esp-colorado-tab5": {
+                    "token": token,
+                    "version": "1.0.0",
+                    "title": "ESP Colorado TAB5",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    device_manager.update_builder_devices(
+        [
+            {
+                "configuration": "esp-colorado-tab5.yaml",
+                "name": "esp-colorado-tab5",
+                "friendly_name": "ESP Colorado TAB5",
+                "target_platform": "esp32",
+            },
+            {
+                "configuration": f"esp-colorado-tab5_{token}(1).yaml",
+                "name": "esp-colorado-tab5",
+                "friendly_name": "ESP Colorado TAB5",
+                "target_platform": "esp32",
+            },
+        ]
+    )
+    publisher = ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
+    migrator = MigrationManager(hass, storage, device_manager, publisher)
+
+    res = await migrator.async_migrate()
+    assert res["success"] is True
+    assert "ambiguous_matches" in res
+    assert "esp-colorado-tab5" in res["ambiguous_matches"]
+
+    managed = device_manager.get_device("esp-colorado-tab5")
+    assert managed is not None
+    assert managed.configuration == "esp-colorado-tab5.yaml"
+    assert device_manager.get_device(f"esp-colorado-tab5_{token}(1)") is None
+
+    listed = device_manager.list_all()
+    managed_rows = [d for d in listed if d["is_managed"]]
+    unmanaged_rows = [d for d in listed if not d["is_managed"]]
+    assert len(managed_rows) == 1
+    assert managed_rows[0]["configuration"] == "esp-colorado-tab5.yaml"
+    assert any(
+        d["configuration"] == f"esp-colorado-tab5_{token}(1).yaml"
+        for d in unmanaged_rows
+    )
+
+
 def test_migration_frontend_components() -> None:
     """Verify frontend manager.js and migration-dialog.js define migration UI elements."""
     manager_js = (_FRONTEND_DIR / "manager.js").read_text(encoding="utf-8")
@@ -114,9 +177,12 @@ def test_migration_frontend_components() -> None:
     i18n_js = (_FRONTEND_DIR / "i18n.js").read_text(encoding="utf-8")
 
     assert 'import "./migration-dialog.js";' in manager_js
+    assert 'import "./build-dialog.js";' in manager_js
     assert 'id="btn-migration"' in manager_js
     assert 'id="migration-banner"' in manager_js
     assert "<esphome-ota-migration-dialog></esphome-ota-migration-dialog>" in manager_js
+    assert "<esphome-ota-build-dialog></esphome-ota-build-dialog>" in manager_js
+    assert (_FRONTEND_DIR / "build-dialog.js").is_file()
 
     assert "esphome-ota-migration-dialog" in mig_dialog_js
     assert "esphome_ota/migrate_preview" in mig_dialog_js
@@ -132,6 +198,13 @@ def test_migration_frontend_components() -> None:
     assert 'value="managed"' in manager_js
     assert "_filterDefaulted" in manager_js
     assert "_syncDefaultFilter" in manager_js
+    assert "definePanelElement" in manager_js
+    assert (_FRONTEND_DIR / "elements.js").is_file()
+    assert "_getLatestJob" in manager_js
+    assert "_getDeviceBadge" in manager_js
+    assert "esphome_ota/remove_ota" in manager_js
+    assert "btn_remove_ota" in i18n_js
+    assert "migration_ambiguous" in i18n_js
 
 
 def test_i18n_en_ko_key_parity() -> None:
