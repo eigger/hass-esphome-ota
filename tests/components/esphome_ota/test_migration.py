@@ -60,6 +60,7 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     assert preview["device_count"] == 2
     assert "livingroom" in preview["devices"]
     assert preview["binary_count"] == 1
+    assert preview["already_migrated"] is False
 
     # 3. Execute
     res = await migrator.async_migrate()
@@ -67,6 +68,11 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     assert "livingroom" in res["migrated_devices"]
     assert "legacy_garage" in res["migrated_devices"]
     assert "livingroom" in res["migrated_artifacts"]
+
+    # Verify preview now reports already_migrated
+    preview_after = await migrator.async_preview()
+    assert preview_after["already_migrated"] is True
+    assert "migrated_at" in preview_after
 
     # 4. Verify migrated devices loaded into DeviceManager
     dev_lr = device_manager.get_device("livingroom")
@@ -82,3 +88,29 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     # 5. Idempotent re-run
     res2 = await migrator.async_migrate()
     assert res2["success"] is True
+
+
+def test_migration_frontend_components() -> None:
+    """Verify frontend manager.js and migration-dialog.js define migration UI elements."""
+    base = (
+        Path(__file__).parents[3]
+        / "custom_components"
+        / "esphome_ota"
+        / "frontend"
+    )
+    manager_js = (base / "manager.js").read_text(encoding="utf-8")
+    mig_dialog_js = (base / "migration-dialog.js").read_text(encoding="utf-8")
+    i18n_js = (base / "i18n.js").read_text(encoding="utf-8")
+
+    assert 'import "./migration-dialog.js";' in manager_js
+    assert 'id="btn-migration"' in manager_js
+    assert 'id="migration-banner"' in manager_js
+    assert "<esphome-ota-migration-dialog></esphome-ota-migration-dialog>" in manager_js
+
+    assert "esphome-ota-migration-dialog" in mig_dialog_js
+    assert "esphome_ota/migrate_preview" in mig_dialog_js
+    assert "esphome_ota/migrate_execute" in mig_dialog_js
+    assert "migration-completed" in mig_dialog_js
+
+    assert "migration_banner_title" in i18n_js
+    assert "migration_dialog_title" in i18n_js

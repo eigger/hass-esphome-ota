@@ -547,4 +547,8 @@ async def ws_migrate_execute(
     """Execute migration from legacy add-on."""
     manager = _get_manager(hass)
     result = await manager.migration_manager.async_migrate()
+    manager._dispatch_event(
+        "devices_updated",
+        {"devices": manager.device_manager.list_all()},
+    )
     connection.send_result(msg["id"], result)

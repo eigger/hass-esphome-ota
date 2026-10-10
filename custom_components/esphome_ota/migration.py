@@ -64,7 +64,12 @@ class MigrationManager:
 
     async def async_preview(self) -> dict[str, Any]:
         """Return preview of migratable data."""
-        return await self.hass.async_add_executor_job(self._inspect_legacy_data_sync)
+        data = await self.hass.async_add_executor_job(self._inspect_legacy_data_sync)
+        record = await self.storage.async_load_migration()
+        data["already_migrated"] = bool(record)
+        if record:
+            data["migrated_at"] = record.get("migrated_at")
+        return data
 
     def _execute_migration_sync(self) -> dict[str, Any]:
         """Migrate legacy devices and public files into modern storage format."""
