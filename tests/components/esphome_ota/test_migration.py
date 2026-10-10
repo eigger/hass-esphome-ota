@@ -34,6 +34,8 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     """Test importing legacy registered devices and public files."""
     # 1. Setup legacy test files in hass config directory
     esphome_dir = Path(hass.config.path("esphome"))
+    for p in esphome_dir.glob("*.yaml"):
+        p.unlink(missing_ok=True)
     legacy_dir = esphome_dir / "ota_server"
     legacy_dir.mkdir(parents=True, exist_ok=True)
 
@@ -222,6 +224,8 @@ async def test_migration_transforms_yaml_config_from_ota_server_to_inline_packag
     hass: HomeAssistant,
 ) -> None:
     """Migration should transform device YAML from legacy ota_server to packages.esphome_ota with project block."""
+    from unittest.mock import AsyncMock
+
     esphome_dir = Path(hass.config.path("esphome"))
     legacy_dir = esphome_dir / "ota_server"
     legacy_dir.mkdir(parents=True, exist_ok=True)
@@ -259,14 +263,33 @@ packages:
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
     publisher = ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
+
+    # Builder client simulates CAS update and updates disk file
+    mock_client = AsyncMock()
+    mock_client.get_config.return_value = legacy_device_yaml
+
+    async def mock_update(configuration: str, content: str, expected: str | None = None) -> None:
+        yaml_file.write_text(content, encoding="utf-8")
+
+    mock_client.update_config.side_effect = mock_update
+
     migrator = MigrationManager(
-        hass, storage, device_manager, publisher, base_url="https://my-ha.duckdns.org"
+        hass,
+        storage,
+        device_manager,
+        publisher,
+        base_url="https://my-ha.duckdns.org",
+        builder_client=mock_client,
     )
 
     res = await migrator.async_migrate()
     assert res["success"] is True
     assert "livingroom" in res["migrated_devices"]
     assert "livingroom" in res["migrated_yaml_configs"]
+
+    # Verify CAS was invoked with expected=legacy_device_yaml
+    mock_client.update_config.assert_called_once()
+    assert mock_client.update_config.call_args.kwargs.get("expected") == legacy_device_yaml
 
     # Verify transformed YAML
     updated_yaml = yaml_file.read_text(encoding="utf-8")
@@ -292,9 +315,8 @@ packages:
 async def test_migration_concurrent_modification_conflict_fails(
     hass: HomeAssistant,
 ) -> None:
-    """Migration must abort and raise ConfigConflictError on concurrent edits, preserving changes."""
-    from unittest.mock import AsyncMock, patch
-    import pytest
+    """Migration must record device failure and preserve external changes on concurrent edits."""
+    from unittest.mock import AsyncMock
     from custom_components.esphome_ota.models import ConfigConflictError
 
     esphome_dir = Path(hass.config.path("esphome"))
@@ -328,42 +350,111 @@ async def test_migration_concurrent_modification_conflict_fails(
         hass, storage, device_manager, publisher, builder_client=mock_client
     )
 
-    with pytest.raises(ConfigConflictError):
-        await migrator_builder.async_migrate()
+    res = await migrator_builder.async_migrate()
+    assert res["success"] is False
+    assert "livingroom" in res["failed_devices"]
+    assert "livingroom" not in res["migrated_devices"]
+    assert "CAS conflict" in res["failed_devices"]["livingroom"]
 
-    # Device must NOT have been registered
+    # Device must NOT have been registered and migration record NOT saved as completed
     assert device_manager.get_device("livingroom") is None
+    assert not await storage.async_load_migration()
 
-    # 2. Test local disk concurrent edit
+    # 2. Test local disk edit protection when Builder is not connected
     yaml_file = esphome_dir / "livingroom.yaml"
     initial_yaml = "esphome:\n  name: livingroom\npackages:\n  ota: !include ota_server/dev.yaml\n"
-    yaml_file.write_text(initial_yaml, encoding="utf-8")
+    # External editor added a sensor concurrently
+    yaml_file.write_text(
+        initial_yaml + "\nsensor:\n  - name: AddedConcurrently\n",
+        encoding="utf-8",
+    )
 
     migrator_local = MigrationManager(hass, storage, device_manager, publisher)
 
-    # Simulate concurrent edit happening right after first read:
-    orig_read_text = Path.read_text
-    read_count = 0
-
-    def mock_read_text(self: Path, *args: any, **kwargs: any) -> str:
-        nonlocal read_count
-        res = orig_read_text(self, *args, **kwargs)
-        if self == yaml_file:
-            read_count += 1
-            if read_count == 1:
-                # Concurrent edit happens after first read
-                yaml_file.write_text(
-                    initial_yaml + "\nsensor:\n  - name: AddedConcurrently\n",
-                    encoding="utf-8",
-                )
-        return res
-
-    with patch.object(Path, "read_text", autospec=True, side_effect=mock_read_text):
-        with pytest.raises(ConfigConflictError):
-            await migrator_local.async_migrate()
+    res_local = await migrator_local.async_migrate()
+    assert res_local["success"] is False
+    assert "livingroom" in res_local["failed_devices"]
+    assert "Builder client is not connected" in res_local["failed_devices"]["livingroom"]
 
     # Verify concurrent edit was NOT overwritten
     current = yaml_file.read_text(encoding="utf-8")
     assert "AddedConcurrently" in current
     assert device_manager.get_device("livingroom") is None
+    assert not await storage.async_load_migration()
+
+
+async def test_migration_partial_device_failure_does_not_mark_failed_devices_as_migrated(
+    hass: HomeAssistant,
+) -> None:
+    """When one device fails during YAML update, other devices continue and completed record is not stored."""
+    from unittest.mock import AsyncMock
+    from custom_components.esphome_ota.models import BuilderError
+
+    esphome_dir = Path(hass.config.path("esphome"))
+    legacy_dir = esphome_dir / "ota_server"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+
+    registered_data = {
+        "device_a": {
+            "token": "tok_a",
+            "version": "1.0.0",
+            "title": "Device A",
+        },
+        "device_b": {
+            "token": "tok_b",
+            "version": "2.0.0",
+            "title": "Device B",
+        },
+    }
+    (legacy_dir / "registered.json").write_text(
+        json.dumps(registered_data), encoding="utf-8"
+    )
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
+
+    mock_client = AsyncMock()
+
+    async def mock_get_config(cfg: str) -> str:
+        name = "device_a" if "device_a" in cfg else "device_b"
+        return f"esphome:\n  name: {name}\npackages:\n  ota: !include ota_server/{name}.yaml\n"
+
+    async def mock_update_config(cfg: str, content: str, expected: str | None = None) -> None:
+        if "device_a" in cfg:
+            raise BuilderError("devices/update_config failed: PERMISSION_DENIED Permission denied")
+        # device_b succeeds
+
+    mock_client.get_config.side_effect = mock_get_config
+    mock_client.update_config.side_effect = mock_update_config
+
+    migrator = MigrationManager(
+        hass, storage, device_manager, publisher, builder_client=mock_client
+    )
+
+    res = await migrator.async_migrate()
+
+    # 1. Overall result must be success=False due to failure
+    assert res["success"] is False
+    assert "failed_devices" in res
+    assert "device_a" in res["failed_devices"]
+    assert "Permission denied" in res["failed_devices"]["device_a"]
+
+    # 2. Failed device must NOT be in migrated_devices or migrated_yaml_configs
+    assert "device_a" not in res["migrated_devices"]
+    assert "device_a" not in res["migrated_yaml_configs"]
+    assert device_manager.get_device("device_a") is None
+
+    # 3. Successful device MUST be in migrated_devices and migrated_yaml_configs
+    assert "device_b" in res["migrated_devices"]
+    assert "device_b" in res["migrated_yaml_configs"]
+    dev_b = device_manager.get_device("device_b")
+    assert dev_b is not None
+    assert dev_b.name == "device_b"
+
+    # 4. Completed migration record MUST NOT be saved when there are failures
+    assert not await storage.async_load_migration()
+    preview = await migrator.async_preview()
+    assert preview["already_migrated"] is False
+
 

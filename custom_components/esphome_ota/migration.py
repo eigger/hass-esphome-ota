@@ -14,7 +14,7 @@ from .config_patch import apply_ota_patch
 from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
 from .firmware import inspect_binary
-from .models import ConfigConflictError
+from .models import BuilderConnectionError
 from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
@@ -102,7 +102,6 @@ class MigrationManager:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Could not read legacy registry during migration: %s", err)
 
-        migrated_devices: list[str] = []
         migrated_artifacts: list[str] = []
 
         for node, rec in registered.items():
@@ -130,17 +129,14 @@ class MigrationManager:
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.warning("Failed copying binary for %s: %s", node, err)
 
-            migrated_devices.append(node)
-
         return {
-            "success": True,
-            "migrated_devices": migrated_devices,
             "migrated_artifacts": migrated_artifacts,
         }
 
     async def async_migrate(self) -> dict[str, Any]:
         """Execute legacy migration and update storage."""
-        result = await self.hass.async_add_executor_job(self._execute_migration_sync)
+        sync_result = await self.hass.async_add_executor_job(self._execute_migration_sync)
+        migrated_artifacts: list[str] = sync_result.get("migrated_artifacts", [])
 
         # Reload devices in device_manager, matching Builder YAML when possible
         esphome_dir = Path(self.hass.config.path("esphome"))
@@ -148,6 +144,8 @@ class MigrationManager:
         ambiguous_matches: dict[str, list[str]] = {}
         claimed_configs: set[str] = set()
 
+        migrated_devices: list[str] = []
+        failed_devices: dict[str, str] = {}
         migrated_yaml_configs: list[str] = []
 
         if legacy_reg_path.is_file():
@@ -156,7 +154,18 @@ class MigrationManager:
                     legacy_reg_path.read_text, "utf-8"
                 )
                 registered = json.loads(content)
-                for node, rec in registered.items():
+            except Exception as reg_err:  # noqa: BLE001
+                _LOGGER.error("Failed to read legacy registered.json: %s", reg_err)
+                return {
+                    "success": False,
+                    "error": f"Failed to read legacy registry: {reg_err}",
+                    "migrated_devices": [],
+                    "migrated_artifacts": migrated_artifacts,
+                    "migrated_yaml_configs": [],
+                }
+
+            for node, rec in registered.items():
+                try:
                     token = rec.get("token", "") or ""
                     title = rec.get("title") or node
                     version = rec.get("version", "1.0.0")
@@ -174,6 +183,7 @@ class MigrationManager:
                             node,
                             configuration,
                         )
+                        failed_devices[node] = f"Configuration {configuration} already claimed"
                         continue
                     claimed_configs.add(configuration)
 
@@ -188,15 +198,13 @@ class MigrationManager:
                         if client is not None:
                             try:
                                 orig_yaml = await client.get_config(configuration)
-                            except Exception as get_err:  # noqa: BLE001
-                                _LOGGER.debug(
-                                    "Could not fetch %s from builder client: %s",
-                                    configuration,
-                                    get_err,
-                                )
-                                orig_yaml = None
-
-                        if orig_yaml is None:
+                            except Exception as get_err:
+                                err_msg = str(get_err).lower()
+                                if "not found" in err_msg or "no such file" in err_msg:
+                                    orig_yaml = None
+                                else:
+                                    raise
+                        else:
                             is_file = await self.hass.async_add_executor_job(cfg_path.is_file)
                             if is_file:
                                 orig_yaml = await self.hass.async_add_executor_job(
@@ -212,23 +220,14 @@ class MigrationManager:
                                 node=node,
                             )
                             if diff_res.modified != orig_yaml:
-                                if client is not None:
-                                    # CAS update via builder: expected=orig_yaml detects concurrent modifications
-                                    await client.update_config(
-                                        configuration, diff_res.modified, expected=orig_yaml
+                                if client is None:
+                                    raise BuilderConnectionError(
+                                        f"Builder client is not connected; cannot safely update {configuration} with concurrency protection"
                                     )
-                                else:
-                                    # Atomic CAS check: ensure disk content hasn't changed since read
-                                    current_disk = await self.hass.async_add_executor_job(
-                                        cfg_path.read_text, "utf-8"
-                                    )
-                                    if current_disk != orig_yaml:
-                                        raise ConfigConflictError(
-                                            f"CAS conflict updating config for {configuration}: concurrent modification detected on disk"
-                                        )
-                                    await self.hass.async_add_executor_job(
-                                        cfg_path.write_text, diff_res.modified, "utf-8"
-                                    )
+                                # CAS update via builder: expected=orig_yaml detects concurrent modifications
+                                await client.update_config(
+                                    configuration, diff_res.modified, expected=orig_yaml
+                                )
                                 migrated_yaml_configs.append(node)
                                 _LOGGER.info(
                                     "Migrated YAML for %s (%s) from ota_server to packages.esphome_ota",
@@ -258,21 +257,33 @@ class MigrationManager:
                             managed_version=version,
                             yaml_mode=YAML_MODE_INLINE_PACKAGE,
                         )
-            except ConfigConflictError:
-                raise
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Failed registering migrated devices: %s", err)
+                        migrated_devices.append(node)
 
-        result["migrated_yaml_configs"] = migrated_yaml_configs
+                except Exception as dev_err:  # noqa: BLE001
+                    _LOGGER.warning("Failed migrating device %s: %s", node, dev_err)
+                    failed_devices[node] = str(dev_err)
+
+        result: dict[str, Any] = {
+            "success": len(failed_devices) == 0,
+            "migrated_devices": migrated_devices,
+            "migrated_artifacts": migrated_artifacts,
+            "migrated_yaml_configs": migrated_yaml_configs,
+        }
 
         if ambiguous_matches:
             result["ambiguous_matches"] = ambiguous_matches
 
-        await self.storage.async_save_migration(
-            {
-                "completed": True,
-                "migrated_at": dt_util.utcnow().isoformat(),
-                "details": result,
-            }
-        )
+        if failed_devices:
+            result["failed_devices"] = failed_devices
+            result["error"] = f"Failed migrating {len(failed_devices)} device(s): {', '.join(failed_devices.keys())}"
+
+        if result["success"]:
+            await self.storage.async_save_migration(
+                {
+                    "completed": True,
+                    "migrated_at": dt_util.utcnow().isoformat(),
+                    "details": result,
+                }
+            )
+
         return result
