@@ -5,6 +5,7 @@
 const translations = {
   en: {
     title: "ESPHome OTA",
+    integration_version: "ESPHome OTA version",
     refresh: "Refresh",
     reconnect: "Reconnect Builder",
     batch_build: "Build & Publish Selected",
@@ -104,6 +105,7 @@ const translations = {
   },
   ko: {
     title: "ESPHome OTA",
+    integration_version: "ESPHome OTA 버전",
     refresh: "새로고침",
     reconnect: "Builder 재연결",
     batch_build: "선택 기기 일괄 빌드·게시",
