@@ -278,4 +278,87 @@ async def test_prepare_ota_includes_project_version_in_package(
         await ws.close()
 
 
+async def test_set_token_syncs_yaml_and_republishes(
+    hass: HomeAssistant,
+    hass_ws_client: any,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Set token should update YAML using update_config and republish artifact without error."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
+        return_value=[],
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        manager = hass.data[DOMAIN]["manager"]
+        dev = await manager.device_manager.async_register_or_update(
+            device_id="esp-tab",
+            configuration="esp-tab.yaml",
+            name="esp-tab",
+            friendly_name="ESP Tab",
+            target_platform="esp32",
+            token="old_tok",
+        )
+        dev.last_published_version = "1.0.0"
+
+        # Mock Builder client
+        mock_client = AsyncMock()
+        mock_client.get_config.return_value = (
+            "packages:\n"
+            "  esphome_ota:\n"
+            "    substitutions:\n"
+            "      ota_slug: esp-tab_old_tok\n"
+        )
+        manager.resolver.active_client = mock_client
+
+        # Create dummy public bin file to simulate existing active binary
+        old_slug = "esp-tab_old_tok"
+        pub_bin = manager.publisher.www_dir / f"{old_slug}.ota.bin"
+        pub_bin.parent.mkdir(parents=True, exist_ok=True)
+        pub_bin.write_bytes(b"dummy_bin")
+
+        # Mock artifact in storage
+        from custom_components.esphome_ota.models import PublishedArtifact
+        art = PublishedArtifact(
+            device_id="esp-tab",
+            configuration="esp-tab.yaml",
+            version="1.0.0",
+            chip_family="ESP32",
+            size=1024,
+            md5="1234567890abcdef",
+            sha256="abcdef1234567890",
+            published_at="2026-10-10T00:00:00Z",
+            private_path="/tmp/fake.bin",
+            public_bin_path=str(pub_bin),
+            public_manifest_path="/tmp/fake.json",
+        )
+        await manager.storage.async_save_artifacts({"esp-tab": art})
+
+        with patch.object(manager.job_runner, "async_republish", new_callable=AsyncMock) as mock_repub:
+            ws = await hass_ws_client(hass)
+            await ws.send_json(
+                {"id": 40, "type": "esphome_ota/set_token", "device_id": "esp-tab", "token": "new_tok"}
+            )
+            msg = await ws.receive_json()
+            while msg.get("type") == "event":
+                msg = await ws.receive_json()
+
+            assert msg["success"] is True
+            assert msg["result"]["token"] == "new_tok"
+            assert msg["result"]["slug"] == "esp-tab_new_tok"
+
+            # Check YAML update_config called
+            mock_client.update_config.assert_called_once()
+            call_args = mock_client.update_config.call_args
+            assert "esp-tab_new_tok" in call_args[0][1]
+
+            # Check republish called
+            mock_repub.assert_called_once()
+            await ws.close()
+
+
+
 
