@@ -124,3 +124,21 @@ def test_inspect_binary_validation() -> None:
     # Chip mismatch
     with pytest.raises(BinaryValidationError, match="Chip family mismatch"):
         inspect_binary(blob=blob, target_platform="esp32", expected_chip="ESP32-S3")
+
+
+def test_inspect_binary_esp32_variant_compatibility() -> None:
+    """When target device was registered with general ESP32, specific ESP32 variants (like ESP32-P4) must be accepted."""
+    # 0x12 is ESP32-P4
+    blob_p4 = _make_synth_blob(
+        chip_id=0x12,
+        tail=b"Project local.tab5 version 1.0.0\x00",
+    )
+    # Target device registered as general 'ESP32'
+    info = inspect_binary(blob=blob_p4, target_platform="esp32", expected_chip="ESP32")
+    assert info.chip_family == "ESP32-P4"
+    assert info.authoritative_version == "1.0.0"
+
+    # Specific variant mismatch should still fail (e.g. expected ESP32-S3 but binary is ESP32-P4)
+    with pytest.raises(BinaryValidationError, match="Chip family mismatch"):
+        inspect_binary(blob=blob_p4, target_platform="esp32", expected_chip="ESP32-S3")
+

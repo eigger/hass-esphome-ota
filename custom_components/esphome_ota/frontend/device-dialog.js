@@ -316,6 +316,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           <tr><td>Public Slug</td><td>${escapeHtml(this.device.slug)}</td></tr>
           <tr><td>Installed Version</td><td>${escapeHtml(this.device.last_installed_version || "Not detected")}</td></tr>
           <tr><td>Published Version</td><td>${escapeHtml(this.device.last_published_version || "None")}</td></tr>
+          ${this.device.update_entity_id ? `<tr><td>Update Entity</td><td><code>${escapeHtml(this.device.update_entity_id)}</code></td></tr>` : ""}
         </table>
       `;
     } else if (this.currentTab === "upload") {

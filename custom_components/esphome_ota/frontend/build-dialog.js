@@ -172,24 +172,65 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+const DATE_SEP_RE =
+  /^(20\d\d([-.])(0?[1-9]|1[0-2])\2(0?[1-9]|[12]\d|3[01]))(?:\.(\d+))?$/;
+const DATE_COMPACT_RE =
+  /^(20\d\d(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01]))(?:\.(\d+))?$/;
+
 function bumpPatchVersion(version) {
-  const parts = String(version || "").trim().split(".");
-  if (parts.length >= 3 && /^\d+$/.test(parts[parts.length - 1])) {
-    parts[parts.length - 1] = String(Number(parts[parts.length - 1]) + 1);
-    return parts.join(".");
+  const text = String(version || "").trim().replace(/"/g, "");
+  if (!text) {
+    return "1.0.0";
   }
-  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
-    return `${parts[0]}.${parts[1]}.1`;
+  const sepMatch = text.match(DATE_SEP_RE);
+  if (sepMatch) {
+    const base = sepMatch[1];
+    const seq = sepMatch[5];
+    return seq !== undefined ? `${base}.${Number(seq) + 1}` : `${base}.1`;
   }
-  if (parts.length === 1 && /^\d+$/.test(parts[0])) {
-    return `${parts[0]}.0.1`;
+  const compactMatch = text.match(DATE_COMPACT_RE);
+  if (compactMatch) {
+    const base = compactMatch[1];
+    const seq = compactMatch[4];
+    return seq !== undefined ? `${base}.${Number(seq) + 1}` : `${base}.1`;
   }
-  return version ? `${version}.1` : "1.0.0";
+  const dotParts = text.split(".");
+  if (dotParts.length === 1 && /^\d+$/.test(dotParts[0])) {
+    return `${dotParts[0]}.0.1`;
+  }
+  if (
+    dotParts.length === 2 &&
+    /^\d+$/.test(dotParts[0]) &&
+    /^\d+$/.test(dotParts[1])
+  ) {
+    return `${dotParts[0]}.${dotParts[1]}.1`;
+  }
+  const parts = text.split(/(\d+)/);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (/^\d+$/.test(parts[i])) {
+      parts[i] = String(Number(parts[i]) + 1);
+      return parts.join("");
+    }
+  }
+  return `${text}.1`;
 }
 
 function suggestTargetVersion(device) {
-  if (device?.own_project_version) return device.own_project_version;
-  if (device?.last_published_version) return bumpPatchVersion(device.last_published_version);
+  const own = device?.own_project_version;
+  const published = device?.last_published_version;
+  const installed = device?.last_installed_version;
+
+  if (own) {
+    // If own version is distinct from what is currently installed/published,
+    // the user might have intentionally bumped it in YAML.
+    if ((!installed || own !== installed) && (!published || own !== published)) {
+      return own;
+    }
+    // If own version is what is currently running/published, suggest the next bump.
+    return bumpPatchVersion(own);
+  }
+  if (published) return bumpPatchVersion(published);
+  if (installed) return bumpPatchVersion(installed);
   return device?.managed_version || "1.0.0";
 }
 

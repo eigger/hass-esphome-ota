@@ -81,7 +81,9 @@ class InstallationMonitor:
                             artifact_id=art.published_at,
                         )
                 except Exception as ex:  # noqa: BLE001
-                    _LOGGER.debug("Could not restore cleanup timer for %s: %s", art.device_id, ex)
+                    _LOGGER.debug(
+                        "Could not restore cleanup timer for %s: %s", art.device_id, ex
+                    )
 
     async def async_refresh_monitoring(self) -> None:
         """Scan devices and attach listeners to any newly discovered Update entities."""
@@ -112,10 +114,15 @@ class InstallationMonitor:
                     ):
                         matched = True
                         break
-                if not matched and ha_dev.name and ha_dev.name.lower() in (
-                    dev_name.lower(),
-                    norm_name,
-                    dev_data.get("friendly_name", "").lower(),
+                if (
+                    not matched
+                    and ha_dev.name
+                    and ha_dev.name.lower()
+                    in (
+                        dev_name.lower(),
+                        norm_name,
+                        dev_data.get("friendly_name", "").lower(),
+                    )
                 ):
                     matched = True
 
@@ -146,11 +153,18 @@ class InstallationMonitor:
                         if ent_dev:
                             if not any(d == "esphome" for d, _ in ent_dev.identifiers):
                                 continue
-                            if matching_ha_device_id and ent_dev.id != matching_ha_device_id:
+                            if (
+                                matching_ha_device_id
+                                and ent_dev.id != matching_ha_device_id
+                            ):
                                 continue
 
                     obj_id = entity.entity_id.split(".", 1)[-1].lower()
-                    if obj_id in (norm_name, f"{norm_name}_firmware", f"{norm_name}_update"):
+                    if obj_id in (
+                        norm_name,
+                        f"{norm_name}_firmware",
+                        f"{norm_name}_update",
+                    ):
                         matched_entity_id = entity.entity_id
                         break
                     if entity.unique_id:
@@ -170,9 +184,47 @@ class InstallationMonitor:
                             matched_entity_id = entity.entity_id
                             break
 
-            if matched_entity_id and matched_entity_id not in self._monitored_entities:
-                self._monitored_entities.add(matched_entity_id)
-                self._attach_listener(device_id, matched_entity_id)
+            if matched_entity_id:
+                dev = self.device_manager.get_device(device_id)
+                if dev and dev.update_entity_id != matched_entity_id:
+                    dev.update_entity_id = matched_entity_id
+                    self.hass.async_create_task(
+                        self.device_manager.storage.async_save_devices(
+                            self.device_manager._managed_devices
+                        )
+                    )
+                if matched_entity_id not in self._monitored_entities:
+                    self._monitored_entities.add(matched_entity_id)
+                    self._attach_listener(device_id, matched_entity_id)
+
+    async def async_refresh_entity(self, device_id: str) -> None:
+        """Trigger immediate state update for the device's Update entity."""
+        dev = self.device_manager.get_device(device_id)
+        entity_id = dev.update_entity_id if dev else None
+        if not entity_id:
+            await self.async_refresh_monitoring()
+            dev = self.device_manager.get_device(device_id)
+            entity_id = dev.update_entity_id if dev else None
+
+        if entity_id:
+            try:
+                await self.hass.services.async_call(
+                    "homeassistant",
+                    "update_entity",
+                    {"entity_id": entity_id},
+                    blocking=False,
+                )
+                _LOGGER.info(
+                    "Triggered immediate update check for %s (%s)",
+                    device_id,
+                    entity_id,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Could not trigger update_entity for %s: %s",
+                    entity_id,
+                    err,
+                )
 
     def _attach_listener(self, device_id: str, entity_id: str) -> None:
         """Attach state change listener for an Update entity."""

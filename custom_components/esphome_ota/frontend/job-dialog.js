@@ -81,8 +81,8 @@ const css = `
 }
 .terminal {
   background: #0f172a;
-  color: #38bdf8;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, "Pretendard", -apple-system, BlinkMacSystemFont, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.8rem;
   line-height: 1.45;
   padding: 14px;
@@ -91,6 +91,7 @@ const css = `
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .footer {
   padding: 14px 20px;
@@ -140,6 +141,97 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+const ANSI_STYLES = {
+  1: "font-weight: 600;",
+  2: "opacity: 0.75;",
+  3: "font-style: italic;",
+  4: "text-decoration: underline;",
+  30: "color: #64748b;",
+  31: "color: #f87171;",
+  32: "color: #4ade80;",
+  33: "color: #facc15;",
+  34: "color: #60a5fa;",
+  35: "color: #e879f9;",
+  36: "color: #38bdf8;",
+  37: "color: #f1f5f9;",
+  40: "background-color: #0f172a;",
+  41: "background-color: #7f1d1d;",
+  42: "background-color: #14532d;",
+  43: "background-color: #713f12;",
+  44: "background-color: #1e3a8a;",
+  45: "background-color: #701a75;",
+  46: "background-color: #164e63;",
+  47: "background-color: #334155;",
+  90: "color: #94a3b8;",
+  91: "color: #fca5a5;",
+  92: "color: #86efac;",
+  93: "color: #fde047;",
+  94: "color: #93c5fd;",
+  95: "color: #f0abfc;",
+  96: "color: #7dd3fc;",
+  97: "color: #ffffff;",
+};
+
+export function ansiToHtml(rawText) {
+  if (!rawText) return "";
+
+  // Normalize literal escape representations (\033, \\033, \e, \ufffd) to \x1b
+  let text = String(rawText)
+    .replace(/\\033/g, "\x1b")
+    .replace(/\033/g, "\x1b")
+    .replace(/\\e/g, "\x1b")
+    .replace(/\ufffd/g, "\x1b");
+
+  let safe = escapeHtml(text);
+
+  // Strip CSI escape sequences other than SGR (e.g. \x1b[K, \x1b[2K, cursor commands)
+  safe = safe.replace(/\x1b\[[0-9;?]*[a-ln-zA-LN-Z]/g, "");
+
+  // Strip OSC escape sequences (\x1b] ... \x07 or \x1b\)
+  safe = safe.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "");
+
+  // Strip other escape sequences
+  safe = safe.replace(/\x1b[@-Z\\-_]/g, "");
+
+  // Parse SGR color/style sequences (\x1b[...m)
+  let openSpan = false;
+  safe = safe.replace(/\x1b\[([0-9;]*)m/g, (_match, codeStr) => {
+    let result = "";
+    if (openSpan) {
+      result += "</span>";
+      openSpan = false;
+    }
+    if (!codeStr || codeStr === "0") {
+      return result;
+    }
+
+    const codes = codeStr.split(";").map((c) => parseInt(c, 10));
+    const styles = [];
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+      if (isNaN(code) || code === 0) {
+        styles.length = 0;
+      } else if (ANSI_STYLES[code]) {
+        styles.push(ANSI_STYLES[code]);
+      }
+    }
+    if (styles.length > 0) {
+      openSpan = true;
+      result += `<span style="${styles.join(" ")}">`;
+    }
+    return result;
+  });
+
+  if (openSpan) {
+    safe += "</span>";
+  }
+
+  // Strip any leftover ESC characters and non-printable control characters
+  safe = safe.replace(/\x1b/g, "");
+  safe = safe.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "");
+  return safe;
+}
+
 class EsphomeOtaJobDialog extends HTMLElement {
   constructor() {
     super();
@@ -147,12 +239,14 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this.job = null;
     this.hass = null;
     this.isOpen = false;
+    this._hasInitialScrolled = false;
   }
 
   open(job, hass) {
     this.job = job;
     this.hass = hass;
     this.isOpen = true;
+    this._hasInitialScrolled = false;
     this.render();
   }
 
@@ -202,14 +296,14 @@ class EsphomeOtaJobDialog extends HTMLElement {
     const stageText = t(this.hass, `stage_${stage}`) || stage;
     const logLines = (this.job.log_tail || []).join("\n").trim();
     let logs = logLines;
-    if (!logs) {
-      if ((stage === "failed" || stage === "cancelled") && this.job.error) {
-        logs = this.job.error;
-      } else if (stage === "failed" || stage === "cancelled") {
-        logs = stageText;
+    if (this.job.error && (stage === "failed" || stage === "cancelled")) {
+      if (logs) {
+        logs += `\n\n\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`;
       } else {
-        logs = "Waiting for compiler output...";
+        logs = `\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`;
       }
+    } else if (!logs) {
+      logs = "Waiting for compiler output...";
     }
 
     let stageClass = "stage-banner";
@@ -238,7 +332,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
             <div class="${stageClass}">
               <span><strong>Status:</strong> ${escapeHtml(stageText)}</span>
               ${this.job.reserved_version ? `<span>(Target Version: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
-              ${this.job.error && stage !== "failed" && stage !== "cancelled" ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
+              ${this.job.error ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
             </div>
             <div class="terminal" id="terminal"></div>
           </div>
@@ -253,8 +347,13 @@ class EsphomeOtaJobDialog extends HTMLElement {
 
     const terminalEl = this.shadowRoot.getElementById("terminal");
     if (terminalEl) {
-      terminalEl.textContent = logs;
-      terminalEl.scrollTop = terminalEl.scrollHeight;
+      const isAtBottom =
+        terminalEl.scrollHeight - terminalEl.scrollTop - terminalEl.clientHeight < 60;
+      terminalEl.innerHTML = ansiToHtml(logs);
+      if (isAtBottom || !this._hasInitialScrolled) {
+        terminalEl.scrollTop = terminalEl.scrollHeight;
+        this._hasInitialScrolled = true;
+      }
     }
 
     this.shadowRoot.getElementById("close-x")?.addEventListener("click", () => this.close());

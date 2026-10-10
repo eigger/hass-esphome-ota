@@ -9,6 +9,7 @@ from custom_components.esphome_ota.config_patch import (
     ensure_project_version,
     has_unclear_project_ownership,
     own_project_version,
+    parse_yaml_safe,
     remove_ota_patch,
     set_project_version,
     strip_legacy_ota_packages,
@@ -205,11 +206,14 @@ packages:
 
 
 def test_version_bump() -> None:
-    """Test semantic version patch bumping."""
+    """Test semantic and trailing revision version patch bumping."""
     assert bump_patch_version("1.0.0") == "1.0.1"
     assert bump_patch_version("1.0.9") == "1.0.10"
     assert bump_patch_version("2.1") == "2.1.1"
     assert bump_patch_version("3") == "3.0.1"
+    assert bump_patch_version("v260901 rev.1") == "v260901 rev.2"
+    assert bump_patch_version("v260901") == "v260902"
+    assert bump_patch_version("beta-1") == "beta-2"
 
 
 def test_strip_legacy_ota_packages() -> None:
@@ -231,7 +235,7 @@ packages:
     assert "ota_server" not in cleaned
     assert "ota_device:" not in cleaned
     assert "ota_slug:" not in cleaned
-    assert "sensor_name: \"Bedroom Temperature\"" in cleaned
+    assert 'sensor_name: "Bedroom Temperature"' in cleaned
     assert "my_sensors: !include sensors.yaml" in cleaned
 
 
@@ -308,7 +312,9 @@ packages: # migrated from ota_server
     assert "esphome:" in cleaned
 
 
-def test_strip_legacy_ota_packages_preserves_regular_packages_with_ota_server_identifiers() -> None:
+def test_strip_legacy_ota_packages_preserves_regular_packages_with_ota_server_identifiers() -> (
+    None
+):
     """Regular packages containing ota_server identifiers or values must not be deleted."""
     content = """esphome:
   name: livingroom
@@ -360,5 +366,73 @@ esphome:
     assert 'comment: "livingroom_abc active"' in cleaned
 
 
+def test_set_project_version_updates_packages_esphome_ota_version() -> None:
+    """Updating project version when top-level has no project should update packages.esphome_ota version."""
+    content = """esphome:
+  name: hallway
+
+packages:
+  esphome_ota:
+    substitutions:
+      ota_base_url: "https://ha.local"
+      ota_slug: "hallway_123"
+    esphome:
+      project:
+        name: "local.hallway"
+        version: "1.0.0"
+    http_request:
+      timeout: 60s
+"""
+    updated, changed = set_project_version(content, "1.2.0")
+    assert changed is True
+    assert 'version: "1.2.0"' in updated
+    assert 'version: "1.0.0"' not in updated
+    # Top-level esphome should not have project injected
+    parsed = parse_yaml_safe(updated)
+    assert "project" not in parsed["esphome"]
+    assert parsed["packages"]["esphome_ota"]["esphome"]["project"]["version"] == "1.2.0"
+
+    # ensure_project_version should also update the package without top-level pollution
+    ensured, e_changed = ensure_project_version(content, "2.0.0")
+    assert e_changed is True
+    assert 'version: "2.0.0"' in ensured
+    parsed_e = parse_yaml_safe(ensured)
+    assert "project" not in parsed_e["esphome"]
+    assert (
+        parsed_e["packages"]["esphome_ota"]["esphome"]["project"]["version"] == "2.0.0"
+    )
 
 
+def test_apply_ota_patch_with_includes_injects_package_project_and_clarifies_ownership() -> (
+    None
+):
+    """Applying OTA patch to YAML with includes injects project into packages.esphome_ota and clarifies ownership."""
+    content = """esphome:
+  name: garden
+
+packages:
+  sensors: !include sensors.yaml
+
+sensor: !include bme280.yaml
+"""
+    assert own_project_version(content) is None
+    assert has_unclear_project_ownership(content) is True
+
+    diff_res = apply_ota_patch(
+        yaml_content=content,
+        base_url="https://ha.local:8123",
+        slug="garden_abc",
+        target_version="1.5.0",
+        node="garden",
+    )
+
+    # Top-level esphome must not be altered
+    assert "project:" not in diff_res.modified.split("packages:")[0]
+    # packages.esphome_ota must contain esphome.project with name and target_version
+    assert "packages:" in diff_res.modified
+    assert "esphome_ota:" in diff_res.modified
+    assert 'name: "local.garden"' in diff_res.modified
+    assert 'version: "1.5.0"' in diff_res.modified
+
+    # And after patching, ownership is clarified (not unclear)
+    assert has_unclear_project_ownership(diff_res.modified) is False

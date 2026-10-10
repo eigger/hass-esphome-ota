@@ -11,6 +11,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from .config_patch import bump_patch_version
 from .const import (
     DEVICE_STATUS_INSTALLED,
     DEVICE_STATUS_NEEDS_INITIAL_INSTALL,
@@ -62,7 +63,11 @@ class DeviceManager:
         target = device_id.replace(".yaml", "")
         for raw in self._builder_devices:
             cfg_file = raw.get("configuration", "")
-            cfg_stem = cfg_file.replace(".yaml", "") if cfg_file.endswith(".yaml") else cfg_file
+            cfg_stem = (
+                cfg_file.replace(".yaml", "")
+                if cfg_file.endswith(".yaml")
+                else cfg_file
+            )
             if cfg_stem == target or raw.get("name") == target or cfg_file == device_id:
                 return raw
         return None
@@ -71,7 +76,11 @@ class DeviceManager:
         """Return the actual Builder YAML configuration filename with extension."""
         dev = self._managed_devices.get(device_id)
         if dev and dev.configuration:
-            return dev.configuration if dev.configuration.endswith(".yaml") else f"{dev.configuration}.yaml"
+            return (
+                dev.configuration
+                if dev.configuration.endswith(".yaml")
+                else f"{dev.configuration}.yaml"
+            )
         raw = self.get_builder_raw(device_id)
         if raw and raw.get("configuration"):
             cfg = raw["configuration"]
@@ -121,7 +130,14 @@ class DeviceManager:
             ).strip() == node:
                 score = 50
             if score:
-                scored.append((score, stem, cfg_file if cfg_file.endswith(".yaml") else f"{cfg_file}.yaml", raw))
+                scored.append(
+                    (
+                        score,
+                        stem,
+                        cfg_file if cfg_file.endswith(".yaml") else f"{cfg_file}.yaml",
+                        raw,
+                    )
+                )
 
         if not scored:
             return node, f"{node}.yaml", None, []
@@ -144,7 +160,11 @@ class DeviceManager:
         for raw in self._builder_devices:
             # Builder device dict contains "configuration" (e.g. "livingroom.yaml") and "name"
             cfg_file = raw.get("configuration", "")
-            cfg_stem = cfg_file.replace(".yaml", "") if cfg_file.endswith(".yaml") else cfg_file
+            cfg_stem = (
+                cfg_file.replace(".yaml", "")
+                if cfg_file.endswith(".yaml")
+                else cfg_file
+            )
             if not cfg_stem:
                 cfg_stem = raw.get("name", "")
             if not cfg_file:
@@ -160,7 +180,9 @@ class DeviceManager:
                 results.append(
                     {
                         "device_id": managed.device_id,
-                        "configuration": managed.configuration if managed.configuration.endswith(".yaml") else cfg_file,
+                        "configuration": managed.configuration
+                        if managed.configuration.endswith(".yaml")
+                        else cfg_file,
                         "name": managed.name,
                         "friendly_name": managed.friendly_name,
                         "is_managed": True,
@@ -185,7 +207,8 @@ class DeviceManager:
                         "device_id": cfg_stem,
                         "configuration": cfg_file,
                         "name": raw.get("name", cfg_stem),
-                        "friendly_name": raw.get("friendly_name") or raw.get("name", cfg_stem),
+                        "friendly_name": raw.get("friendly_name")
+                        or raw.get("name", cfg_stem),
                         "is_managed": False,
                         "token": "",
                         "slug": cfg_stem,
@@ -265,7 +288,11 @@ class DeviceManager:
     ) -> ManagedDevice:
         """Register a new managed device or update existing record."""
         clean_dev_id = device_id.replace(".yaml", "")
-        clean_config = configuration if configuration.endswith(".yaml") else f"{configuration}.yaml"
+        clean_config = (
+            configuration
+            if configuration.endswith(".yaml")
+            else f"{configuration}.yaml"
+        )
         existing = self._managed_devices.get(clean_dev_id)
         chip, _ = chip_family(target_platform)
 
@@ -317,11 +344,14 @@ class DeviceManager:
         device_id: str,
         version: str,
     ) -> None:
-        """Record successful firmware publication for device."""
+        """Record successful firmware publication for device and advance next version."""
         dev = self._managed_devices.get(device_id)
         if not dev:
             return
         dev.last_published_version = version
+        # Advance managed version for next build (legacy advance_registered_version behavior)
+        nxt = bump_patch_version(version)
+        dev.managed_version = nxt
         dev.updated_at = datetime.now(timezone.utc).isoformat()
         await self.storage.async_save_devices(self._managed_devices)
 

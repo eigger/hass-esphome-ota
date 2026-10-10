@@ -174,7 +174,11 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
 
     Returns (new_content, changed).
     """
-    if "ota_server" not in yaml_content and "ota_device:" not in yaml_content and "ota_slug:" not in yaml_content:
+    if (
+        "ota_server" not in yaml_content
+        and "ota_device:" not in yaml_content
+        and "ota_slug:" not in yaml_content
+    ):
         return yaml_content, False
 
     lines = yaml_content.splitlines(keepends=True)
@@ -305,7 +309,10 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
         pkg_line = lines[packages_idx]
         pkg_code = _strip_yaml_comment(pkg_line).strip()
         # Only drop the packages: line itself if it is a standalone !include to ota_server
-        if re.match(r"^packages\s*:\s*!include\b", pkg_code) and "ota_server" in pkg_code.lower():
+        if (
+            re.match(r"^packages\s*:\s*!include\b", pkg_code)
+            and "ota_server" in pkg_code.lower()
+        ):
             lines.pop(packages_idx)
             changed = True
         else:
@@ -349,7 +356,10 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                             entry_lines.append(nxt)
                             j += 1
                             continue
-                        if nxt.lstrip().startswith("#") and _indent_of(nxt) >= pkg_base_indent:
+                        if (
+                            nxt.lstrip().startswith("#")
+                            and _indent_of(nxt) >= pkg_base_indent
+                        ):
                             entry_lines.append(nxt)
                             j += 1
                             continue
@@ -385,7 +395,11 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                     if not header.endswith("\n"):
                         header += "\n"
                     body = before_pkg + [header] + kept_pkg_children
-                    if kept_pkg_children and not kept_pkg_children[-1].endswith("\n") and after_pkg:
+                    if (
+                        kept_pkg_children
+                        and not kept_pkg_children[-1].endswith("\n")
+                        and after_pkg
+                    ):
                         body[-1] += "\n"
                     lines = body + after_pkg
 
@@ -400,7 +414,10 @@ def _is_external_or_include_package(pkg_val: Any) -> bool:
     """Check if a package entry references an external package or include."""
     if isinstance(pkg_val, str):
         val_lower = pkg_val.strip().lower()
-        if any(val_lower.startswith(prefix) for prefix in ("github://", "http://", "https://", "git://", "ssh://")):
+        if any(
+            val_lower.startswith(prefix)
+            for prefix in ("github://", "http://", "https://", "git://", "ssh://")
+        ):
             return True
         if "!include" in val_lower:
             return True
@@ -442,6 +459,25 @@ def has_unclear_project_ownership(content: str) -> bool:
         # This overrides any packages (!include or remote github/url).
         return False
 
+    # 1.5. Concrete project version managed inside packages.esphome_ota clarifies ownership
+    packages_map = data.get("packages")
+    if isinstance(packages_map, dict):
+        ota_pkg = packages_map.get("esphome_ota")
+        if isinstance(ota_pkg, dict):
+            ota_esphome = ota_pkg.get("esphome")
+            if isinstance(ota_esphome, dict):
+                ota_proj = ota_esphome.get("project")
+                if isinstance(ota_proj, dict):
+                    ota_ver = ota_proj.get("version")
+                    if ota_ver is not None:
+                        ota_ver_str = str(ota_ver).strip()
+                        if (
+                            ota_ver_str
+                            and "$" not in ota_ver_str
+                            and "{" not in ota_ver_str
+                        ):
+                            return False
+
     # 2. Check if esphome block itself is an include or contains an include or unresolved substitution
     if isinstance(esphome_block, dict):
         if "__include__" in esphome_block:
@@ -454,10 +490,13 @@ def has_unclear_project_ownership(content: str) -> bool:
             if ver is not None:
                 ver_str = str(ver).strip()
                 resolved = own_project_version(content)
-                if ("$" in ver_str or "{" in ver_str) and (not resolved or "$" in resolved or "{" in resolved):
+                if ("$" in ver_str or "{" in ver_str) and (
+                    not resolved or "$" in resolved or "{" in resolved
+                ):
                     return True
     elif esphome_block == {"__include__": ...} or (
-        isinstance(content, str) and bool(re.search(r"^\s*esphome:\s*!include", content, re.MULTILINE))
+        isinstance(content, str)
+        and bool(re.search(r"^\s*esphome:\s*!include", content, re.MULTILINE))
     ):
         return True
 
@@ -478,7 +517,9 @@ def has_unclear_project_ownership(content: str) -> bool:
             if _is_external_or_include_package(pkg_val):
                 return True
     elif isinstance(content, str):
-        match_pkg_inc = re.search(r"^\s*packages:\s*!include\s+(.*)$", content, re.MULTILINE)
+        match_pkg_inc = re.search(
+            r"^\s*packages:\s*!include\s+(.*)$", content, re.MULTILINE
+        )
         if match_pkg_inc:
             target = _strip_yaml_comment(match_pkg_inc.group(1)).lower()
             if "ota_server" not in target:
@@ -494,17 +535,37 @@ def has_unclear_project_ownership(content: str) -> bool:
     )
 
 
+DATE_SEP_RE = re.compile(
+    r"^(20\d\d([-.])(0?[1-9]|1[0-2])\2(0?[1-9]|[12]\d|3[01]))(?:\.(\d+))?$"
+)
+DATE_COMPACT_RE = re.compile(
+    r"^(20\d\d(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01]))(?:\.(\d+))?$"
+)
+
+
 def bump_patch_version(version: str) -> str:
-    """Increment the patch component of a semantic version string (e.g. 1.0.0 -> 1.0.1)."""
-    parts = version.strip().split(".")
-    if len(parts) >= 3 and parts[-1].isdigit():
-        parts[-1] = str(int(parts[-1]) + 1)
-        return ".".join(parts)
-    if len(parts) == 2 and parts[-1].isdigit():
-        return f"{parts[0]}.{parts[1]}.1"
-    if len(parts) == 1 and parts[0].isdigit():
-        return f"{parts[0]}.0.1"
-    return f"{version}.1"
+    """Increment the last numeric run or append a sequence to date versions (mirrors legacy bump_version)."""
+    text = (version or "").strip().replace('"', "")
+    if not text:
+        return "1.0.0"
+    m = DATE_SEP_RE.match(text) or DATE_COMPACT_RE.match(text)
+    if m:
+        base = m.group(1)
+        seq = m.groups()[-1]
+        if seq is not None:
+            return f"{base}.{int(seq) + 1}"
+        return f"{base}.1"
+    dot_parts = text.split(".")
+    if len(dot_parts) == 1 and dot_parts[0].isdigit():
+        return f"{dot_parts[0]}.0.1"
+    if len(dot_parts) == 2 and dot_parts[0].isdigit() and dot_parts[1].isdigit():
+        return f"{dot_parts[0]}.{dot_parts[1]}.1"
+    parts = re.split(r"(\d+)", text)
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i].isdigit():
+            parts[i] = str(int(parts[i]) + 1)
+            return "".join(parts)
+    return f"{text}.1"
 
 
 def _format_yaml_scalar(value: str) -> str:
@@ -520,9 +581,10 @@ def _format_yaml_scalar(value: str) -> str:
 
 
 def set_project_version(content: str, new_version: str) -> tuple[str, bool]:
-    """Update top-level esphome.project.version (or its local substitution) in YAML text.
+    """Update esphome.project.version in YAML text.
 
-    Prefers editing the local substitution target when version uses ``${key}`` / ``$key``.
+    Supports top-level esphome.project.version (or local substitution)
+    as well as managed packages.esphome_ota.esphome.project.version.
     Returns (new_content, changed).
     """
     new_version = str(new_version).strip()
@@ -530,101 +592,191 @@ def set_project_version(content: str, new_version: str) -> tuple[str, bool]:
         return content, False
 
     data = parse_yaml_safe(content)
-    esphome_block = data.get("esphome")
-    if not isinstance(esphome_block, dict) or "__include__" in esphome_block:
-        return content, False
-    project_block = esphome_block.get("project")
-    if not isinstance(project_block, dict) or "__include__" in project_block:
-        return content, False
-    current = project_block.get("version")
-    if current is None:
-        return content, False
-
-    current_str = str(current).strip()
-    sub_key: str | None = None
-    if current_str.startswith("${") and current_str.endswith("}"):
-        sub_key = current_str[2:-1].strip()
-    elif current_str.startswith("$") and not current_str.startswith("${"):
-        sub_key = current_str[1:].strip()
-
     lines = content.splitlines(keepends=True)
     formatted = _format_yaml_scalar(new_version)
-    changed = False
 
-    if sub_key:
-        substitutions = data.get("substitutions")
-        if not isinstance(substitutions, dict) or sub_key not in substitutions:
-            # Replace the version reference itself with a concrete literal.
-            sub_key = None
-        else:
-            in_subs = False
-            for idx, line in enumerate(lines):
-                if re.match(r"^substitutions\s*:", line):
-                    in_subs = True
+    # 1. Try updating top-level esphome.project.version
+    esphome_block = data.get("esphome")
+    top_level_has_proj = (
+        isinstance(esphome_block, dict)
+        and "__include__" not in esphome_block
+        and isinstance(esphome_block.get("project"), dict)
+        and "__include__" not in esphome_block.get("project")  # type: ignore[operator]
+        and esphome_block.get("project", {}).get("version") is not None
+    )
+
+    if top_level_has_proj:
+        current = esphome_block["project"]["version"]  # type: ignore[index]
+        current_str = str(current).strip()
+        sub_key: str | None = None
+        if current_str.startswith("${") and current_str.endswith("}"):
+            sub_key = current_str[2:-1].strip()
+        elif current_str.startswith("$") and not current_str.startswith("${"):
+            sub_key = current_str[1:].strip()
+
+        changed = False
+        if sub_key:
+            substitutions = data.get("substitutions")
+            if not isinstance(substitutions, dict) or sub_key not in substitutions:
+                sub_key = None
+            else:
+                in_subs = False
+                for idx, line in enumerate(lines):
+                    if re.match(r"^substitutions\s*:", line):
+                        in_subs = True
+                        continue
+                    if in_subs:
+                        if (
+                            line.strip()
+                            and not line.startswith(" ")
+                            and not line.startswith("\t")
+                        ):
+                            break
+                        match = re.match(
+                            rf"^(\s+){re.escape(sub_key)}\s*:\s*.*(\r?\n)?$",
+                            line,
+                        )
+                        if match:
+                            indent = match.group(1)
+                            nl = "\n" if line.endswith("\n") else ""
+                            if line.endswith("\r\n"):
+                                nl = "\r\n"
+                            lines[idx] = f"{indent}{sub_key}: {formatted}{nl}"
+                            changed = True
+                            break
+                if changed:
+                    return "".join(lines), True
+
+        # Walk esphome -> project -> version with indentation awareness
+        in_esphome = False
+        in_project = False
+        esphome_indent: int | None = None
+        project_indent: int | None = None
+        for idx, line in enumerate(lines):
+            stripped = line.lstrip(" ")
+            if not stripped.strip() or stripped.lstrip().startswith("#"):
+                continue
+            indent = len(line) - len(stripped)
+
+            if re.match(r"^esphome\s*:", line):
+                in_esphome = True
+                in_project = False
+                esphome_indent = indent
+                project_indent = None
+                continue
+
+            if in_esphome:
+                if indent <= (esphome_indent or 0) and re.match(r"^\S", stripped):
+                    in_esphome = False
+                    in_project = False
+                elif re.match(r"^project\s*:", stripped) and indent > (
+                    esphome_indent or 0
+                ):
+                    in_project = True
+                    project_indent = indent
                     continue
-                if in_subs:
-                    if line.strip() and not line.startswith(" ") and not line.startswith("\t"):
-                        break
-                    match = re.match(
-                        rf"^(\s+){re.escape(sub_key)}\s*:\s*.*(\r?\n)?$",
-                        line,
-                    )
-                    if match:
-                        indent = match.group(1)
-                        nl = "\n" if line.endswith("\n") else ""
+                elif in_project:
+                    if indent <= (project_indent or 0):
+                        in_project = False
+                    elif re.match(r"^version\s*:", stripped):
+                        nl = "\n"
                         if line.endswith("\r\n"):
                             nl = "\r\n"
-                        lines[idx] = f"{indent}{sub_key}: {formatted}{nl}"
-                        changed = True
-                        break
-            if changed:
-                return "".join(lines), True
-            return content, False
+                        elif line.endswith("\n"):
+                            nl = "\n"
+                        else:
+                            nl = ""
+                        lines[idx] = f"{' ' * indent}version: {formatted}{nl}"
+                        return "".join(lines), True
 
-    # Walk esphome -> project -> version with indentation awareness
-    in_esphome = False
-    in_project = False
-    esphome_indent: int | None = None
-    project_indent: int | None = None
-    for idx, line in enumerate(lines):
-        stripped = line.lstrip(" ")
-        if not stripped.strip() or stripped.lstrip().startswith("#"):
-            continue
-        indent = len(line) - len(stripped)
-
-        if re.match(r"^esphome\s*:", line):
-            in_esphome = True
-            in_project = False
-            esphome_indent = indent
-            project_indent = None
-            continue
-
-        if in_esphome:
-            if indent <= (esphome_indent or 0) and re.match(r"^\S", stripped):
-                in_esphome = False
-                in_project = False
-            elif re.match(r"^project\s*:", stripped) and indent > (esphome_indent or 0):
-                in_project = True
-                project_indent = indent
+    # 2. Try updating inline package esphome.project.version (esphome_ota or any other inline package like base)
+    packages_block = data.get("packages")
+    if isinstance(packages_block, dict):
+        # Check esphome_ota first, then any other package
+        candidate_pkg_names = [k for k in packages_block if k == "esphome_ota"] + [
+            k for k in packages_block if k != "esphome_ota"
+        ]
+        for target_pkg_name in candidate_pkg_names:
+            pkg_val = packages_block.get(target_pkg_name)
+            if not isinstance(pkg_val, dict):
                 continue
-            elif in_project:
-                if indent <= (project_indent or 0):
-                    in_project = False
-                elif re.match(r"^version\s*:", stripped):
-                    nl = "\n"
-                    if line.endswith("\r\n"):
-                        nl = "\r\n"
-                    elif line.endswith("\n"):
-                        nl = "\n"
-                    else:
-                        nl = ""
-                    lines[idx] = f"{' ' * indent}version: {formatted}{nl}"
-                    changed = True
-                    break
+            pkg_esphome = pkg_val.get("esphome")
+            if not isinstance(pkg_esphome, dict):
+                continue
+            pkg_project = pkg_esphome.get("project")
+            if not isinstance(pkg_project, dict) or pkg_project.get("version") is None:
+                continue
 
-    if not changed:
-        return content, False
-    return "".join(lines), True
+            in_packages = False
+            in_target_pkg = False
+            in_pkg_esphome = False
+            in_pkg_project = False
+            packages_indent = 0
+            pkg_indent = 0
+            esphome_indent = 0
+            project_indent = 0
+
+            for idx, line in enumerate(lines):
+                stripped = line.lstrip(" ")
+                if not stripped.strip() or stripped.lstrip().startswith("#"):
+                    continue
+                indent = len(line) - len(stripped)
+
+                if re.match(r"^packages\s*:", line):
+                    in_packages = True
+                    packages_indent = indent
+                    in_target_pkg = False
+                    continue
+
+                if in_packages:
+                    if indent <= packages_indent and re.match(r"^\S", stripped):
+                        in_packages = False
+                        in_target_pkg = False
+                        continue
+                    if not in_target_pkg and re.match(
+                        rf"^{re.escape(target_pkg_name)}\s*:", stripped
+                    ):
+                        in_target_pkg = True
+                        pkg_indent = indent
+                        in_pkg_esphome = False
+                        continue
+                    if in_target_pkg:
+                        if indent <= pkg_indent:
+                            in_target_pkg = False
+                            continue
+                        if not in_pkg_esphome and re.match(r"^esphome\s*:", stripped):
+                            in_pkg_esphome = True
+                            esphome_indent = indent
+                            in_pkg_project = False
+                            continue
+                        if in_pkg_esphome:
+                            if indent <= esphome_indent:
+                                in_pkg_esphome = False
+                                continue
+                            if not in_pkg_project and re.match(
+                                r"^project\s*:", stripped
+                            ):
+                                in_pkg_project = True
+                                project_indent = indent
+                                continue
+                            if in_pkg_project:
+                                if indent <= project_indent:
+                                    in_pkg_project = False
+                                    continue
+                                if re.match(r"^version\s*:", stripped):
+                                    nl = "\n"
+                                    if line.endswith("\r\n"):
+                                        nl = "\r\n"
+                                    elif line.endswith("\n"):
+                                        nl = "\n"
+                                    else:
+                                        nl = ""
+                                    lines[idx] = (
+                                        f"{' ' * indent}version: {formatted}{nl}"
+                                    )
+                                    return "".join(lines), True
+
+    return content, False
 
 
 def ensure_project_version(
@@ -780,8 +932,7 @@ def apply_ota_patch(
         target_version = "1.0.0"
 
     own_ver = own_project_version(clean_yaml)
-    unclear = has_unclear_project_ownership(clean_yaml)
-    use_project = (own_ver is None) and not unclear
+    use_project = own_ver is None
 
     patch_yaml = generate_inline_ota_yaml(
         base_url=base_url,
@@ -827,7 +978,9 @@ def apply_ota_patch(
                     break
                 stripped = line.lstrip(" ")
                 cur_indent = len(line) - len(stripped)
-                if cur_indent == base_indent and re.match(r"^esphome_ota\s*:", stripped):
+                if cur_indent == base_indent and re.match(
+                    r"^esphome_ota\s*:", stripped
+                ):
                     has_existing_ota = True
                     break
 
@@ -849,7 +1002,11 @@ def apply_ota_patch(
                 while i < len(lines):
                     sub_line = lines[i]
                     # Check if exiting packages block (unindented non-empty, non-comment line)
-                    if sub_line.strip() and not sub_line.startswith(" ") and not sub_line.strip().startswith("#"):
+                    if (
+                        sub_line.strip()
+                        and not sub_line.startswith(" ")
+                        and not sub_line.strip().startswith("#")
+                    ):
                         break
 
                     m_ota = re.match(r"^(\s+)esphome_ota\s*:", sub_line)
@@ -869,7 +1026,10 @@ def apply_ota_patch(
                         if sub_indent > block_indent:
                             i += 1
                             continue
-                        if sub_line.strip().startswith("#") and sub_indent >= block_indent:
+                        if (
+                            sub_line.strip().startswith("#")
+                            and sub_indent >= block_indent
+                        ):
                             i += 1
                             continue
                         in_managed_block = False

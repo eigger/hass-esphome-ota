@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -74,6 +76,7 @@ async def test_installation_state_change_tracking(hass: HomeAssistant) -> None:
     verified_dev = device_manager.get_device("livingroom")
     assert verified_dev.last_installed_version == "2.0.0"
     assert verified_dev.has_http_ota is True
+    assert verified_dev.update_entity_id == "update.livingroom_firmware"
     assert any(e.get("version") == "2.0.0" for e in events)
 
     monitor.async_unload()
@@ -91,5 +94,44 @@ async def test_auto_cleanup_timer_scheduling(hass: HomeAssistant) -> None:
 
     monitor.cancel_cleanup("livingroom")
     assert "livingroom" not in monitor._cleanup_timers
+
+    monitor.async_unload()
+
+
+async def test_refresh_entity_triggers_service_call(hass: HomeAssistant) -> None:
+    """Test async_refresh_entity triggers homeassistant.update_entity service."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+
+    await device_manager.async_register_or_update(
+        device_id="livingroom",
+        configuration="livingroom",
+        name="livingroom",
+        friendly_name="Living Room",
+    )
+
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+
+    ent_reg = er.async_get(hass)
+    ent_reg.async_get_or_create(
+        domain="update",
+        platform="esphome",
+        unique_id="livingroom_ota_update",
+        suggested_object_id="livingroom_firmware",
+    )
+
+    calls: list[Any] = []
+
+    async def mock_service_call(call) -> None:
+        calls.append(call.data)
+
+    hass.services.async_register("homeassistant", "update_entity", mock_service_call)
+
+    await monitor.async_refresh_entity("livingroom")
+    await hass.async_block_till_done()
+
+    assert len(calls) == 1
+    assert calls[0] == {"entity_id": "update.livingroom_firmware"}
 
     monitor.async_unload()

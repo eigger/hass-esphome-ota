@@ -55,8 +55,18 @@ _RE_LITERAL_BUILD_TIME = re.compile(
 )
 
 _MONTH_MAP = {
-    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
-    "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+    "Jan": 1,
+    "Feb": 2,
+    "Mar": 3,
+    "Apr": 4,
+    "May": 5,
+    "Jun": 6,
+    "Jul": 7,
+    "Aug": 8,
+    "Sep": 9,
+    "Oct": 10,
+    "Nov": 11,
+    "Dec": 12,
 }
 
 
@@ -69,9 +79,12 @@ def chip_id_from_binary(blob: bytes) -> int | None:
     """Read esp_image_header_t.chip_id, or None when this isn't an ESP32 image."""
     if len(blob) < ESP_IMAGE_HEADER_LEN or blob[0] != ESP_IMAGE_MAGIC:
         return None
-    if blob[19:23] != b"\x00\x00\x00\x00" or blob[23] > 1:
-        return None
-    return int.from_bytes(blob[12:14], "little")
+    chip_id = int.from_bytes(blob[12:14], "little")
+    if chip_id in CHIP_IDS:
+        return chip_id
+    if blob[19:23] == b"\x00\x00\x00\x00" and blob[23] <= 1:
+        return chip_id
+    return None
 
 
 def chip_family_from_binary(blob: bytes) -> str | None:
@@ -80,7 +93,9 @@ def chip_family_from_binary(blob: bytes) -> str | None:
     return CHIP_IDS.get(chip_id) if chip_id is not None else None
 
 
-def chip_family(target_platform: str, blob: bytes | None = None) -> tuple[str | None, str]:
+def chip_family(
+    target_platform: str, blob: bytes | None = None
+) -> tuple[str | None, str]:
     """Return (chipFamily, how_it_was_determined)."""
     mapped = VARIANTS.get(normalise_platform(target_platform))
     sniffable = mapped is None or mapped.startswith("ESP32")
@@ -158,7 +173,9 @@ def parse_app_descriptor(blob: bytes) -> dict[str, str]:
             "project_name": project,
             "idf_version": idf_ver,
         }
-        build_dt = _parse_build_datetime(build_date_str, build_time_str) or _find_literal_build_time(blob)
+        build_dt = _parse_build_datetime(
+            build_date_str, build_time_str
+        ) or _find_literal_build_time(blob)
         if build_dt:
             result["build_time"] = build_dt
 
@@ -218,9 +235,12 @@ def inspect_binary(
         )
 
     if expected_chip and chip != expected_chip:
-        raise BinaryValidationError(
-            f"Chip family mismatch: binary is {chip}, but target device expected {expected_chip}"
-        )
+        # If target device was registered as general "ESP32", allow specific ESP32 variants (ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-P4, etc.)
+        is_esp32_compat = expected_chip == "ESP32" and chip.startswith("ESP32")
+        if not is_esp32_compat:
+            raise BinaryValidationError(
+                f"Chip family mismatch: binary is {chip}, but target device expected {expected_chip}"
+            )
 
     mapped_target = VARIANTS.get(normalise_platform(target_platform))
     if mapped_target and mapped_target != "ESP32" and chip != mapped_target:

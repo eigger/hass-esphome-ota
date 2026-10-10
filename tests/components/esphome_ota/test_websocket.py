@@ -218,3 +218,49 @@ async def test_remove_ota_builder_conflict_or_timeout_must_fail(
         await ws.close()
 
 
+async def test_prepare_ota_includes_project_version_in_package(
+    hass: HomeAssistant,
+    hass_ws_client: any,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Prepare OTA must inject esphome.project into packages.esphome_ota even when YAML has includes."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
+        return_value=[],
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        manager = hass.data[DOMAIN]["manager"]
+        mock_client = AsyncMock()
+        mock_client.get_config.return_value = (
+            "esphome:\n"
+            "  name: bedroom\n"
+            "packages:\n"
+            "  custom_sensors: !include sensors.yaml\n"
+        )
+        mock_client.list_devices.return_value = [
+            {"configuration": "bedroom.yaml", "name": "bedroom"}
+        ]
+        manager.resolver.active_client = mock_client
+
+        ws = await hass_ws_client(hass)
+        await ws.send_json(
+            {"id": 30, "type": "esphome_ota/prepare_ota", "device_id": "bedroom"}
+        )
+        msg = await ws.receive_json()
+
+        assert msg["success"] is True
+        result = msg["result"]
+        diff = result["diff"]
+        assert "esphome_ota:" in diff
+        assert "project:" in diff
+        assert "local.bedroom" in diff
+        assert result["target_version"] == "1.0.0"
+
+        await ws.close()
+
+
+
