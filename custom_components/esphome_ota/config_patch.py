@@ -567,9 +567,6 @@ def remove_ota_patch(yaml_content: str) -> tuple[str, bool]:
             before.pop()
         if before and not before[-1].endswith("\n"):
             before[-1] += "\n"
-        if before and after and after[0].strip():
-            # Keep a blank line between adjacent top-level sections when useful
-            pass
         result = "".join(before + after)
         return re.sub(r"\n{3,}", "\n\n", result), True
 
@@ -577,8 +574,6 @@ def remove_ota_patch(yaml_content: str) -> tuple[str, bool]:
         kept_children.pop(0)
     while kept_children and not kept_children[-1].strip():
         kept_children.pop()
-        if kept_children and kept_children[-1].endswith("\n"):
-            pass
     packages_line = lines[packages_idx]
     if not packages_line.endswith("\n"):
         packages_line += "\n"
