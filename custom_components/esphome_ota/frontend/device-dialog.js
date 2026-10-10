@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { definePanelElement } from "./elements.js";
 
 const css = `
 :host {
@@ -388,4 +389,4 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
   }
 }
 
-customElements.define("esphome-ota-device-dialog", EsphomeOtaDeviceDialog);
+definePanelElement("esphome-ota-device-dialog", EsphomeOtaDeviceDialog);

@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { definePanelElement } from "./elements.js";
 import "./job-dialog.js";
 import "./device-dialog.js";
 import "./migration-dialog.js";
@@ -893,4 +894,4 @@ class EsphomeOtaManager extends HTMLElement {
   }
 }
 
-customElements.define("esphome-ota-manager", EsphomeOtaManager);
+definePanelElement("esphome-ota-manager", EsphomeOtaManager);

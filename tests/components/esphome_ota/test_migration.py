@@ -195,6 +195,8 @@ def test_migration_frontend_components() -> None:
     assert 'value="managed"' in manager_js
     assert "_filterDefaulted" in manager_js
     assert "_syncDefaultFilter" in manager_js
+    assert "definePanelElement" in manager_js
+    assert ( _FRONTEND_DIR / "elements.js").is_file()
     assert "_getLatestJob" in manager_js
     assert "_getDeviceBadge" in manager_js
     assert "esphome_ota/remove_ota" in manager_js

@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { definePanelElement } from "./elements.js";
 
 const css = `
 :host {
@@ -266,4 +267,4 @@ class EsphomeOtaJobDialog extends HTMLElement {
   }
 }
 
-customElements.define("esphome-ota-job-dialog", EsphomeOtaJobDialog);
+definePanelElement("esphome-ota-job-dialog", EsphomeOtaJobDialog);

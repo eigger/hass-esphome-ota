@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { definePanelElement } from "./elements.js";
 
 const css = `
 :host {
@@ -361,4 +362,4 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
   }
 }
 
-customElements.define("esphome-ota-migration-dialog", EsphomeOtaMigrationDialog);
+definePanelElement("esphome-ota-migration-dialog", EsphomeOtaMigrationDialog);
