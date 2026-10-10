@@ -162,7 +162,9 @@ class JobRunner:
         req_id = request_id or str(uuid.uuid4())
         device_req_key = f"{device.device_id}:{req_id}"
         if device_req_key in self._in_flight_requests:
-            raise EsphomeOtaError(f"Duplicate request already in progress for {device.device_id}")
+            raise EsphomeOtaError(
+                f"Duplicate request already in progress for {device.device_id}"
+            )
 
         # Prevent concurrent build requests for the same device
         active_for_dev = [
@@ -256,11 +258,7 @@ class JobRunner:
                 if override:
                     # Explicit UI version clarifies ownership by writing top-level
                     # esphome.project.version (required when packages use !include).
-                    project_name = (
-                        device.name
-                        if device.name
-                        else device.device_id
-                    )
+                    project_name = device.name if device.name else device.device_id
                     updated_yaml, changed = ensure_project_version(
                         current_yaml,
                         override,
@@ -329,7 +327,9 @@ class JobRunner:
                         expected=original_yaml,
                     )
 
-                await self.storage.async_save_devices(self.device_manager._managed_devices)
+                await self.storage.async_save_devices(
+                    self.device_manager._managed_devices
+                )
 
                 # 2. Validating configuration
                 await self._update_stage(job, STAGE_VALIDATING)
@@ -339,12 +339,18 @@ class JobRunner:
                 submitting_time = datetime.now(timezone.utc).isoformat()
                 job.checkpoint["submitted_at"] = submitting_time
                 try:
-                    prior_jobs = await client.get_jobs(configuration=device.configuration)
+                    prior_jobs = await client.get_jobs(
+                        configuration=device.configuration
+                    )
                     job.checkpoint["prior_job_ids"] = [
                         str(pj["job_id"]) for pj in prior_jobs if pj.get("job_id")
                     ]
                 except Exception as p_err:  # noqa: BLE001
-                    _LOGGER.warning("Could not snapshot prior builder jobs for %s: %s", job.job_id, p_err)
+                    _LOGGER.warning(
+                        "Could not snapshot prior builder jobs for %s: %s",
+                        job.job_id,
+                        p_err,
+                    )
                 await self._update_stage(job, STAGE_SUBMITTING)
                 b_job_id = await client.start_compile(device.configuration)
                 job.builder_job_id = b_job_id
@@ -395,7 +401,10 @@ class JobRunner:
                 if is_user_owned:
                     job.reserved_version = info.authoritative_version
                     device.own_project_version = info.authoritative_version
-                elif job.reserved_version and info.authoritative_version != job.reserved_version:
+                elif (
+                    job.reserved_version
+                    and info.authoritative_version != job.reserved_version
+                ):
                     raise BinaryValidationError(
                         f"Compiled binary version '{info.authoritative_version}' does not match expected version '{job.reserved_version}'"
                     )
@@ -442,11 +451,14 @@ class JobRunner:
                     device.device_id, published.version
                 )
 
-                # Schedule automatic cleanup
+                # Schedule automatic cleanup and trigger immediate update entity check
                 if self.monitor:
                     self.monitor.schedule_cleanup(
-                        device.device_id, device.slug, artifact_id=published.published_at
+                        device.device_id,
+                        device.slug,
+                        artifact_id=published.published_at,
                     )
+                    await self.monitor.async_refresh_entity(device.device_id)
 
                 # Emit devices_updated so UI device cards update immediately
                 if self.event_callback:
@@ -474,11 +486,15 @@ class JobRunner:
                 await client.cancel_job(job.builder_job_id)
             await self._update_stage(job, STAGE_CANCELLED)
         except BuilderConnectionError as err:
-            _LOGGER.warning("Builder connection lost during job %s: %s", job.job_id, err)
+            _LOGGER.warning(
+                "Builder connection lost during job %s: %s", job.job_id, err
+            )
             if not job.builder_job_id:
                 if job.stage == STAGE_SUBMITTING:
                     job.error = "Connection lost while submitting compile request; recovery required"
-                    await self._update_stage(job, STAGE_RECOVERY_REQUIRED, {"error": job.error})
+                    await self._update_stage(
+                        job, STAGE_RECOVERY_REQUIRED, {"error": job.error}
+                    )
                 else:
                     job.error = str(err)
                     await self._update_stage(job, STAGE_FAILED, {"error": str(err)})
@@ -508,7 +524,9 @@ class JobRunner:
             if not device:
                 continue
 
-            if job.stage == STAGE_RECOVERY_REQUIRED or (job.stage == STAGE_SUBMITTING and not job.builder_job_id):
+            if job.stage == STAGE_RECOVERY_REQUIRED or (
+                job.stage == STAGE_SUBMITTING and not job.builder_job_id
+            ):
                 _LOGGER.info(
                     "Checking Builder active jobs to recover unacknowledged job %s for %s",
                     job.job_id,
@@ -523,11 +541,15 @@ class JobRunner:
                         rec_err,
                     )
                     if job.stage != STAGE_RECOVERY_REQUIRED:
-                        await self._update_stage(job, STAGE_RECOVERY_REQUIRED, {"error": str(rec_err)})
+                        await self._update_stage(
+                            job, STAGE_RECOVERY_REQUIRED, {"error": str(rec_err)}
+                        )
                     continue
 
                 job_ts = _parse_iso_or_timestamp(job.created_at)
-                submitted_ts = _parse_iso_or_timestamp(job.checkpoint.get("submitted_at"))
+                submitted_ts = _parse_iso_or_timestamp(
+                    job.checkpoint.get("submitted_at")
+                )
                 prior_job_ids = set(job.checkpoint.get("prior_job_ids", []))
                 ref_ts = submitted_ts if submitted_ts is not None else job_ts
 
@@ -543,7 +565,10 @@ class JobRunner:
 
                     # Check job type (must be compile, reject upload, install, clean, etc.)
                     bj_type = bj.get("job_type") or bj.get("type")
-                    if bj_type and str(bj_type).lower() not in ("compile", "firmware_compile"):
+                    if bj_type and str(bj_type).lower() not in (
+                        "compile",
+                        "firmware_compile",
+                    ):
                         continue
 
                     # Check status
@@ -569,7 +594,9 @@ class JobRunner:
 
                     matching_candidates.append(bj)
 
-                if len(matching_candidates) == 1 and matching_candidates[0].get("job_id"):
+                if len(matching_candidates) == 1 and matching_candidates[0].get(
+                    "job_id"
+                ):
                     matching = matching_candidates[0]
                     job.builder_job_id = str(matching["job_id"])
                     _LOGGER.info(
@@ -591,7 +618,9 @@ class JobRunner:
                         await self._update_stage(
                             job,
                             STAGE_RECOVERY_REQUIRED,
-                            {"detail": f"Unambiguous candidate not found ({len(matching_candidates)} candidates)"},
+                            {
+                                "detail": f"Unambiguous candidate not found ({len(matching_candidates)} candidates)"
+                            },
                         )
                     continue
 
@@ -633,12 +662,17 @@ class JobRunner:
                 job_info = await client.get_job(b_job_id)
                 status = job_info.get("status")
                 if status == "cancelled":
-                    _LOGGER.info("Resumed compile job %s was cancelled on remote builder", b_job_id)
+                    _LOGGER.info(
+                        "Resumed compile job %s was cancelled on remote builder",
+                        b_job_id,
+                    )
                     job.error = "Compile job was cancelled on remote builder"
                     await self._update_stage(job, STAGE_CANCELLED, {"error": job.error})
                     return
                 if status == "failed":
-                    raise BuilderError(f"Compile job {b_job_id} failed on remote builder")
+                    raise BuilderError(
+                        f"Compile job {b_job_id} failed on remote builder"
+                    )
                 if not status or status not in ("running", "queued", "completed"):
                     raise BuilderError(
                         f"Compile job {b_job_id} has invalid status on builder: '{status}'"
@@ -659,7 +693,9 @@ class JobRunner:
                         on_output=_append_log,
                     )
                 elif status != "completed":
-                    raise BuilderError(f"Compile job {b_job_id} is not completed (status={status})")
+                    raise BuilderError(
+                        f"Compile job {b_job_id} is not completed (status={status})"
+                    )
 
                 if self._unloaded:
                     return
@@ -688,7 +724,10 @@ class JobRunner:
                 if is_user_owned:
                     job.reserved_version = info.authoritative_version
                     device.own_project_version = info.authoritative_version
-                elif job.reserved_version and info.authoritative_version != job.reserved_version:
+                elif (
+                    job.reserved_version
+                    and info.authoritative_version != job.reserved_version
+                ):
                     raise BinaryValidationError(
                         f"Compiled binary version '{info.authoritative_version}' does not match expected version '{job.reserved_version}'"
                     )
@@ -735,8 +774,11 @@ class JobRunner:
 
                 if self.monitor:
                     self.monitor.schedule_cleanup(
-                        device.device_id, device.slug, artifact_id=published.published_at
+                        device.device_id,
+                        device.slug,
+                        artifact_id=published.published_at,
                     )
+                    await self.monitor.async_refresh_entity(device.device_id)
 
                 # Emit devices_updated so UI device cards update immediately
                 if self.event_callback:
@@ -760,7 +802,9 @@ class JobRunner:
                 await client.cancel_job(job.builder_job_id)
             await self._update_stage(job, STAGE_CANCELLED)
         except BuilderConnectionError as err:
-            _LOGGER.warning("Connection lost again while resuming job %s: %s", job.job_id, err)
+            _LOGGER.warning(
+                "Connection lost again while resuming job %s: %s", job.job_id, err
+            )
         except Exception as err:  # noqa: BLE001
             _LOGGER.error("Resumed job %s failed: %s", job.job_id, err)
             job.error = str(err)
@@ -817,12 +861,15 @@ class JobRunner:
             check_cancelled=lambda: self._unloaded,
         )
         await self.storage.async_save_artifact(device.device_id, published)
-        await self.device_manager.async_mark_published(device.device_id, published.version)
+        await self.device_manager.async_mark_published(
+            device.device_id, published.version
+        )
 
         if self.monitor:
             self.monitor.schedule_cleanup(
                 device.device_id, device.slug, artifact_id=published.published_at
             )
+            await self.monitor.async_refresh_entity(device.device_id)
 
         if self.event_callback:
             self.event_callback(

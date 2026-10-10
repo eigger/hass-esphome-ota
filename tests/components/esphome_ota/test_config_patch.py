@@ -206,11 +206,14 @@ packages:
 
 
 def test_version_bump() -> None:
-    """Test semantic version patch bumping."""
+    """Test semantic and trailing revision version patch bumping."""
     assert bump_patch_version("1.0.0") == "1.0.1"
     assert bump_patch_version("1.0.9") == "1.0.10"
     assert bump_patch_version("2.1") == "2.1.1"
     assert bump_patch_version("3") == "3.0.1"
+    assert bump_patch_version("v260901 rev.1") == "v260901 rev.2"
+    assert bump_patch_version("v260901") == "v260902"
+    assert bump_patch_version("beta-1") == "beta-2"
 
 
 def test_strip_legacy_ota_packages() -> None:
@@ -232,7 +235,7 @@ packages:
     assert "ota_server" not in cleaned
     assert "ota_device:" not in cleaned
     assert "ota_slug:" not in cleaned
-    assert "sensor_name: \"Bedroom Temperature\"" in cleaned
+    assert 'sensor_name: "Bedroom Temperature"' in cleaned
     assert "my_sensors: !include sensors.yaml" in cleaned
 
 
@@ -309,7 +312,9 @@ packages: # migrated from ota_server
     assert "esphome:" in cleaned
 
 
-def test_strip_legacy_ota_packages_preserves_regular_packages_with_ota_server_identifiers() -> None:
+def test_strip_legacy_ota_packages_preserves_regular_packages_with_ota_server_identifiers() -> (
+    None
+):
     """Regular packages containing ota_server identifiers or values must not be deleted."""
     content = """esphome:
   name: livingroom
@@ -393,10 +398,14 @@ packages:
     assert 'version: "2.0.0"' in ensured
     parsed_e = parse_yaml_safe(ensured)
     assert "project" not in parsed_e["esphome"]
-    assert parsed_e["packages"]["esphome_ota"]["esphome"]["project"]["version"] == "2.0.0"
+    assert (
+        parsed_e["packages"]["esphome_ota"]["esphome"]["project"]["version"] == "2.0.0"
+    )
 
 
-def test_apply_ota_patch_with_includes_injects_package_project_and_clarifies_ownership() -> None:
+def test_apply_ota_patch_with_includes_injects_package_project_and_clarifies_ownership() -> (
+    None
+):
     """Applying OTA patch to YAML with includes injects project into packages.esphome_ota and clarifies ownership."""
     content = """esphome:
   name: garden
@@ -427,8 +436,3 @@ sensor: !include bme280.yaml
 
     # And after patching, ownership is clarified (not unclear)
     assert has_unclear_project_ownership(diff_res.modified) is False
-
-
-
-
-

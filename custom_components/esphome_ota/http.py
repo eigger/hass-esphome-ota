@@ -35,7 +35,9 @@ class FirmwareUploadView(HomeAssistantView):
         reader = await request.multipart()
         field = await reader.next()
         if not field:
-            return web.json_response({"error": "No file field found in multipart request"}, status=400)
+            return web.json_response(
+                {"error": "No file field found in multipart request"}, status=400
+            )
 
         size = 0
         chunks: list[bytes] = []
@@ -47,7 +49,9 @@ class FirmwareUploadView(HomeAssistantView):
             size += len(chunk)
             if size > MAX_UPLOAD_SIZE:
                 return web.json_response(
-                    {"error": f"File exceeds maximum allowed size of {MAX_UPLOAD_SIZE} bytes"},
+                    {
+                        "error": f"File exceeds maximum allowed size of {MAX_UPLOAD_SIZE} bytes"
+                    },
                     status=413,
                 )
             chunks.append(chunk)
@@ -87,6 +91,7 @@ class FirmwareUploadView(HomeAssistantView):
                 self.manager.monitor.schedule_cleanup(
                     dev.device_id, dev.slug, artifact_id=published.published_at
                 )
+                await self.manager.monitor.async_refresh_entity(dev.device_id)
             self.manager._dispatch_event(
                 "devices_updated",
                 {"devices": self.manager.device_manager.list_all()},

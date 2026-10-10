@@ -173,23 +173,43 @@ function escapeHtml(str) {
 }
 
 function bumpPatchVersion(version) {
-  const parts = String(version || "").trim().split(".");
+  const v = String(version || "").trim();
+  const parts = v.split(".");
   if (parts.length >= 3 && /^\d+$/.test(parts[parts.length - 1])) {
     parts[parts.length - 1] = String(Number(parts[parts.length - 1]) + 1);
     return parts.join(".");
   }
-  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+  if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
     return `${parts[0]}.${parts[1]}.1`;
   }
   if (parts.length === 1 && /^\d+$/.test(parts[0])) {
     return `${parts[0]}.0.1`;
   }
-  return version ? `${version}.1` : "1.0.0";
+  const trailingNumMatch = v.match(/^(.*?)(\d+)$/);
+  if (trailingNumMatch) {
+    const prefix = trailingNumMatch[1];
+    const num = trailingNumMatch[2];
+    return `${prefix}${Number(num) + 1}`;
+  }
+  return v ? `${v}.1` : "1.0.0";
 }
 
 function suggestTargetVersion(device) {
-  if (device?.own_project_version) return device.own_project_version;
-  if (device?.last_published_version) return bumpPatchVersion(device.last_published_version);
+  const own = device?.own_project_version;
+  const published = device?.last_published_version;
+  const installed = device?.last_installed_version;
+
+  if (own) {
+    // If own version is distinct from what is currently installed/published,
+    // the user might have intentionally bumped it in YAML.
+    if ((!installed || own !== installed) && (!published || own !== published)) {
+      return own;
+    }
+    // If own version is what is currently running/published, suggest the next bump.
+    return bumpPatchVersion(own);
+  }
+  if (published) return bumpPatchVersion(published);
+  if (installed) return bumpPatchVersion(installed);
   return device?.managed_version || "1.0.0";
 }
 
