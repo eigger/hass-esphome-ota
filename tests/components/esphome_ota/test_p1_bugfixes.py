@@ -314,6 +314,64 @@ async def test_build_pipeline_respects_explicit_target_version(
         assert 'version: "2.5.0"' in final_yaml
 
 
+async def test_build_pipeline_updates_yaml_project_version(
+    hass: HomeAssistant, mock_builder: MockBuilderServer
+) -> None:
+    """When YAML owns project.version, an explicit target_version rewrites it."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_project_ver_test")
+
+    mock_builder.configs["livingroom.yaml"] = """esphome:
+  name: livingroom
+  project:
+    name: my.livingroom
+    version: "1.0.0"
+esp32:
+  board: esp32dev
+"""
+
+    dev = await device_manager.async_register_or_update(
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        name="livingroom",
+        friendly_name="Living Room",
+        own_project_version="1.0.0",
+    )
+
+    runner = JobRunner(hass, storage, device_manager, publisher)
+
+    async with aiohttp.ClientSession() as session:
+        conn = BuilderConnection("127.0.0.1", mock_builder.port, session)
+        await conn.connect()
+        client = BuilderClient(conn)
+
+        mock_builder.binary_blob = mock_builder.binary_blob.replace(
+            b"version 1.0.0\x00", b"version 2.5.0\x00"
+        )
+
+        job_id = await runner.async_start_build_pipeline(
+            device=dev,
+            client=client,
+            base_url="http://ha.local:8123",
+            target_version="2.5.0",
+        )
+
+        task = runner._active_tasks.get(job_id)
+        assert task is not None
+        await task
+
+        job = runner.get_job(job_id)
+        assert job is not None
+        assert job.stage == STAGE_PUBLISHED
+        assert job.reserved_version == "2.5.0"
+        assert device_manager.get_device("livingroom").own_project_version == "2.5.0"
+
+        final_yaml = await client.get_config("livingroom.yaml")
+        assert 'version: "2.5.0"' in final_yaml
+        assert 'version: "1.0.0"' not in final_yaml
+
+
 async def test_p1_issue8_prepare_ota_includes_cas_expected(
     hass: HomeAssistant,
     hass_ws_client: Any,

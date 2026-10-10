@@ -8,6 +8,7 @@ from custom_components.esphome_ota.config_patch import (
     bump_patch_version,
     own_project_version,
     remove_ota_patch,
+    set_project_version,
 )
 
 
@@ -45,6 +46,37 @@ esp8266:
   board: d1_mini
 """
     assert own_project_version(yaml_simple) is None
+
+
+def test_set_project_version_updates_literal_and_substitution() -> None:
+    """Editing target version must rewrite esphome.project.version in YAML."""
+    yaml_literal = """esphome:
+  name: livingroom
+  project:
+    name: my.livingroom
+    version: "1.0.0"
+esp32:
+  board: esp32dev
+"""
+    updated, changed = set_project_version(yaml_literal, "2.5.0")
+    assert changed is True
+    assert 'version: "2.5.0"' in updated
+    assert own_project_version(updated) == "2.5.0"
+
+    yaml_sub = """substitutions:
+  project_version: "1.0.0"
+esphome:
+  name: livingroom
+  project:
+    name: my.livingroom
+    version: ${project_version}
+esp32:
+  board: esp32dev
+"""
+    updated_sub, changed_sub = set_project_version(yaml_sub, "3.1.4")
+    assert changed_sub is True
+    assert 'project_version: "3.1.4"' in updated_sub
+    assert own_project_version(updated_sub) == "3.1.4"
 
 
 def test_apply_ota_patch_preserves_comments_and_secrets() -> None:

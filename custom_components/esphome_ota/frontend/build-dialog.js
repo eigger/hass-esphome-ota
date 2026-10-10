@@ -201,7 +201,6 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.device = null;
     this.hass = null;
     this.targetVersion = "";
-    this.versionLocked = false;
     this.submitting = false;
     this.error = "";
   }
@@ -212,7 +211,6 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.isOpen = true;
     this.submitting = false;
     this.error = "";
-    this.versionLocked = !!(device?.own_project_version);
     this.targetVersion = suggestTargetVersion(device);
     this.render();
   }
@@ -296,11 +294,9 @@ class EsphomeOtaBuildDialog extends HTMLElement {
             </div>
             <div class="field">
               <label for="target-version">${escapeHtml(t(this.hass, "build_target_version"))}</label>
-              <input id="target-version" type="text" value="${escapeHtml(this.targetVersion)}" ${this.versionLocked || this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
+              <input id="target-version" type="text" value="${escapeHtml(this.targetVersion)}" ${this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
             </div>
-            ${this.versionLocked
-              ? `<div class="notice">${escapeHtml(t(this.hass, "build_version_locked"))}</div>`
-              : `<p class="hint">${escapeHtml(t(this.hass, "build_version_hint"))}</p>`}
+            <p class="hint">${escapeHtml(t(this.hass, "build_version_hint"))}</p>
             ${this.error ? `<div class="error">${escapeHtml(this.error)}</div>` : ""}
           </div>
           <div class="footer">
@@ -327,7 +323,7 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     input?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.confirmBuild();
     });
-    if (!this.versionLocked && !this.submitting) {
+    if (!this.submitting) {
       setTimeout(() => {
         input?.focus();
         input?.select();

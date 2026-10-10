@@ -186,6 +186,126 @@ def bump_patch_version(version: str) -> str:
     return f"{version}.1"
 
 
+def _format_yaml_scalar(value: str) -> str:
+    """Quote a scalar when needed for safe YAML round-trip."""
+    if value == "":
+        return '""'
+    if re.fullmatch(r"[0-9]+(\.[0-9]+)*", value):
+        return f'"{value}"'
+    if re.search(r'[:#\[\]{},&*?|>!%@`\'"\s]', value):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+def set_project_version(content: str, new_version: str) -> tuple[str, bool]:
+    """Update top-level esphome.project.version (or its local substitution) in YAML text.
+
+    Prefers editing the local substitution target when version uses ``${key}`` / ``$key``.
+    Returns (new_content, changed).
+    """
+    new_version = str(new_version).strip()
+    if not new_version:
+        return content, False
+
+    data = parse_yaml_safe(content)
+    esphome_block = data.get("esphome")
+    if not isinstance(esphome_block, dict) or "__include__" in esphome_block:
+        return content, False
+    project_block = esphome_block.get("project")
+    if not isinstance(project_block, dict) or "__include__" in project_block:
+        return content, False
+    current = project_block.get("version")
+    if current is None:
+        return content, False
+
+    current_str = str(current).strip()
+    sub_key: str | None = None
+    if current_str.startswith("${") and current_str.endswith("}"):
+        sub_key = current_str[2:-1].strip()
+    elif current_str.startswith("$") and not current_str.startswith("${"):
+        sub_key = current_str[1:].strip()
+
+    lines = content.splitlines(keepends=True)
+    formatted = _format_yaml_scalar(new_version)
+    changed = False
+
+    if sub_key:
+        substitutions = data.get("substitutions")
+        if not isinstance(substitutions, dict) or sub_key not in substitutions:
+            # Replace the version reference itself with a concrete literal.
+            sub_key = None
+        else:
+            in_subs = False
+            for idx, line in enumerate(lines):
+                if re.match(r"^substitutions\s*:", line):
+                    in_subs = True
+                    continue
+                if in_subs:
+                    if line.strip() and not line.startswith(" ") and not line.startswith("\t"):
+                        break
+                    match = re.match(
+                        rf"^(\s+){re.escape(sub_key)}\s*:\s*.*(\r?\n)?$",
+                        line,
+                    )
+                    if match:
+                        indent = match.group(1)
+                        nl = "\n" if line.endswith("\n") else ""
+                        if line.endswith("\r\n"):
+                            nl = "\r\n"
+                        lines[idx] = f"{indent}{sub_key}: {formatted}{nl}"
+                        changed = True
+                        break
+            if changed:
+                return "".join(lines), True
+            return content, False
+
+    # Walk esphome -> project -> version with indentation awareness
+    in_esphome = False
+    in_project = False
+    esphome_indent: int | None = None
+    project_indent: int | None = None
+    for idx, line in enumerate(lines):
+        stripped = line.lstrip(" ")
+        if not stripped.strip() or stripped.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(stripped)
+
+        if re.match(r"^esphome\s*:", line):
+            in_esphome = True
+            in_project = False
+            esphome_indent = indent
+            project_indent = None
+            continue
+
+        if in_esphome:
+            if indent <= (esphome_indent or 0) and re.match(r"^\S", stripped):
+                in_esphome = False
+                in_project = False
+            elif re.match(r"^project\s*:", stripped) and indent > (esphome_indent or 0):
+                in_project = True
+                project_indent = indent
+                continue
+            elif in_project:
+                if indent <= (project_indent or 0):
+                    in_project = False
+                elif re.match(r"^version\s*:", stripped):
+                    nl = "\n"
+                    if line.endswith("\r\n"):
+                        nl = "\r\n"
+                    elif line.endswith("\n"):
+                        nl = "\n"
+                    else:
+                        nl = ""
+                    lines[idx] = f"{' ' * indent}version: {formatted}{nl}"
+                    changed = True
+                    break
+
+    if not changed:
+        return content, False
+    return "".join(lines), True
+
+
 def reindent_yaml_snippet(snippet: str, indent_size: int = 2) -> str:
     """Adjust snippet indentation based on detected indent size (e.g. 2 or 4 spaces)."""
     if indent_size == 2:
