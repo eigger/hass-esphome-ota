@@ -11,6 +11,9 @@ const css = `
 :host {
   display: flex;
   flex-direction: column;
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -22,7 +25,7 @@ const css = `
   box-sizing: border-box;
 }
 header {
-  flex: none;
+  flex: 0 0 auto;
   height: 56px;
   display: flex;
   align-items: center;
@@ -30,6 +33,7 @@ header {
   padding: 0 20px;
   background: var(--card-background-color, #ffffff);
   border-bottom: 1px solid var(--divider-color, #e2e8f0);
+  z-index: 10;
 }
 h1 {
   margin: 0;
@@ -63,6 +67,7 @@ h1 {
 .status-error, .status-unsupported { color: #991b1b; background: #fee2e2; }
 
 .selection-banner {
+  flex: 0 0 auto;
   margin: 16px 20px 0;
   padding: 12px 16px;
   background: #fff7ed;
@@ -85,6 +90,7 @@ h1 {
 }
 
 .migration-banner {
+  flex: 0 0 auto;
   margin: 16px 20px 0;
   padding: 12px 16px;
   background: #eff6ff;
@@ -146,6 +152,7 @@ button.primary:hover {
 }
 
 .controls {
+  flex: 0 0 auto;
   padding: 16px 20px 8px;
   display: flex;
   flex-wrap: wrap;
@@ -172,9 +179,12 @@ button.primary:hover {
 }
 
 .content {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 12px 20px 24px;
+  -webkit-overflow-scrolling: touch;
 }
 .grid {
   display: grid;
@@ -283,6 +293,7 @@ class EsphomeOtaManager extends HTMLElement {
     this.builder = null;
     this.query = "";
     this.filter = "all";
+    this._filterManual = false;
     this.selectedDevices = new Set();
     this._unsubEvents = null;
     this._domInitialized = false;
@@ -493,6 +504,7 @@ class EsphomeOtaManager extends HTMLElement {
         <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
         <select id="filter">
           <option value="all">${escapeHtml(t(this.hass, "filter_all") || "All Devices")}</option>
+          <option value="managed">${escapeHtml(t(this.hass, "filter_managed") || "OTA Configured")}</option>
           <option value="unmanaged">${escapeHtml(t(this.hass, "filter_unmanaged") || "Unmanaged")}</option>
           <option value="initial">${escapeHtml(t(this.hass, "filter_initial") || "Initial Install Needed")}</option>
           <option value="update">${escapeHtml(t(this.hass, "filter_update") || "Update Available")}</option>
@@ -523,6 +535,7 @@ class EsphomeOtaManager extends HTMLElement {
     const filterSelect = this.shadowRoot.getElementById("filter");
     filterSelect?.addEventListener("change", (e) => {
       this.filter = e.target.value;
+      this._filterManual = true;
       this._renderDeviceList();
     });
 
@@ -631,9 +644,27 @@ class EsphomeOtaManager extends HTMLElement {
     this._renderDeviceList();
   }
 
+  _hasOtaConfiguredDevices() {
+    return this.devices.some(
+      (d) => d.is_managed || (d.status && d.status !== "unmanaged")
+    );
+  }
+
+  _syncDefaultFilter() {
+    if (this._filterManual) return;
+    const next = this._hasOtaConfiguredDevices() ? "managed" : "all";
+    this.filter = next;
+    const filterSelect = this.shadowRoot?.getElementById("filter");
+    if (filterSelect && filterSelect.value !== next) {
+      filterSelect.value = next;
+    }
+  }
+
   _renderDeviceList() {
     const container = this.shadowRoot.getElementById("content-container");
     if (!container) return;
+
+    this._syncDefaultFilter();
 
     const filtered = this.devices.filter((dev) => {
       if (this.query) {
@@ -643,6 +674,9 @@ class EsphomeOtaManager extends HTMLElement {
         if (!matchesName && !matchesCfg) return false;
       }
       if (this.filter === "all") return true;
+      if (this.filter === "managed") {
+        return !!dev.is_managed || (dev.status && dev.status !== "unmanaged");
+      }
       if (this.filter === "unmanaged") return dev.status === "unmanaged";
       if (this.filter === "initial") return dev.status === "needs_initial_install";
       if (this.filter === "update") return dev.status === "update_available";
