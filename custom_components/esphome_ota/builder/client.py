@@ -160,7 +160,11 @@ class BuilderClient:
         jobs: list[dict[str, Any]] = []
         if isinstance(result, list):
             jobs = result
-        elif isinstance(result, dict) and "jobs" in result and isinstance(result["jobs"], list):
+        elif (
+            isinstance(result, dict)
+            and "jobs" in result
+            and isinstance(result["jobs"], list)
+        ):
             jobs = result["jobs"]
         if configuration:
             return [j for j in jobs if j.get("configuration") == configuration]
@@ -200,9 +204,22 @@ class BuilderClient:
                     if "successfully compiled program" in line.lower():
                         has_success_log = True
             elif event == "result" and isinstance(data, dict):
-                status = data.get("status") or (
-                    "completed" if data.get("success") is True or data.get("code") == 0 else None
-                )
+                if data.get("success") is False or (
+                    not isinstance(data.get("code"), bool)
+                    and data.get("code") is not None
+                    and data.get("code") != 0
+                ):
+                    status = "failed"
+                else:
+                    status = data.get("status") or (
+                        "completed"
+                        if data.get("success") is True
+                        or (
+                            not isinstance(data.get("code"), bool)
+                            and data.get("code") == 0
+                        )
+                        else None
+                    )
             elif isinstance(data, dict) and "status" in data:
                 status = data["status"]
 
@@ -211,19 +228,60 @@ class BuilderClient:
             job_info = await self.get_job(job_id)
             status = job_info.get("status")
 
-        # If compiler explicitly reported compilation success in output stream, accept it
-        if has_success_log and (not status or status in ("unknown", "0", 0)):
+        # Explicit failure/cancellation statuses must never be overridden by log parsing
+        failed_statuses = {"failed", "cancelled", "canceled", "error", "failure"}
+        is_explicit_failed = False
+        if status is False:
+            is_explicit_failed = True
+        elif isinstance(status, str) and status.strip().lower() in failed_statuses:
+            is_explicit_failed = True
+        elif (
+            not isinstance(status, bool)
+            and isinstance(status, (int, float))
+            and status != 0
+        ):
+            is_explicit_failed = True
+
+        if is_explicit_failed:
+            _LOGGER.warning(
+                "Compile of %s (job %s) explicitly failed with status=%s",
+                configuration,
+                job_id,
+                status,
+            )
+            raise BuilderError(
+                f"Compile of {configuration} did not complete successfully: status='{status}'"
+            )
+
+        # Fallback to output stream success log ONLY when status is missing or ambiguous
+        is_ambiguous = (
+            status is None
+            or status == ""
+            or (isinstance(status, str) and status.strip().lower() in ("unknown",))
+        )
+        if has_success_log and is_ambiguous:
             status = "completed"
 
         is_success = False
-        if isinstance(status, str) and status.strip().lower() in ("completed", "success", "done", "ok", "0"):
+        if isinstance(status, str) and status.strip().lower() in (
+            "completed",
+            "success",
+            "done",
+            "ok",
+            "0",
+        ):
             is_success = True
-        elif status == 0 or status is True:
+        elif not isinstance(status, bool) and status == 0:
             is_success = True
-        elif has_success_log:
+        elif status is True:
             is_success = True
 
-        _LOGGER.info("Compile of %s (job %s) ended with status=%s", configuration, job_id, status)
+        _LOGGER.info(
+            "Compile of %s (job %s) ended with status=%s",
+            configuration,
+            job_id,
+            status,
+        )
         if not is_success:
             raise BuilderError(
                 f"Compile of {configuration} did not complete successfully: status='{status}'"
@@ -340,7 +398,9 @@ class BuilderClient:
         )
         token = token_info.get("token") if isinstance(token_info, dict) else None
         if not token:
-            raise BuilderError(f"No download token issued for {configuration} ({target_file})")
+            raise BuilderError(
+                f"No download token issued for {configuration} ({target_file})"
+            )
 
         url = f"{self.conn.base_url}/api/firmware/download"
         timeout = aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT_SECONDS)
@@ -358,7 +418,11 @@ class BuilderClient:
                 f"Download of {target_file} timed out after {DOWNLOAD_TIMEOUT_SECONDS}s"
             ) from err
         except aiohttp.ClientError as err:
-            raise BuilderConnectionError(f"Failed to download firmware binary: {err}") from err
+            raise BuilderConnectionError(
+                f"Failed to download firmware binary: {err}"
+            ) from err
 
-        _LOGGER.info("Downloaded %s (%s bytes) for %s", target_file, len(blob), configuration)
+        _LOGGER.info(
+            "Downloaded %s (%s bytes) for %s", target_file, len(blob), configuration
+        )
         return blob

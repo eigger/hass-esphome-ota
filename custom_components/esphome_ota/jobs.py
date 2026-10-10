@@ -269,7 +269,7 @@ class JobRunner:
                     _LOGGER.debug("Could not query builder devices: %s", b_err)
 
                 if override:
-                    # If device YAML declares its own project version at top-level,
+                    # If device YAML declares its own project version at top-level or in an inline package,
                     # synchronize it so the ESPHome compiler uses the target version.
                     if own_ver:
                         synced_yaml, synced = set_project_version(
@@ -278,6 +278,12 @@ class JobRunner:
                         if synced:
                             current_yaml = synced_yaml
                             device.own_project_version = override
+                        else:
+                            raise BuilderError(
+                                f"Cannot update project version in {device.configuration} to '{override}'. "
+                                "The current project version is defined in an external include or immutable configuration. "
+                                "Please update the project version in the source file directly."
+                            )
                     job.reserved_version = override
                     target_patch_version = override
                     device.managed_version = override

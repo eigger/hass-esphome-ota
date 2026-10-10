@@ -689,86 +689,92 @@ def set_project_version(content: str, new_version: str) -> tuple[str, bool]:
                         lines[idx] = f"{' ' * indent}version: {formatted}{nl}"
                         return "".join(lines), True
 
-    # 2. Try updating packages.esphome_ota.esphome.project.version
+    # 2. Try updating inline package esphome.project.version (esphome_ota or any other inline package like base)
     packages_block = data.get("packages")
-    ota_has_proj = (
-        isinstance(packages_block, dict)
-        and isinstance(packages_block.get("esphome_ota"), dict)
-        and isinstance(packages_block.get("esphome_ota", {}).get("esphome"), dict)
-        and isinstance(
-            packages_block.get("esphome_ota", {}).get("esphome", {}).get("project"),
-            dict,
-        )
-        and packages_block.get("esphome_ota", {})
-        .get("esphome", {})
-        .get("project", {})
-        .get("version")
-        is not None
-    )
-
-    if ota_has_proj:
-        in_packages = False
-        in_ota = False
-        in_ota_esphome = False
-        in_ota_project = False
-        packages_indent = 0
-        ota_indent = 0
-        esphome_indent = 0
-        project_indent = 0
-
-        for idx, line in enumerate(lines):
-            stripped = line.lstrip(" ")
-            if not stripped.strip() or stripped.lstrip().startswith("#"):
+    if isinstance(packages_block, dict):
+        # Check esphome_ota first, then any other package
+        candidate_pkg_names = [k for k in packages_block if k == "esphome_ota"] + [
+            k for k in packages_block if k != "esphome_ota"
+        ]
+        for target_pkg_name in candidate_pkg_names:
+            pkg_val = packages_block.get(target_pkg_name)
+            if not isinstance(pkg_val, dict):
                 continue
-            indent = len(line) - len(stripped)
-
-            if re.match(r"^packages\s*:", line):
-                in_packages = True
-                packages_indent = indent
-                in_ota = False
+            pkg_esphome = pkg_val.get("esphome")
+            if not isinstance(pkg_esphome, dict):
+                continue
+            pkg_project = pkg_esphome.get("project")
+            if not isinstance(pkg_project, dict) or pkg_project.get("version") is None:
                 continue
 
-            if in_packages:
-                if indent <= packages_indent and re.match(r"^\S", stripped):
-                    in_packages = False
-                    in_ota = False
+            in_packages = False
+            in_target_pkg = False
+            in_pkg_esphome = False
+            in_pkg_project = False
+            packages_indent = 0
+            pkg_indent = 0
+            esphome_indent = 0
+            project_indent = 0
+
+            for idx, line in enumerate(lines):
+                stripped = line.lstrip(" ")
+                if not stripped.strip() or stripped.lstrip().startswith("#"):
                     continue
-                if not in_ota and re.match(r"^esphome_ota\s*:", stripped):
-                    in_ota = True
-                    ota_indent = indent
-                    in_ota_esphome = False
+                indent = len(line) - len(stripped)
+
+                if re.match(r"^packages\s*:", line):
+                    in_packages = True
+                    packages_indent = indent
+                    in_target_pkg = False
                     continue
-                if in_ota:
-                    if indent <= ota_indent:
-                        in_ota = False
+
+                if in_packages:
+                    if indent <= packages_indent and re.match(r"^\S", stripped):
+                        in_packages = False
+                        in_target_pkg = False
                         continue
-                    if not in_ota_esphome and re.match(r"^esphome\s*:", stripped):
-                        in_ota_esphome = True
-                        esphome_indent = indent
-                        in_ota_project = False
+                    if not in_target_pkg and re.match(
+                        rf"^{re.escape(target_pkg_name)}\s*:", stripped
+                    ):
+                        in_target_pkg = True
+                        pkg_indent = indent
+                        in_pkg_esphome = False
                         continue
-                    if in_ota_esphome:
-                        if indent <= esphome_indent:
-                            in_ota_esphome = False
+                    if in_target_pkg:
+                        if indent <= pkg_indent:
+                            in_target_pkg = False
                             continue
-                        if not in_ota_project and re.match(r"^project\s*:", stripped):
-                            in_ota_project = True
-                            project_indent = indent
+                        if not in_pkg_esphome and re.match(r"^esphome\s*:", stripped):
+                            in_pkg_esphome = True
+                            esphome_indent = indent
+                            in_pkg_project = False
                             continue
-                        if in_ota_project:
-                            if indent <= project_indent:
-                                in_ota_project = False
+                        if in_pkg_esphome:
+                            if indent <= esphome_indent:
+                                in_pkg_esphome = False
                                 continue
-                            if re.match(r"^version\s*:", stripped):
-                                nl = "\n"
-                                if line.endswith("\r\n"):
-                                    nl = "\r\n"
-                                elif line.endswith("\n"):
+                            if not in_pkg_project and re.match(
+                                r"^project\s*:", stripped
+                            ):
+                                in_pkg_project = True
+                                project_indent = indent
+                                continue
+                            if in_pkg_project:
+                                if indent <= project_indent:
+                                    in_pkg_project = False
+                                    continue
+                                if re.match(r"^version\s*:", stripped):
                                     nl = "\n"
-                                else:
-                                    nl = ""
-                                lines[idx] = f"{' ' * indent}version: {formatted}{nl}"
-                                return "".join(lines), True
+                                    if line.endswith("\r\n"):
+                                        nl = "\r\n"
+                                    elif line.endswith("\n"):
+                                        nl = "\n"
+                                    else:
+                                        nl = ""
+                                    lines[idx] = (
+                                        f"{' ' * indent}version: {formatted}{nl}"
+                                    )
+                                    return "".join(lines), True
 
     return content, False
 
