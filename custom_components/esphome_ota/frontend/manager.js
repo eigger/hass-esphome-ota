@@ -238,6 +238,7 @@ button.danger:hover {
 .badge-update { background: #dcfce7; color: #166534; }
 .badge-installed { background: #e0f2fe; color: #0369a1; }
 .badge-building { background: #ede9fe; color: #6d28d9; }
+.badge-failed { background: #fee2e2; color: #991b1b; }
 
 .card-stats {
   display: grid;
@@ -426,9 +427,7 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   async buildDevice(device) {
-    const activeJob = this.jobs.find(
-      (j) => j.device_id === device.device_id && !["published", "failed", "cancelled"].includes(j.stage)
-    );
+    const activeJob = this._getActiveJob(device.device_id);
     if (activeJob) {
       this.openJobDialog(activeJob);
       return;
@@ -448,9 +447,7 @@ class EsphomeOtaManager extends HTMLElement {
       };
       this.openJobDialog(job);
     } catch (err) {
-      const fallbackJob = this.jobs.find(
-        (j) => j.device_id === device.device_id && !["published", "failed", "cancelled"].includes(j.stage)
-      );
+      const fallbackJob = this._getActiveJob(device.device_id);
       if (fallbackJob) {
         this.openJobDialog(fallbackJob);
         return;
@@ -652,6 +649,62 @@ class EsphomeOtaManager extends HTMLElement {
     this._renderDeviceList();
   }
 
+  _isTerminalJobStage(stage) {
+    return ["published", "failed", "cancelled"].includes(stage);
+  }
+
+  _getDeviceJobs(deviceId) {
+    return this.jobs.filter((j) => j.device_id === deviceId);
+  }
+
+  _getLatestJob(deviceId) {
+    const jobs = this._getDeviceJobs(deviceId);
+    if (!jobs.length) return null;
+    return jobs.reduce((latest, job) => {
+      const latestTs = Date.parse(latest.updated_at || latest.created_at || 0);
+      const jobTs = Date.parse(job.updated_at || job.created_at || 0);
+      return jobTs >= latestTs ? job : latest;
+    });
+  }
+
+  _getActiveJob(deviceId) {
+    const latest = this._getLatestJob(deviceId);
+    if (!latest || this._isTerminalJobStage(latest.stage)) return null;
+    return latest;
+  }
+
+  _getDeviceBadge(dev) {
+    const activeJob = this._getActiveJob(dev.device_id);
+    if (activeJob) {
+      if (activeJob.stage === "recovery_required") {
+        return { badgeKey: "stage_recovery_required", badgeClass: "badge-initial" };
+      }
+      return { badgeKey: "badge_building", badgeClass: "badge-update" };
+    }
+
+    const latest = this._getLatestJob(dev.device_id);
+    if (latest?.stage === "failed") {
+      return { badgeKey: "stage_failed", badgeClass: "badge-failed" };
+    }
+    if (latest?.stage === "cancelled") {
+      return { badgeKey: "stage_cancelled", badgeClass: "badge-unmanaged" };
+    }
+
+    if (dev.status === "unmanaged") {
+      return { badgeKey: "badge_unmanaged", badgeClass: "badge-unmanaged" };
+    }
+    if (dev.status === "needs_initial_install") {
+      return { badgeKey: "badge_initial", badgeClass: "badge-initial" };
+    }
+    if (dev.status === "update_available") {
+      return { badgeKey: "badge_update", badgeClass: "badge-update" };
+    }
+    if (dev.status === "installed" || dev.status === "ready") {
+      return { badgeKey: "badge_installed", badgeClass: "badge-installed" };
+    }
+    return { badgeKey: "badge_installed", badgeClass: "badge-installed" };
+  }
+
   _isOtaConfigured(dev) {
     return !!dev?.is_managed;
   }
@@ -690,7 +743,7 @@ class EsphomeOtaManager extends HTMLElement {
       if (this.filter === "initial") return dev.status === "needs_initial_install";
       if (this.filter === "update") return dev.status === "update_available";
       if (this.filter === "installed") return dev.status === "installed";
-      if (this.filter === "building") return dev.status === "building";
+      if (this.filter === "building") return !!this._getActiveJob(dev.device_id);
       return true;
     });
 
@@ -737,6 +790,14 @@ class EsphomeOtaManager extends HTMLElement {
       });
     });
 
+    this.shadowRoot.querySelectorAll(".btn-view-logs").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const jobId = e.target.getAttribute("data-job-id");
+        const job = this.jobs.find((j) => j.job_id === jobId);
+        if (job) this.openJobDialog(job);
+      });
+    });
+
     this.shadowRoot.querySelectorAll(".btn-details").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const id = e.target.getAttribute("data-id");
@@ -777,26 +838,9 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   renderCard(dev) {
-    const activeJob = this.jobs.find(
-      (j) => j.device_id === dev.device_id && !["published", "failed", "cancelled"].includes(j.stage)
-    );
-
-    let badgeKey = dev.status === "unmanaged" ? "badge_unmanaged"
-      : dev.status === "needs_initial_install" ? "badge_initial"
-      : dev.status === "update_available" ? "badge_update"
-      : dev.status === "installed" ? "badge_installed" : "badge_building";
-
-    let badgeClass = `badge-${dev.status === "needs_initial_install" ? "initial" : dev.status === "update_available" ? "update" : dev.status === "installed" ? "installed" : "unmanaged"}`;
-
-    if (activeJob) {
-      if (activeJob.stage === "recovery_required") {
-        badgeKey = "stage_recovery_required";
-        badgeClass = "badge-initial";
-      } else {
-        badgeKey = "badge_building";
-        badgeClass = "badge-update";
-      }
-    }
+    const activeJob = this._getActiveJob(dev.device_id);
+    const latestJob = this._getLatestJob(dev.device_id);
+    const { badgeKey, badgeClass } = this._getDeviceBadge(dev);
 
     const badgeText = t(this.hass, badgeKey);
     const isSelected = this.selectedDevices.has(dev.device_id);
@@ -804,6 +848,11 @@ class EsphomeOtaManager extends HTMLElement {
     let actionButton = "";
     if (activeJob) {
       actionButton = `<button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_view_logs"))}</button>`;
+    } else if (latestJob && (latestJob.stage === "failed" || latestJob.stage === "cancelled")) {
+      actionButton = `
+        <button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_build"))}</button>
+        <button class="btn-view-logs" data-job-id="${escapeHtml(latestJob.job_id)}">${escapeHtml(t(this.hass, "btn_view_logs"))}</button>
+      `;
     } else if (dev.status === "unmanaged") {
       actionButton = `<button class="primary btn-prepare" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_prepare"))}</button>`;
     } else {

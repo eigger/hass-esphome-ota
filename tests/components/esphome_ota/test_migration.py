@@ -195,6 +195,8 @@ def test_migration_frontend_components() -> None:
     assert 'value="managed"' in manager_js
     assert "_filterDefaulted" in manager_js
     assert "_syncDefaultFilter" in manager_js
+    assert "_getLatestJob" in manager_js
+    assert "_getDeviceBadge" in manager_js
     assert "esphome_ota/remove_ota" in manager_js
     assert "btn_remove_ota" in i18n_js
     assert "migration_ambiguous" in i18n_js
