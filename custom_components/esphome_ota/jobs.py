@@ -15,9 +15,9 @@ from .builder.client import BuilderClient
 from .config_patch import (
     apply_ota_patch,
     bump_patch_version,
+    ensure_project_version,
     has_unclear_project_ownership,
     own_project_version,
-    set_project_version,
 )
 from .const import (
     MAX_LOG_TAIL_LINES,
@@ -253,28 +253,37 @@ class JobRunner:
                 except Exception as b_err:  # noqa: BLE001
                     _LOGGER.debug("Could not query builder devices: %s", b_err)
 
+                if override:
+                    # Explicit UI version clarifies ownership by writing top-level
+                    # esphome.project.version (required when packages use !include).
+                    project_name = (
+                        device.name
+                        if device.name
+                        else device.device_id
+                    )
+                    updated_yaml, changed = ensure_project_version(
+                        current_yaml,
+                        override,
+                        project_name=f"esphome_ota.{project_name}",
+                    )
+                    if not changed:
+                        raise BuilderError(
+                            f"Cannot set project.version in {device.configuration} to '{override}'. "
+                            "Add a concrete esphome.project.version in YAML or remove unresolved includes."
+                        )
+                    current_yaml = updated_yaml
+                    own_ver = own_project_version(current_yaml) or override
+                    unclear = has_unclear_project_ownership(current_yaml)
+                    job.reserved_version = override
+                    device.own_project_version = override
+                    self._notify_job_update(job)
+
                 if unclear:
                     raise BuilderError(
                         f"Cannot build {device.configuration}: project ownership is ambiguous due to external configuration includes or unresolved substitutions. Manual review required."
                     )
 
-                if override:
-                    if own_ver:
-                        updated_yaml, changed = set_project_version(
-                            current_yaml, override
-                        )
-                        if not changed:
-                            raise BuilderError(
-                                f"Cannot update project.version in {device.configuration} to '{override}'. Manual YAML edit required."
-                            )
-                        current_yaml = updated_yaml
-                        own_ver = own_project_version(current_yaml) or override
-                        job.reserved_version = override
-                        device.own_project_version = override
-                    else:
-                        job.reserved_version = override
-                    self._notify_job_update(job)
-                elif not own_ver:
+                if not override and not own_ver:
                     if device.last_published_version:
                         job.reserved_version = bump_patch_version(
                             device.last_published_version
@@ -293,6 +302,7 @@ class JobRunner:
                         device.own_project_version = own_ver
                     target_patch_version = None
                 elif own_ver and override:
+                    # Version already written to YAML; do not also inject managed project version
                     target_patch_version = None
                 else:
                     device.own_project_version = None

@@ -6,6 +6,8 @@ from __future__ import annotations
 from custom_components.esphome_ota.config_patch import (
     apply_ota_patch,
     bump_patch_version,
+    ensure_project_version,
+    has_unclear_project_ownership,
     own_project_version,
     remove_ota_patch,
     set_project_version,
@@ -46,6 +48,21 @@ esp8266:
   board: d1_mini
 """
     assert own_project_version(yaml_simple) is None
+
+
+def test_ensure_project_version_clears_include_ambiguity() -> None:
+    """Writing top-level project.version makes package !include ownership clear."""
+    content = """esphome:
+  name: colorado
+packages:
+  common: !include common.yaml
+"""
+    assert has_unclear_project_ownership(content) is True
+    updated, changed = ensure_project_version(content, "v260901 rev.1")
+    assert changed is True
+    assert 'version: "v260901 rev.1"' in updated
+    assert has_unclear_project_ownership(updated) is False
+    assert own_project_version(updated) == "v260901 rev.1"
 
 
 def test_set_project_version_updates_literal_and_substitution() -> None:
