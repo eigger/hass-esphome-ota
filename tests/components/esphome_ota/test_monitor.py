@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.monitor import InstallationMonitor
@@ -217,4 +219,99 @@ async def test_state_change_without_published_version_updates_installed(hass: Ho
     assert dev.status == "installed"
 
     monitor.async_unload()
+
+
+async def test_entity_platform_and_device_relationship_validation(hass: HomeAssistant) -> None:
+    """Test entity platform and device relationship validation for update entities."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+
+    await device_manager.async_register_or_update(
+        device_id="esp_node_1",
+        configuration="esp_node_1",
+        name="esp_node_1",
+        friendly_name="ESP Node 1",
+    )
+
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+
+    # 1. Non-esphome platform should be ignored even if name matches
+    ent_reg.async_get_or_create(
+        domain="update",
+        platform="other_platform",
+        unique_id="esp_node_1_other",
+        suggested_object_id="esp_node_1",
+    )
+    hass.states.async_set(
+        "update.esp_node_1",
+        "off",
+        {"installed_version": "1.0.0", "in_progress": False},
+    )
+
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_setup()
+    await hass.async_block_till_done()
+
+    assert monitor.device_manager.get_device("esp_node_1").last_installed_version is None
+    monitor.async_unload()
+
+    entry = MockConfigEntry(domain="esphome", entry_id="esphome_mock_entry")
+    entry.add_to_hass(hass)
+
+    # 2. Generic name "Firmware" entity belonging to a different device should NOT match
+    ha_dev_2 = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("esphome", "other_node")},
+        name="other_node",
+    )
+    ent_reg.async_get_or_create(
+        domain="update",
+        platform="esphome",
+        unique_id="other_firmware",
+        suggested_object_id="other_firmware",
+        device_id=ha_dev_2.id,
+        original_name="Firmware",
+    )
+    hass.states.async_set(
+        "update.other_firmware",
+        "off",
+        {"installed_version": "9.9.9", "in_progress": False},
+    )
+
+    monitor2 = InstallationMonitor(hass, device_manager, publisher)
+    await monitor2.async_setup()
+    await hass.async_block_till_done()
+
+    assert monitor2.device_manager.get_device("esp_node_1").last_installed_version is None
+    monitor2.async_unload()
+
+    # 3. Generic name "Firmware" belonging to the matching HA device DOES match
+    ha_dev_1 = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("esphome", "esp_node_1")},
+        name="esp_node_1",
+    )
+    ent_reg.async_get_or_create(
+        domain="update",
+        platform="esphome",
+        unique_id="node1_firmware",
+        suggested_object_id="esp_node_1_fw",
+        device_id=ha_dev_1.id,
+        original_name="Firmware",
+    )
+    hass.states.async_set(
+        "update.esp_node_1_fw",
+        "off",
+        {"installed_version": "2.5.0", "in_progress": False},
+    )
+
+    monitor3 = InstallationMonitor(hass, device_manager, publisher)
+    await monitor3.async_setup()
+    await hass.async_block_till_done()
+
+    assert monitor3.device_manager.get_device("esp_node_1").last_installed_version == "2.5.0"
+    monitor3.async_unload()
+
 

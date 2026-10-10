@@ -25,9 +25,9 @@ const css = `
   color: var(--primary-text-color, #1f2937);
   width: 100%;
   max-width: 780px;
-  height: 580px;
+  height: min(580px, 85vh);
   max-height: 85vh;
-  min-height: 480px;
+  min-height: min(480px, 85vh);
   border-radius: 14px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
   display: flex;
@@ -70,6 +70,7 @@ const css = `
 .body {
   padding: 18px 20px;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -93,7 +94,7 @@ const css = `
   padding: 14px;
   border-radius: 8px;
   flex: 1;
-  min-height: 250px;
+  min-height: 0;
   overflow-y: auto;
   white-space: pre;
 }
