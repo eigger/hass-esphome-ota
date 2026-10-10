@@ -24,7 +24,7 @@ jobs:
         run: pip install ruff
 
       - name: Lint
-        run: python -m ruff check custom_components/ tests/
+        run: python -m ruff check custom_components/ tests/ scripts/
 
   test:
     # Tests run against a real Home Assistant (pytest-homeassistant-custom-component),
@@ -46,6 +46,8 @@ jobs:
           pip install -r requirements_test.txt
           python -c "import json; print('\n'.join(json.load(open('custom_components/esphome_ota/manifest.json'))['requirements']))" > requirements.txt
           pip install -r requirements.txt
+          python scripts/ha_component_requirements.py frontend panel_custom websocket_api http > requirements_ha.txt
+          pip install -r requirements_ha.txt
 
       - name: Run tests
         run: python -m pytest tests/ -v --timeout 120
