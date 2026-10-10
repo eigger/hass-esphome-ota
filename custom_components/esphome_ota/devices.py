@@ -176,7 +176,14 @@ class DeviceManager:
             chip, _ = chip_family(target_plat)
 
             if managed:
-                status = self._calculate_status(managed, raw)
+                live_installed = managed.last_installed_version
+                if not live_installed and managed.update_entity_id:
+                    st = self.hass.states.get(managed.update_entity_id)
+                    if st and st.state not in ("unavailable", "unknown"):
+                        live_installed = st.attributes.get("installed_version")
+                status = self._calculate_status(
+                    managed, raw, live_installed_version=live_installed
+                )
                 results.append(
                     {
                         "device_id": managed.device_id,
@@ -194,7 +201,7 @@ class DeviceManager:
                         "own_project_version": managed.own_project_version,
                         "managed_version": managed.managed_version,
                         "last_published_version": managed.last_published_version,
-                        "last_installed_version": managed.last_installed_version,
+                        "last_installed_version": live_installed,
                         "has_http_ota": managed.has_http_ota,
                         "status": status,
                         "update_entity_id": managed.update_entity_id,
@@ -229,6 +236,14 @@ class DeviceManager:
         # Include managed devices whose YAML is not currently reported by Builder
         for dev_id, managed in self._managed_devices.items():
             if dev_id not in seen_configurations:
+                live_installed = managed.last_installed_version
+                if not live_installed and managed.update_entity_id:
+                    st = self.hass.states.get(managed.update_entity_id)
+                    if st and st.state not in ("unavailable", "unknown"):
+                        live_installed = st.attributes.get("installed_version")
+                status = self._calculate_status(
+                    managed, None, live_installed_version=live_installed
+                )
                 results.append(
                     {
                         "device_id": managed.device_id,
@@ -244,9 +259,9 @@ class DeviceManager:
                         "own_project_version": managed.own_project_version,
                         "managed_version": managed.managed_version,
                         "last_published_version": managed.last_published_version,
-                        "last_installed_version": managed.last_installed_version,
+                        "last_installed_version": live_installed,
                         "has_http_ota": managed.has_http_ota,
-                        "status": managed.status,
+                        "status": status,
                         "update_entity_id": managed.update_entity_id,
                         "builder_present": False,
                     }
@@ -258,17 +273,27 @@ class DeviceManager:
         self,
         managed: ManagedDevice,
         raw_builder_info: dict[str, Any] | None = None,
+        live_installed_version: str | None = None,
     ) -> str:
         """Determine device OTA status."""
-        if not managed.has_http_ota and not managed.last_installed_version:
+        installed_ver = live_installed_version or managed.last_installed_version
+        if not installed_ver and managed.update_entity_id:
+            st = self.hass.states.get(managed.update_entity_id)
+            if st and st.state not in ("unavailable", "unknown"):
+                installed_ver = st.attributes.get("installed_version")
+
+        if not managed.has_http_ota and not installed_ver:
             # Device has not received first HTTP OTA firmware installation yet
             return DEVICE_STATUS_NEEDS_INITIAL_INSTALL
 
         if managed.last_published_version:
-            if not managed.last_installed_version:
+            if not installed_ver:
                 return DEVICE_STATUS_NEEDS_INITIAL_INSTALL
-            if managed.last_published_version != managed.last_installed_version:
+            if managed.last_published_version != installed_ver:
                 return DEVICE_STATUS_UPDATE_AVAILABLE
+            return DEVICE_STATUS_INSTALLED
+
+        if installed_ver:
             return DEVICE_STATUS_INSTALLED
 
         return DEVICE_STATUS_READY
@@ -314,6 +339,7 @@ class DeviceManager:
                 existing.slug = f"{name}_{token}" if token else name
             if has_http_ota:
                 existing.has_http_ota = True
+            existing.status = self._calculate_status(existing)
             existing.updated_at = datetime.now(timezone.utc).isoformat()
             device = existing
         else:
@@ -334,6 +360,7 @@ class DeviceManager:
                 managed_version=managed_version or "1.0.0",
                 has_http_ota=has_http_ota,
             )
+            device.status = self._calculate_status(device)
             self._managed_devices[clean_dev_id] = device
 
         await self.storage.async_save_devices(self._managed_devices)
@@ -352,6 +379,7 @@ class DeviceManager:
         # Advance managed version for next build (legacy advance_registered_version behavior)
         nxt = bump_patch_version(version)
         dev.managed_version = nxt
+        dev.status = self._calculate_status(dev)
         dev.updated_at = datetime.now(timezone.utc).isoformat()
         await self.storage.async_save_devices(self._managed_devices)
 
@@ -366,6 +394,7 @@ class DeviceManager:
             return
         dev.last_installed_version = version
         dev.has_http_ota = True
+        dev.status = self._calculate_status(dev)
         dev.updated_at = datetime.now(timezone.utc).isoformat()
         await self.storage.async_save_devices(self._managed_devices)
 

@@ -360,8 +360,16 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-recheck")?.addEventListener("click", () => this.recheckJob());
     this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.cancelJob());
-    this.shadowRoot.getElementById("backdrop")?.addEventListener("click", (e) => {
-      if (e.target.id === "backdrop") this.close();
+    let mouseDownTarget = null;
+    const backdrop = this.shadowRoot.getElementById("backdrop");
+    backdrop?.addEventListener("mousedown", (e) => {
+      mouseDownTarget = e.target;
+    });
+    backdrop?.addEventListener("click", (e) => {
+      if (e.target.id === "backdrop" && mouseDownTarget?.id === "backdrop") {
+        this.close();
+      }
+      mouseDownTarget = null;
     });
   }
 }

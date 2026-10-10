@@ -135,3 +135,86 @@ async def test_refresh_entity_triggers_service_call(hass: HomeAssistant) -> None
     assert calls[0] == {"entity_id": "update.livingroom_firmware"}
 
     monitor.async_unload()
+
+
+async def test_immediate_sync_of_preexisting_installed_version(hass: HomeAssistant) -> None:
+    """Test that an existing update entity in HA states immediately syncs installed version."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+
+    await device_manager.async_register_or_update(
+        device_id="bedroom",
+        configuration="bedroom",
+        name="bedroom",
+        friendly_name="Bedroom Light",
+    )
+
+    ent_reg = er.async_get(hass)
+    ent_reg.async_get_or_create(
+        domain="update",
+        platform="esphome",
+        unique_id="bedroom_ota_update",
+        suggested_object_id="bedroom_firmware",
+    )
+
+    # Entity is already in states before monitor setup
+    hass.states.async_set(
+        "update.bedroom_firmware",
+        "off",
+        {"installed_version": "1.2.3", "latest_version": "1.2.3", "in_progress": False},
+    )
+
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_setup()
+    await hass.async_block_till_done()
+
+    dev = device_manager.get_device("bedroom")
+    assert dev.last_installed_version == "1.2.3"
+    assert dev.status == "installed"
+    devices = device_manager.list_all()
+    b_dev = next(d for d in devices if d["device_id"] == "bedroom")
+    assert b_dev["last_installed_version"] == "1.2.3"
+    assert b_dev["status"] == "installed"
+
+    monitor.async_unload()
+
+
+async def test_state_change_without_published_version_updates_installed(hass: HomeAssistant) -> None:
+    """Test device reporting an installed version without prior publication records it."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+
+    await device_manager.async_register_or_update(
+        device_id="kitchen",
+        configuration="kitchen",
+        name="kitchen",
+        friendly_name="Kitchen",
+    )
+
+    ent_reg = er.async_get(hass)
+    ent_reg.async_get_or_create(
+        domain="update",
+        platform="esphome",
+        unique_id="kitchen_ota_update",
+        suggested_object_id="kitchen_firmware",
+    )
+
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_setup()
+
+    # Device comes online and reports installed_version = 1.0.0
+    hass.states.async_set(
+        "update.kitchen_firmware",
+        "off",
+        {"installed_version": "1.0.0", "in_progress": False},
+    )
+    await hass.async_block_till_done()
+
+    dev = device_manager.get_device("kitchen")
+    assert dev.last_installed_version == "1.0.0"
+    assert dev.status == "installed"
+
+    monitor.async_unload()
+
