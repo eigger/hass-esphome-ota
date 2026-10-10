@@ -148,6 +148,42 @@ packages:
     assert removed is True
     assert "esphome_ota:" not in cleaned
     assert "custom_pkg: !include custom.yaml" in cleaned
+    assert "packages:" in cleaned
+
+
+def test_remove_ota_patch_four_space_indent_and_empty_packages() -> None:
+    """Support 4-space package indent and drop empty packages: key."""
+    content = """esphome:
+    name: kitchen
+packages:
+    esphome_ota:
+        substitutions:
+            ota_slug: "kitchen_1122"
+sensor:
+    - platform: uptime
+"""
+    cleaned, removed = remove_ota_patch(content)
+    assert removed is True
+    assert "esphome_ota:" not in cleaned
+    assert "packages:" not in cleaned
+    assert "sensor:" in cleaned
+    assert "name: kitchen" in cleaned
+
+
+def test_remove_ota_patch_only_managed_package() -> None:
+    """When esphome_ota is the sole package, packages: must disappear."""
+    content = """esphome:
+  name: kitchen
+packages:
+  esphome_ota:
+    substitutions:
+      ota_slug: "kitchen_1122"
+"""
+    cleaned, removed = remove_ota_patch(content)
+    assert removed is True
+    assert "packages:" not in cleaned
+    assert "esphome_ota:" not in cleaned
+    assert "name: kitchen" in cleaned
 
 
 def test_version_bump() -> None:

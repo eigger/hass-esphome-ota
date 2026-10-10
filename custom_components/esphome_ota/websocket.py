@@ -435,18 +435,24 @@ async def ws_remove_ota(
         connection.send_error(msg["id"], "device_not_found", "Device not found")
         return
 
-    yaml_removed = False
     client = manager.resolver.active_client
-    if client:
-        config_file = manager.device_manager.get_configuration(device_id)
-        try:
-            yaml_content = await client.get_config(config_file)
-            cleaned, yaml_removed = remove_ota_patch(yaml_content)
-            if yaml_removed:
-                await client.update_config(config_file, cleaned, expected=yaml_content)
-        except Exception as err:  # noqa: BLE001
-            connection.send_error(msg["id"], "remove_failed", str(err))
-            return
+    if not client:
+        connection.send_error(
+            msg["id"],
+            "builder_disconnected",
+            "ESPHome Builder is not connected; cannot remove OTA YAML safely",
+        )
+        return
+
+    config_file = manager.device_manager.get_configuration(device_id)
+    try:
+        yaml_content = await client.get_config(config_file)
+        cleaned, yaml_removed = remove_ota_patch(yaml_content)
+        if yaml_removed:
+            await client.update_config(config_file, cleaned, expected=yaml_content)
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "remove_failed", str(err))
+        return
 
     binary_removed = await manager.publisher.async_deactivate(dev.slug)
 

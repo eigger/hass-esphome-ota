@@ -474,21 +474,115 @@ def apply_ota_patch(
 
 
 def remove_ota_patch(yaml_content: str) -> tuple[str, bool]:
-    """Remove managed packages.esphome_ota block from YAML while preserving the rest."""
+    """Remove managed packages.esphome_ota block from YAML while preserving the rest.
+
+    Detects the indentation used under ``packages:`` (2-space, 4-space, etc.).
+    If ``esphome_ota`` was the only package entry, also drops the empty
+    ``packages:`` key.
+    """
     lines = yaml_content.splitlines(keepends=True)
-    new_lines: list[str] = []
-    in_managed_block = False
-    removed = False
 
-    for line in lines:
-        if re.match(r"^  esphome_ota\s*:", line):
-            in_managed_block = True
-            removed = True
+    packages_idx: int | None = None
+    for idx, line in enumerate(lines):
+        if re.match(r"^packages\s*:", line):
+            packages_idx = idx
+            break
+    if packages_idx is None:
+        return yaml_content, False
+
+    def _indent_of(line: str) -> int:
+        return len(line) - len(line.lstrip(" \t"))
+
+    def _is_top_level(line: str) -> bool:
+        return bool(
+            line.strip()
+            and not line.startswith((" ", "\t"))
+            and not line.lstrip().startswith("#")
+        )
+
+    base_indent = 2
+    for sub in lines[packages_idx + 1 :]:
+        if not sub.strip() or sub.lstrip().startswith("#"):
             continue
-        if in_managed_block:
-            if line.strip() == "" or re.match(r"^    ", line):
-                continue
-            in_managed_block = False
-        new_lines.append(line)
+        if _is_top_level(sub):
+            break
+        base_indent = _indent_of(sub)
+        break
 
-    return "".join(new_lines), removed
+    before = lines[:packages_idx]
+    after_idx = packages_idx + 1
+    kept_children: list[str] = []
+    removed = False
+    remaining_entries = 0
+
+    i = packages_idx + 1
+    while i < len(lines):
+        line = lines[i]
+        if _is_top_level(line):
+            after_idx = i
+            break
+
+        if not line.strip() or line.lstrip().startswith("#"):
+            kept_children.append(line)
+            i += 1
+            after_idx = i
+            continue
+
+        indent = _indent_of(line)
+        if indent == base_indent and re.match(r"^[ \t]+esphome_ota\s*:", line):
+            removed = True
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                if _is_top_level(nxt):
+                    break
+                if not nxt.strip():
+                    i += 1
+                    continue
+                nxt_indent = _indent_of(nxt)
+                if nxt_indent > base_indent:
+                    i += 1
+                    continue
+                if nxt.lstrip().startswith("#") and nxt_indent >= base_indent:
+                    i += 1
+                    continue
+                break
+            after_idx = i
+            continue
+
+        if indent == base_indent:
+            remaining_entries += 1
+        kept_children.append(line)
+        i += 1
+        after_idx = i
+    else:
+        after_idx = len(lines)
+
+    if not removed:
+        return yaml_content, False
+
+    after = lines[after_idx:]
+    if remaining_entries == 0:
+        while before and not before[-1].strip():
+            before.pop()
+        if before and not before[-1].endswith("\n"):
+            before[-1] += "\n"
+        if before and after and after[0].strip():
+            # Keep a blank line between adjacent top-level sections when useful
+            pass
+        result = "".join(before + after)
+        return re.sub(r"\n{3,}", "\n\n", result), True
+
+    while kept_children and not kept_children[0].strip():
+        kept_children.pop(0)
+    while kept_children and not kept_children[-1].strip():
+        kept_children.pop()
+        if kept_children and kept_children[-1].endswith("\n"):
+            pass
+    packages_line = lines[packages_idx]
+    if not packages_line.endswith("\n"):
+        packages_line += "\n"
+    body = before + [packages_line] + kept_children
+    if kept_children and not kept_children[-1].endswith("\n") and after:
+        body[-1] += "\n"
+    return "".join(body + after), True
