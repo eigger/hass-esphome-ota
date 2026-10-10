@@ -342,4 +342,23 @@ packages:
     assert cleaned2 == content_only_diag
 
 
+def test_strip_legacy_ota_packages_inlines_legacy_substitution_references() -> None:
+    """Removing ota_device/ota_slug definition must inline any lingering ${ota_device} references."""
+    content = """substitutions:
+  ota_device: livingroom
+  ota_slug: livingroom_abc
+
+esphome:
+  name: ${ota_device}
+  comment: "$ota_slug active"
+"""
+    cleaned, changed = strip_legacy_ota_packages(content)
+    assert changed is True
+    assert "substitutions:" not in cleaned
+    assert "ota_device:" not in cleaned
+    assert "name: livingroom" in cleaned
+    assert 'comment: "livingroom_abc active"' in cleaned
+
+
+
 

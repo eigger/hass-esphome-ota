@@ -287,3 +287,83 @@ packages:
     assert dev.yaml_mode == "inline_package"
     assert dev.managed_version == "1.0.5"
     assert dev.token == token
+
+
+async def test_migration_concurrent_modification_conflict_fails(
+    hass: HomeAssistant,
+) -> None:
+    """Migration must abort and raise ConfigConflictError on concurrent edits, preserving changes."""
+    from unittest.mock import AsyncMock, patch
+    import pytest
+    from custom_components.esphome_ota.models import ConfigConflictError
+
+    esphome_dir = Path(hass.config.path("esphome"))
+    legacy_dir = esphome_dir / "ota_server"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+
+    token = "a8f3b9c2e17d904f8e5b6c7a1d2e3f4a"
+    registered_data = {
+        "livingroom": {
+            "token": token,
+            "version": "1.0.5",
+            "title": "Living Room Sensor",
+        }
+    }
+    (legacy_dir / "registered.json").write_text(
+        json.dumps(registered_data), encoding="utf-8"
+    )
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
+
+    # 1. Test Builder CAS conflict
+    mock_client = AsyncMock()
+    mock_client.get_config.return_value = (
+        "esphome:\n  name: livingroom\npackages:\n  ota: !include ota_server/dev.yaml\n"
+    )
+    mock_client.update_config.side_effect = ConfigConflictError("CAS conflict: file modified")
+
+    migrator_builder = MigrationManager(
+        hass, storage, device_manager, publisher, builder_client=mock_client
+    )
+
+    with pytest.raises(ConfigConflictError):
+        await migrator_builder.async_migrate()
+
+    # Device must NOT have been registered
+    assert device_manager.get_device("livingroom") is None
+
+    # 2. Test local disk concurrent edit
+    yaml_file = esphome_dir / "livingroom.yaml"
+    initial_yaml = "esphome:\n  name: livingroom\npackages:\n  ota: !include ota_server/dev.yaml\n"
+    yaml_file.write_text(initial_yaml, encoding="utf-8")
+
+    migrator_local = MigrationManager(hass, storage, device_manager, publisher)
+
+    # Simulate concurrent edit happening right after first read:
+    orig_read_text = Path.read_text
+    read_count = 0
+
+    def mock_read_text(self: Path, *args: any, **kwargs: any) -> str:
+        nonlocal read_count
+        res = orig_read_text(self, *args, **kwargs)
+        if self == yaml_file:
+            read_count += 1
+            if read_count == 1:
+                # Concurrent edit happens after first read
+                yaml_file.write_text(
+                    initial_yaml + "\nsensor:\n  - name: AddedConcurrently\n",
+                    encoding="utf-8",
+                )
+        return res
+
+    with patch.object(Path, "read_text", autospec=True, side_effect=mock_read_text):
+        with pytest.raises(ConfigConflictError):
+            await migrator_local.async_migrate()
+
+    # Verify concurrent edit was NOT overwritten
+    current = yaml_file.read_text(encoding="utf-8")
+    assert "AddedConcurrently" in current
+    assert device_manager.get_device("livingroom") is None
+

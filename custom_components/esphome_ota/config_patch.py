@@ -198,6 +198,14 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
             break
 
     if sub_idx is not None:
+        # First gather values of ota_device and ota_slug from parsed YAML if possible
+        parsed_subs = parse_yaml_safe(yaml_content).get("substitutions")
+        legacy_subs: dict[str, str] = {}
+        if isinstance(parsed_subs, dict):
+            for k in ("ota_device", "ota_slug"):
+                if k in parsed_subs and parsed_subs[k] is not None:
+                    legacy_subs[k] = str(parsed_subs[k]).strip()
+
         sub_base_indent = 2
         for sub_line in lines[sub_idx + 1 :]:
             if not sub_line.strip() or sub_line.lstrip().startswith("#"):
@@ -223,7 +231,17 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                 continue
             ind = _indent_of(line)
             line_code = _strip_yaml_comment(line)
-            if ind == sub_base_indent and re.match(r"^[ \t]+(ota_device|ota_slug)\s*:", line_code):
+            match_sub = re.match(r"^[ \t]+(ota_device|ota_slug)\s*:\s*(.*)", line_code)
+            if ind == sub_base_indent and match_sub:
+                sub_name = match_sub.group(1)
+                raw_val = match_sub.group(2).strip()
+                if (raw_val.startswith('"') and raw_val.endswith('"')) or (
+                    raw_val.startswith("'") and raw_val.endswith("'")
+                ):
+                    raw_val = raw_val[1:-1]
+                if raw_val and sub_name not in legacy_subs:
+                    legacy_subs[sub_name] = raw_val
+
                 sub_changed = True
                 i += 1
                 while i < len(lines):
@@ -234,6 +252,14 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                         i += 1
                         continue
                     if _indent_of(nxt) > sub_base_indent:
+                        if sub_name not in legacy_subs:
+                            nxt_val = _strip_yaml_comment(nxt).strip()
+                            if (nxt_val.startswith('"') and nxt_val.endswith('"')) or (
+                                nxt_val.startswith("'") and nxt_val.endswith("'")
+                            ):
+                                nxt_val = nxt_val[1:-1]
+                            if nxt_val:
+                                legacy_subs[sub_name] = nxt_val
                         i += 1
                         continue
                     break
@@ -254,6 +280,19 @@ def strip_legacy_ota_packages(yaml_content: str) -> tuple[str, bool]:
                 lines = before + (["\n"] if before and after else []) + after
             else:
                 lines = new_lines + lines[after_sub_idx:]
+
+            # Replace any lingering references to legacy substitutions throughout the remaining YAML
+            if legacy_subs:
+                replaced_lines: list[str] = []
+                for cur_line in lines:
+                    line_replaced = cur_line
+                    for var_name, var_val in legacy_subs.items():
+                        pat = re.compile(rf"\$\{{{var_name}\}}|\${var_name}\b")
+                        line_replaced = pat.sub(var_val, line_replaced)
+                    if line_replaced != cur_line:
+                        changed = True
+                    replaced_lines.append(line_replaced)
+                lines = replaced_lines
 
     # 2. Clean packages: block of ota_server entries
     packages_idx: int | None = None

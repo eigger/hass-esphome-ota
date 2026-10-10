@@ -106,14 +106,15 @@ class OtaManager:
             self._dispatch_event,
             self.monitor,
         )
+        self.resolver = BuilderResolver(hass, self.session, saved_selection)
         self.migration_manager = MigrationManager(
             hass,
             self.storage,
             self.device_manager,
             self.publisher,
             base_url=self.base_url,
+            resolver=self.resolver,
         )
-        self.resolver = BuilderResolver(hass, self.session, saved_selection)
         self.panel_manager = PanelManager(hass)
         self.upload_view = FirmwareUploadView(hass, self)
 

@@ -14,6 +14,7 @@ from .config_patch import apply_ota_patch
 from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
 from .firmware import inspect_binary
+from .models import ConfigConflictError
 from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
@@ -30,12 +31,25 @@ class MigrationManager:
         device_manager: DeviceManager,
         publisher: ArtifactPublisher,
         base_url: str = "",
+        resolver: Any = None,
+        builder_client: Any = None,
     ) -> None:
         self.hass = hass
         self.storage = storage
         self.device_manager = device_manager
         self.publisher = publisher
         self.base_url = base_url
+        self.resolver = resolver
+        self._builder_client = builder_client
+
+    @property
+    def client(self) -> Any:
+        """Return active BuilderClient if available."""
+        if self._builder_client is not None:
+            return self._builder_client
+        if self.resolver is not None:
+            return getattr(self.resolver, "active_client", None)
+        return None
 
     def _inspect_legacy_data_sync(self) -> dict[str, Any]:
         """Inspect legacy directories and prepare migration preview."""
@@ -163,14 +177,33 @@ class MigrationManager:
                         continue
                     claimed_configs.add(configuration)
 
-                    # Update device YAML from legacy ota_server to modern inline package
-                    cfg_path = esphome_dir / configuration
-                    is_file = await self.hass.async_add_executor_job(cfg_path.is_file)
-                    if is_file:
-                        try:
-                            orig_yaml = await self.hass.async_add_executor_job(
-                                cfg_path.read_text, "utf-8"
-                            )
+                    # Serialize device YAML modification and registration under device lock
+                    # (matching internal compile jobs lock)
+                    lock = self.device_manager.get_lock(device_id)
+                    async with lock:
+                        client = self.client
+                        orig_yaml: str | None = None
+                        cfg_path = esphome_dir / configuration
+
+                        if client is not None:
+                            try:
+                                orig_yaml = await client.get_config(configuration)
+                            except Exception as get_err:  # noqa: BLE001
+                                _LOGGER.debug(
+                                    "Could not fetch %s from builder client: %s",
+                                    configuration,
+                                    get_err,
+                                )
+                                orig_yaml = None
+
+                        if orig_yaml is None:
+                            is_file = await self.hass.async_add_executor_job(cfg_path.is_file)
+                            if is_file:
+                                orig_yaml = await self.hass.async_add_executor_job(
+                                    cfg_path.read_text, "utf-8"
+                                )
+
+                        if orig_yaml is not None:
                             diff_res = apply_ota_patch(
                                 yaml_content=orig_yaml,
                                 base_url=self.base_url,
@@ -179,40 +212,54 @@ class MigrationManager:
                                 node=node,
                             )
                             if diff_res.modified != orig_yaml:
-                                await self.hass.async_add_executor_job(
-                                    cfg_path.write_text, diff_res.modified, "utf-8"
-                                )
+                                if client is not None:
+                                    # CAS update via builder: expected=orig_yaml detects concurrent modifications
+                                    await client.update_config(
+                                        configuration, diff_res.modified, expected=orig_yaml
+                                    )
+                                else:
+                                    # Atomic CAS check: ensure disk content hasn't changed since read
+                                    current_disk = await self.hass.async_add_executor_job(
+                                        cfg_path.read_text, "utf-8"
+                                    )
+                                    if current_disk != orig_yaml:
+                                        raise ConfigConflictError(
+                                            f"CAS conflict updating config for {configuration}: concurrent modification detected on disk"
+                                        )
+                                    await self.hass.async_add_executor_job(
+                                        cfg_path.write_text, diff_res.modified, "utf-8"
+                                    )
                                 migrated_yaml_configs.append(node)
                                 _LOGGER.info(
                                     "Migrated YAML for %s (%s) from ota_server to packages.esphome_ota",
                                     node,
                                     configuration,
                                 )
-                        except Exception as y_err:  # noqa: BLE001
-                            _LOGGER.warning("Failed migrating YAML for %s: %s", node, y_err)
 
-                    # Drop a previous bare-node orphan if we resolved to a different stem
-                    if device_id != node and self.device_manager.get_device(node):
-                        orphan = self.device_manager.get_device(node)
-                        if orphan and orphan.configuration in {f"{node}.yaml", node}:
-                            await self.device_manager.async_remove_device(node)
+                        # Drop a previous bare-node orphan if we resolved to a different stem
+                        if device_id != node and self.device_manager.get_device(node):
+                            orphan = self.device_manager.get_device(node)
+                            if orphan and orphan.configuration in {f"{node}.yaml", node}:
+                                await self.device_manager.async_remove_device(node)
 
-                    plat = (
-                        raw.get("target_platform", "esp32")
-                        if raw
-                        else "esp32"
-                    )
-                    await self.device_manager.async_register_or_update(
-                        device_id=device_id,
-                        configuration=configuration,
-                        name=node,
-                        friendly_name=title,
-                        target_platform=plat,
-                        token=token,
-                        has_http_ota=True,
-                        managed_version=version,
-                        yaml_mode=YAML_MODE_INLINE_PACKAGE,
-                    )
+                        plat = (
+                            raw.get("target_platform", "esp32")
+                            if raw
+                            else "esp32"
+                        )
+                        await self.device_manager.async_register_or_update(
+                            device_id=device_id,
+                            configuration=configuration,
+                            name=node,
+                            friendly_name=title,
+                            target_platform=plat,
+                            token=token,
+                            has_http_ota=True,
+                            managed_version=version,
+                            yaml_mode=YAML_MODE_INLINE_PACKAGE,
+                        )
+            except ConfigConflictError:
+                raise
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed registering migrated devices: %s", err)
 
