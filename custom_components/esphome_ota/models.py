@@ -9,7 +9,6 @@ from typing import Any
 from .const import (
     DEVICE_STATUS_UNMANAGED,
     STAGE_PREPARING,
-    STATUS_DISCOVERING,
     YAML_MODE_INLINE_PACKAGE,
 )
 

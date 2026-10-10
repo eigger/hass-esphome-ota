@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import MagicMock
 
 import aiohttp
 from homeassistant.core import HomeAssistant
@@ -62,7 +60,7 @@ async def test_job_runner_full_pipeline_success(
         assert job.stage == STAGE_PUBLISHED
         assert job.binary_version == "1.0.0"
         assert len(job.log_tail) >= 2
-        assert any("Compiling" in l for l in job.log_tail)
+        assert any("Compiling" in line for line in job.log_tail)
 
         # Device is marked published
         updated_dev = device_manager.get_device("livingroom")

@@ -19,7 +19,7 @@ from .const import (
     YAML_MODE_INLINE_PACKAGE,
 )
 from .firmware import chip_family
-from .models import DeviceNotFoundError, ManagedDevice
+from .models import ManagedDevice
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)

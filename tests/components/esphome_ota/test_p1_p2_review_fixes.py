@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import aiohttp
 from homeassistant import config_entries, data_entry_flow
@@ -16,9 +16,6 @@ from custom_components.esphome_ota.builder.client import BuilderClient
 from custom_components.esphome_ota.builder.connection import BuilderConnection
 from custom_components.esphome_ota.builder.resolver import BuilderResolver
 from custom_components.esphome_ota.config_patch import (
-    apply_ota_patch,
-    bump_patch_version,
-    has_unclear_project_ownership,
     own_project_version,
 )
 from custom_components.esphome_ota.const import (
@@ -26,8 +23,6 @@ from custom_components.esphome_ota.const import (
     CONF_BUILDER_SLUG,
     DOMAIN,
     STAGE_BUILDING,
-    STAGE_CANCELLED,
-    STAGE_FAILED,
     STAGE_PUBLISHED,
 )
 from custom_components.esphome_ota.devices import DeviceManager
@@ -35,9 +30,7 @@ from custom_components.esphome_ota.jobs import JobRunner
 from custom_components.esphome_ota.models import (
     BuilderCandidate,
     BuilderConnectionError,
-    BuilderSelection,
     EsphomeOtaError,
-    ManagedDevice,
     PipelineJob,
     PublishedArtifact,
 )
@@ -80,7 +73,7 @@ async def test_issue1_unselected_builder_resolution(hass: HomeAssistant) -> None
         resolver = BuilderResolver(hass, session, saved_selection=None)
         with patch.object(resolver.discovery_adapter, "async_discover_all", return_value=[cand]):
             with patch.object(resolver, "_connect_and_probe", return_value=MagicMock()):
-                client = await resolver.async_resolve()
+                await resolver.async_resolve()
                 assert resolver.active_candidate is not None
                 assert resolver.active_candidate.slug == "5c53de3b_esphome"
                 assert resolver.active_candidate.port == 64285
@@ -211,7 +204,7 @@ async def test_issue5_connection_drop_unblocks_queues_and_resumes(
         publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_resume_test")
         runner = JobRunner(hass, storage, device_manager, publisher)
 
-        dev = await device_manager.async_register_or_update(
+        await device_manager.async_register_or_update(
             device_id="livingroom",
             configuration="livingroom.yaml",
             name="livingroom",
@@ -314,7 +307,7 @@ async def test_issue7_dynamic_update_entity_tracking(hass: HomeAssistant) -> Non
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_entity_test")
     monitor = InstallationMonitor(hass, device_manager, publisher)
 
-    dev = await device_manager.async_register_or_update(
+    await device_manager.async_register_or_update(
         device_id="livingroom",
         configuration="livingroom.yaml",
         name="livingroom",
@@ -346,7 +339,7 @@ async def test_issue8_auto_cleanup_scheduling_and_restore(hass: HomeAssistant) -
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_clean_test")
     monitor = InstallationMonitor(hass, device_manager, publisher, cleanup_hours=2)
 
-    dev = await device_manager.async_register_or_update(
+    await device_manager.async_register_or_update(
         device_id="livingroom",
         configuration="livingroom.yaml",
         name="livingroom",

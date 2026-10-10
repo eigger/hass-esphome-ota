@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -18,7 +17,7 @@ async def test_installation_state_change_tracking(hass: HomeAssistant) -> None:
     device_manager = DeviceManager(hass, storage)
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
 
-    dev = await device_manager.async_register_or_update(
+    await device_manager.async_register_or_update(
         device_id="livingroom",
         configuration="livingroom",
         name="livingroom",

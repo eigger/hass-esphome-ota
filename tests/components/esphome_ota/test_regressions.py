@@ -2,33 +2,18 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import struct
-import tempfile
 import unittest
 
 from custom_components.esphome_ota.config_patch import (
-    bump_patch_version,
     own_project_version,
 )
 from custom_components.esphome_ota.firmware import (
-    ESP_APP_DESC_MAGIC,
-    ESP_IMAGE_MAGIC,
-    _find_literal_build_time,
-    _find_project_version,
     _parse_build_datetime,
-    chip_family,
-    chip_family_from_binary,
-    inspect_binary,
-    parse_app_descriptor,
 )
 from custom_components.esphome_ota.packages import (
-    generate_device_wrapper_yaml,
     generate_inline_ota_yaml,
     project_name,
 )
-from custom_components.esphome_ota.publisher import ArtifactPublisher
 
 
 class TestBuildTimeRegressions(unittest.TestCase):

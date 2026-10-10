@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import io
 from unittest.mock import patch
 
 from aiohttp import FormData
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.esphome_ota.const import DOMAIN
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
 

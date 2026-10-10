@@ -320,7 +320,7 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
 
     # 2. Indentation of esphome_ota key must be exactly 4 spaces
     assert "    esphome_ota:\n" in patched
-    assert not any(re.match(r"^ {2}esphome_ota:", l) for l in patched.splitlines())
+    assert not any(re.match(r"^ {2}esphome_ota:", line) for line in patched.splitlines())
 
     # 3. Old substitutions must be replaced with new base_url and slug
     assert "http://new-ha.local:8123" in patched

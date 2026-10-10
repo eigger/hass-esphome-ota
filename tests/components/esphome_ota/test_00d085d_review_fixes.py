@@ -11,14 +11,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import io
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er, device_registry as dr
+from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.esphome_ota.builder.client import BuilderClient
@@ -34,7 +32,6 @@ from custom_components.esphome_ota.const import (
     STAGE_FAILED,
     STAGE_PUBLISHED,
     STAGE_RECOVERY_REQUIRED,
-    STAGE_SUBMITTING,
     STATUS_WAITING,
 )
 from custom_components.esphome_ota.devices import DeviceManager
@@ -43,7 +40,6 @@ from custom_components.esphome_ota.jobs import JobRunner
 from custom_components.esphome_ota.models import (
     BuilderCandidate,
     BuilderConnectionError,
-    BuilderError,
     BuilderSelection,
     PipelineJob,
 )
@@ -223,13 +219,13 @@ async def test_issue4_installation_monitor_exact_matching(
     device_manager = DeviceManager(hass, storage)
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_submatch_test")
 
-    dev_room = await device_manager.async_register_or_update(
+    await device_manager.async_register_or_update(
         device_id="room",
         configuration="room.yaml",
         name="room",
         friendly_name="Room",
     )
-    dev_bedroom = await device_manager.async_register_or_update(
+    await device_manager.async_register_or_update(
         device_id="bedroom",
         configuration="bedroom.yaml",
         name="bedroom",
@@ -288,7 +284,7 @@ async def test_issue5_compile_submission_disconnect_recovery(
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_rec_test")
     runner = JobRunner(hass, storage, device_manager, publisher)
 
-    dev = await device_manager.async_register_or_update(
+    await device_manager.async_register_or_update(
         device_id="livingroom",
         configuration="livingroom.yaml",
         name="livingroom",
@@ -430,7 +426,7 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
         event_callback=_on_event,
     )
 
-    dev = await device_manager.async_register_or_update(
+    await device_manager.async_register_or_update(
         device_id="livingroom",
         configuration="livingroom.yaml",
         name="livingroom",

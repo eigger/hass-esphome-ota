@@ -11,7 +11,6 @@ from homeassistant.core import HomeAssistant
 
 from .const import MAX_UPLOAD_SIZE
 from .firmware import BinaryValidationError, inspect_binary
-from .models import ManagedDevice
 
 _LOGGER = logging.getLogger(__name__)
 

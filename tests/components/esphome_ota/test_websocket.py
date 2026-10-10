@@ -29,7 +29,7 @@ async def test_websocket_api_commands(
 
         manager = hass.data[DOMAIN]["manager"]
         # Manually register a device for testing
-        dev = await manager.device_manager.async_register_or_update(
+        await manager.device_manager.async_register_or_update(
             device_id="livingroom",
             configuration="livingroom",
             name="livingroom",

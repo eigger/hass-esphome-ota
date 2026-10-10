@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
-import uuid
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import aiohttp
 from homeassistant.core import HomeAssistant
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 import yaml
 
 from custom_components.esphome_ota.builder.client import BuilderClient
 from custom_components.esphome_ota.builder.connection import BuilderConnection
-from custom_components.esphome_ota.config_patch import parse_yaml_safe
 from custom_components.esphome_ota.const import (
     STAGE_PUBLISHED,
     STATUS_READY,
@@ -23,9 +21,7 @@ from custom_components.esphome_ota.const import (
 from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.jobs import JobRunner
 from custom_components.esphome_ota.models import (
-    BinaryValidationError,
     BuilderError,
-    ConfigConflictError,
 )
 from custom_components.esphome_ota.packages import generate_inline_ota_yaml
 from custom_components.esphome_ota.publisher import ArtifactPublisher

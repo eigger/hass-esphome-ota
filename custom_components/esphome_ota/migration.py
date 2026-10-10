@@ -9,10 +9,9 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_LEGACY_WRAPPER
+from .const import DEFAULT_PUBLISH_DIR
 from .devices import DeviceManager
 from .firmware import inspect_binary
-from .models import ManagedDevice, PublishedArtifact
 from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
@@ -96,7 +95,7 @@ class MigrationManager:
                     blob = bin_path.read_bytes()
                     info = inspect_binary(blob=blob, reserved_version=version)
                     # Archive into private storage
-                    art = self.publisher._publish_sync(
+                    self.publisher._publish_sync(
                         device_id=node,
                         configuration=f"{node}.yaml",
                         slug=slug,
