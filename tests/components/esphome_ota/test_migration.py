@@ -190,14 +190,24 @@ def test_migration_frontend_components() -> None:
     assert "esphome_ota/migrate_preview" in mig_dialog_js
     assert "esphome_ota/migrate_execute" in mig_dialog_js
     assert "migration-completed" in mig_dialog_js
+    assert "if (res && res.success)" in mig_dialog_js
+    assert "failed_devices" in mig_dialog_js
+    assert "migration_failed_devices" in mig_dialog_js
+    assert "migration_partial_success" in mig_dialog_js
+    assert "migration_retry_btn" in mig_dialog_js
     assert "migration_importing" in mig_dialog_js
     assert "status-box error" in mig_dialog_js
+    assert "status-box warning" in mig_dialog_js
 
     assert "migration_banner_title" in i18n_js
     assert "migration_dialog_title" in i18n_js
+    assert "migration_retry_btn" in i18n_js
+    assert "migration_failed_devices" in i18n_js
+    assert "migration_partial_success" in i18n_js
     assert 'batch_build: "Build & Publish Selected"' in i18n_js
     assert "filter_managed" in i18n_js
     assert 'value="managed"' in manager_js
+    assert "if (e.detail?.success)" in manager_js
     assert "_filterDefaulted" in manager_js
     assert "_syncDefaultFilter" in manager_js
     assert "definePanelElement" in manager_js
