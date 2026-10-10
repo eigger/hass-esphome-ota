@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import DEFAULT_PUBLISH_DIR
 from .devices import DeviceManager
@@ -64,7 +65,12 @@ class MigrationManager:
 
     async def async_preview(self) -> dict[str, Any]:
         """Return preview of migratable data."""
-        return await self.hass.async_add_executor_job(self._inspect_legacy_data_sync)
+        data = await self.hass.async_add_executor_job(self._inspect_legacy_data_sync)
+        record = await self.storage.async_load_migration()
+        data["already_migrated"] = bool(record)
+        if record:
+            data["migrated_at"] = record.get("migrated_at")
+        return data
 
     def _execute_migration_sync(self) -> dict[str, Any]:
         """Migrate legacy devices and public files into modern storage format."""
@@ -144,6 +150,10 @@ class MigrationManager:
                 _LOGGER.warning("Failed registering migrated devices: %s", err)
 
         await self.storage.async_save_migration(
-            {"completed": True, "details": result}
+            {
+                "completed": True,
+                "migrated_at": dt_util.utcnow().isoformat(),
+                "details": result,
+            }
         )
         return result

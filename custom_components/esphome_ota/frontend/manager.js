@@ -5,6 +5,7 @@
 import { t } from "./i18n.js";
 import "./job-dialog.js";
 import "./device-dialog.js";
+import "./migration-dialog.js";
 
 const css = `
 :host {
@@ -81,6 +82,37 @@ h1 {
   background: #ffffff;
   color: #1e293b;
   font-size: 0.85rem;
+}
+
+.migration-banner {
+  margin: 16px 20px 0;
+  padding: 12px 16px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #1e40af;
+  font-size: 0.9rem;
+}
+.migration-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.migration-banner-icon {
+  font-size: 1.25rem;
+}
+.migration-banner-title {
+  font-weight: 600;
+  color: #1e3a8a;
+}
+.migration-banner-desc {
+  font-size: 0.8rem;
+  color: #3b82f6;
+  margin-top: 2px;
 }
 
 .header-actions {
@@ -254,6 +286,8 @@ class EsphomeOtaManager extends HTMLElement {
     this.selectedDevices = new Set();
     this._unsubEvents = null;
     this._domInitialized = false;
+    this._migrationPreview = null;
+    this._dismissedMigration = false;
   }
 
   set hass(value) {
@@ -297,6 +331,16 @@ class EsphomeOtaManager extends HTMLElement {
       }
     } catch (err) {
       console.debug("Initial status fetch error:", err);
+    }
+
+    try {
+      const mig = await this.hass.callWS({ type: "esphome_ota/migrate_preview" });
+      if (mig) {
+        this._migrationPreview = mig;
+        this._renderMigrationBanner();
+      }
+    } catch (err) {
+      console.debug("Migration preview fetch error:", err);
     }
   }
 
@@ -436,12 +480,14 @@ class EsphomeOtaManager extends HTMLElement {
           <span id="status-text"></span>
         </div>
         <div class="header-actions">
+          <button id="btn-migration">${escapeHtml(t(this.hass, "migration") || "Import")}</button>
           <button id="btn-reconnect">${escapeHtml(t(this.hass, "reconnect") || "Reconnect")}</button>
           <button class="primary" id="btn-batch">${escapeHtml(t(this.hass, "batch_build") || "Batch Build")}</button>
         </div>
       </header>
 
       <div id="selection-banner" class="selection-banner" style="display: none;"></div>
+      <div id="migration-banner" class="migration-banner" style="display: none;"></div>
 
       <div class="controls">
         <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
@@ -459,8 +505,12 @@ class EsphomeOtaManager extends HTMLElement {
 
       <esphome-ota-job-dialog></esphome-ota-job-dialog>
       <esphome-ota-device-dialog></esphome-ota-device-dialog>
+      <esphome-ota-migration-dialog></esphome-ota-migration-dialog>
     `;
 
+    this.shadowRoot.getElementById("btn-migration")?.addEventListener("click", () => {
+      this.shadowRoot.querySelector("esphome-ota-migration-dialog")?.open(this.hass);
+    });
     this.shadowRoot.getElementById("btn-reconnect")?.addEventListener("click", () => this.refresh());
     this.shadowRoot.getElementById("btn-batch")?.addEventListener("click", () => this.batchBuild());
 
@@ -482,6 +532,12 @@ class EsphomeOtaManager extends HTMLElement {
     });
     devDialog?.addEventListener("device-updated", () => {
       this.refresh();
+    });
+
+    const migDialog = this.shadowRoot.querySelector("esphome-ota-migration-dialog");
+    migDialog?.addEventListener("migration-completed", () => {
+      if (this._migrationPreview) this._migrationPreview.already_migrated = true;
+      this._renderMigrationBanner();
     });
 
     this._domInitialized = true;
@@ -532,10 +588,46 @@ class EsphomeOtaManager extends HTMLElement {
     }
   }
 
+  _renderMigrationBanner() {
+    const banner = this.shadowRoot.getElementById("migration-banner");
+    if (!banner) return;
+    const p = this._migrationPreview;
+    if (p && p.has_legacy_registry && p.device_count > 0 && !p.already_migrated && !this._dismissedMigration) {
+      banner.style.display = "flex";
+      const title = t(this.hass, "migration_banner_title");
+      const desc = t(this.hass, "migration_banner_desc");
+      const btnTxt = t(this.hass, "migration_btn_import");
+      banner.innerHTML = `
+        <div class="migration-banner-left">
+          <span class="migration-banner-icon">📦</span>
+          <div>
+            <div class="migration-banner-title">${escapeHtml(title)} (${p.device_count})</div>
+            <div class="migration-banner-desc">${escapeHtml(desc)}</div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="primary" id="btn-start-migration">${escapeHtml(btnTxt)}</button>
+          <button id="btn-dismiss-migration" style="padding: 4px 8px; border: none; background: transparent; cursor: pointer; font-size: 1.1rem; color: #64748b;">✕</button>
+        </div>
+      `;
+      this.shadowRoot.getElementById("btn-start-migration")?.addEventListener("click", () => {
+        this.shadowRoot.querySelector("esphome-ota-migration-dialog")?.open(this.hass);
+      });
+      this.shadowRoot.getElementById("btn-dismiss-migration")?.addEventListener("click", () => {
+        this._dismissedMigration = true;
+        this._renderMigrationBanner();
+      });
+    } else {
+      banner.style.display = "none";
+      banner.innerHTML = "";
+    }
+  }
+
   render() {
     this._initDom();
     this._updateStatusBadge();
     this._renderSelectionBanner();
+    this._renderMigrationBanner();
     this._renderDeviceList();
   }
 

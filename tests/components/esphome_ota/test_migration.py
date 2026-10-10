@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from homeassistant.core import HomeAssistant
@@ -12,6 +13,17 @@ from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.migration import MigrationManager
 from custom_components.esphome_ota.publisher import ArtifactPublisher
 from custom_components.esphome_ota.storage import StorageManager
+
+_FRONTEND_DIR = (
+    Path(__file__).parents[3] / "custom_components" / "esphome_ota" / "frontend"
+)
+
+
+def _i18n_keys(i18n_js: str, lang: str) -> set[str]:
+    """Extract translation keys for a language block from i18n.js source."""
+    match = re.search(rf"{lang}:\s*\{{(.*?)\n  \}},", i18n_js, re.DOTALL)
+    assert match is not None, f"Missing {lang} translation block"
+    return set(re.findall(r"^\s{4}(\w+):", match.group(1), re.MULTILINE))
 
 
 async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
@@ -60,6 +72,7 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     assert preview["device_count"] == 2
     assert "livingroom" in preview["devices"]
     assert preview["binary_count"] == 1
+    assert preview["already_migrated"] is False
 
     # 3. Execute
     res = await migrator.async_migrate()
@@ -67,6 +80,12 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     assert "livingroom" in res["migrated_devices"]
     assert "legacy_garage" in res["migrated_devices"]
     assert "livingroom" in res["migrated_artifacts"]
+
+    # Verify preview now reports already_migrated with a timestamp
+    preview_after = await migrator.async_preview()
+    assert preview_after["already_migrated"] is True
+    assert preview_after["migrated_at"]
+    assert "T" in preview_after["migrated_at"]
 
     # 4. Verify migrated devices loaded into DeviceManager
     dev_lr = device_manager.get_device("livingroom")
@@ -82,3 +101,37 @@ async def test_migration_preview_and_execution(hass: HomeAssistant) -> None:
     # 5. Idempotent re-run
     res2 = await migrator.async_migrate()
     assert res2["success"] is True
+
+
+def test_migration_frontend_components() -> None:
+    """Verify frontend manager.js and migration-dialog.js define migration UI elements."""
+    manager_js = (_FRONTEND_DIR / "manager.js").read_text(encoding="utf-8")
+    mig_dialog_js = (_FRONTEND_DIR / "migration-dialog.js").read_text(encoding="utf-8")
+    i18n_js = (_FRONTEND_DIR / "i18n.js").read_text(encoding="utf-8")
+
+    assert 'import "./migration-dialog.js";' in manager_js
+    assert 'id="btn-migration"' in manager_js
+    assert 'id="migration-banner"' in manager_js
+    assert "<esphome-ota-migration-dialog></esphome-ota-migration-dialog>" in manager_js
+
+    assert "esphome-ota-migration-dialog" in mig_dialog_js
+    assert "esphome_ota/migrate_preview" in mig_dialog_js
+    assert "esphome_ota/migrate_execute" in mig_dialog_js
+    assert "migration-completed" in mig_dialog_js
+    assert "migration_importing" in mig_dialog_js
+    assert "status-box error" in mig_dialog_js
+
+    assert "migration_banner_title" in i18n_js
+    assert "migration_dialog_title" in i18n_js
+    assert 'batch_build: "Build & Publish Selected"' in i18n_js
+
+
+def test_i18n_en_ko_key_parity() -> None:
+    """Ensure English and Korean translation key sets stay in sync."""
+    i18n_js = (_FRONTEND_DIR / "i18n.js").read_text(encoding="utf-8")
+    en_keys = _i18n_keys(i18n_js, "en")
+    ko_keys = _i18n_keys(i18n_js, "ko")
+    assert en_keys == ko_keys, (
+        f"en-only: {sorted(en_keys - ko_keys)}; ko-only: {sorted(ko_keys - en_keys)}"
+    )
+    assert "batch_build" in en_keys
