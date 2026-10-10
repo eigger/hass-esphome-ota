@@ -374,8 +374,19 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           <tr><td>Name</td><td>${escapeHtml(this.device.name)}</td></tr>
           <tr><td>Configuration</td><td>${escapeHtml(this.device.configuration)}</td></tr>
           <tr><td>Chip Family</td><td>${escapeHtml(this.device.chip_family)}</td></tr>
-          <tr><td>Token</td><td>${escapeHtml(this.device.token || "None (Legacy)")}</td></tr>
-          <tr><td>Public Slug</td><td>${escapeHtml(this.device.slug)}</td></tr>
+          <tr>
+            <td>Token</td>
+            <td>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="token-input" value="${escapeHtml(this.device.token || "")}" placeholder="None (Legacy)" style="flex: 1; min-width: 140px; font-family: monospace; font-size: 0.82rem; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--divider-color, #cbd5e1); background: var(--card-background-color, #ffffff); color: inherit;">
+                <button class="primary" id="btn-save-token" style="padding: 5px 12px; font-size: 0.8rem;">${escapeHtml(t(this.hass, "btn_save_token") || "Save")}</button>
+              </div>
+              <div style="font-size: 0.72rem; color: var(--secondary-text-color, #64748b); margin-top: 4px;">
+                ${escapeHtml(t(this.hass, "token_hint") || "URL obfuscation token. Leave blank for legacy plain device name.")}
+              </div>
+            </td>
+          </tr>
+          <tr><td>Public Slug</td><td id="token-slug-val"><code>${escapeHtml(this.device.slug)}</code></td></tr>
           <tr><td>Installed Version</td><td>${escapeHtml(this.device.last_installed_version || "Not detected")}</td></tr>
           <tr><td>Published Version</td><td>${escapeHtml(this.device.last_published_version || "None")}</td></tr>
           ${this.device.last_published_version ? `
@@ -468,6 +479,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-apply")?.addEventListener("click", () => this.applyDiff(false));
     this.shadowRoot.getElementById("btn-apply-build")?.addEventListener("click", () => this.applyDiff(true));
     this.shadowRoot.getElementById("btn-remove-ota")?.addEventListener("click", () => this.removeOta());
+    this.shadowRoot.getElementById("btn-save-token")?.addEventListener("click", () => this.saveToken());
     this.shadowRoot.querySelector(".btn-hide")?.addEventListener("click", () => this.hideBinary());
     this.shadowRoot.querySelector(".btn-republish")?.addEventListener("click", () => this.republishBinary());
     this.shadowRoot.getElementById("btn-upload")?.addEventListener("click", () => {
@@ -476,6 +488,39 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         this.uploadFirmware(fileInput.files[0]);
       }
     });
+  }
+
+  async saveToken() {
+    const input = this.shadowRoot.getElementById("token-input");
+    if (!input || !this.device) return;
+    const newToken = input.value.trim();
+    const btn = this.shadowRoot.getElementById("btn-save-token");
+    if (btn) btn.disabled = true;
+    try {
+      const res = await this.hass.callWS({
+        type: "esphome_ota/set_token",
+        device_id: this.device.device_id,
+        token: newToken,
+      });
+      if (res?.success) {
+        this.device.token = res.token;
+        this.device.slug = res.slug;
+        const slugEl = this.shadowRoot.getElementById("token-slug-val");
+        if (slugEl) slugEl.innerHTML = `<code>${escapeHtml(res.slug)}</code>`;
+        this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
+        this.dispatchEvent(
+          new CustomEvent("hass-notification", {
+            detail: { message: t(this.hass, "token_updated") || "Token updated successfully." },
+            bubbles: true,
+            composed: true,
+          })
+        );
+      }
+    } catch (err) {
+      alert(`Token update failed: ${err.message || err}`);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 }
 

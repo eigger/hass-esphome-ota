@@ -11,6 +11,7 @@ from custom_components.esphome_ota.config_patch import (
     own_project_version,
     parse_yaml_safe,
     remove_ota_patch,
+    set_package_ota_slug,
     set_project_version,
     strip_legacy_ota_packages,
 )
@@ -436,3 +437,25 @@ sensor: !include bme280.yaml
 
     # And after patching, ownership is clarified (not unclear)
     assert has_unclear_project_ownership(diff_res.modified) is False
+
+
+def test_set_package_ota_slug() -> None:
+    """Test updating ota_slug in YAML text."""
+    yaml_text = """esphome:
+  name: livingroom
+
+packages:
+  esphome_ota:
+    substitutions:
+      ota_base_url: "https://ha.local:8123"
+      ota_slug: "livingroom_old123"
+"""
+    updated, changed = set_package_ota_slug(yaml_text, "livingroom_new456")
+    assert changed is True
+    assert 'ota_slug: "livingroom_new456"' in updated
+    assert "livingroom_old123" not in updated
+
+    # Idempotent
+    updated2, changed2 = set_package_ota_slug(updated, "livingroom_new456")
+    assert changed2 is False
+    assert updated2 == updated

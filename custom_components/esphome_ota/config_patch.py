@@ -779,6 +779,44 @@ def set_project_version(content: str, new_version: str) -> tuple[str, bool]:
     return content, False
 
 
+def set_package_ota_slug(content: str, new_slug: str) -> tuple[str, bool]:
+    """Update ota_slug in YAML text (inside packages.esphome_ota.substitutions or general substitutions).
+
+    Returns (new_content, changed).
+    """
+    new_slug = str(new_slug).strip()
+    lines = content.splitlines(keepends=True)
+    changed = False
+
+    for idx, line in enumerate(lines):
+        line_code = _strip_yaml_comment(line)
+        match = re.match(r"^([ \t]*)ota_slug\s*:\s*(.*)", line_code)
+        if match:
+            indent = match.group(1)
+            raw_val = match.group(2).strip()
+            if (raw_val.startswith('"') and raw_val.endswith('"')) or (
+                raw_val.startswith("'") and raw_val.endswith("'")
+            ):
+                current_slug = raw_val[1:-1]
+            else:
+                current_slug = raw_val
+
+            if current_slug != new_slug:
+                nl = "\n"
+                if line.endswith("\r\n"):
+                    nl = "\r\n"
+                elif line.endswith("\n"):
+                    nl = "\n"
+                else:
+                    nl = ""
+                lines[idx] = f'{indent}ota_slug: "{new_slug}"{nl}'
+                changed = True
+
+    if changed:
+        return "".join(lines), True
+    return content, False
+
+
 def ensure_project_version(
     content: str,
     new_version: str,

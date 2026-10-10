@@ -44,7 +44,7 @@ async def test_websocket_api_commands(
         assert msg["success"] is True
         assert "status" in msg["result"]
         assert msg["result"]["base_url"] == "https://my-ha.duckdns.org"
-        assert msg["result"]["version"] == "1.0.5"
+        assert msg["result"]["version"] == "1.0.6"
 
         # 2. devices
         await ws.send_json({"id": 2, "type": "esphome_ota/devices"})
@@ -86,6 +86,20 @@ async def test_websocket_api_commands(
         )
         msg = await ws.receive_json()
         assert msg["success"] is True
+
+        # 7. set_token
+        await ws.send_json(
+            {"id": 7, "type": "esphome_ota/set_token", "device_id": "livingroom", "token": "custom_tok_123"}
+        )
+        msg = await ws.receive_json()
+        while msg.get("type") == "event":
+            msg = await ws.receive_json()
+        assert msg["success"] is True
+        assert msg["result"]["token"] == "custom_tok_123"
+        assert msg["result"]["slug"] == "livingroom_custom_tok_123"
+        dev = manager.device_manager.get_device("livingroom")
+        assert dev.token == "custom_tok_123"
+        assert dev.slug == "livingroom_custom_tok_123"
 
         await ws.close()
 
