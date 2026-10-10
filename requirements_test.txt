@@ -1,0 +1,3 @@
+# Test environment, pinned so CI is reproducible.
+pytest-homeassistant-custom-component==0.13.366
+pytest-timeout==2.4.0

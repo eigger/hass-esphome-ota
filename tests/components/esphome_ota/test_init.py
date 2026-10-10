@@ -7,7 +7,7 @@ from unittest.mock import patch
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.esphome_ota.const import DOMAIN, PANEL_NAME
+from custom_components.esphome_ota.const import DOMAIN
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
 

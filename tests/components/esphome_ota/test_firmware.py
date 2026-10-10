@@ -8,12 +8,9 @@ import pytest
 from custom_components.esphome_ota.firmware import (
     ESP_APP_DESC_MAGIC,
     ESP_IMAGE_MAGIC,
-    _find_literal_build_time,
-    _find_project_version,
     _parse_build_datetime,
     chip_family,
     chip_family_from_binary,
-    chip_id_from_binary,
     inspect_binary,
     parse_app_descriptor,
 )

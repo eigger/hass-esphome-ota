@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import aiohttp
 from homeassistant.core import HomeAssistant
@@ -12,7 +11,6 @@ from ..const import (
     STATUS_CONNECTING,
     STATUS_DISCOVERING,
     STATUS_READY,
-    STATUS_RECONNECTING,
     STATUS_SELECTION_REQUIRED,
     STATUS_UNSUPPORTED,
     STATUS_WAITING,
@@ -25,7 +23,7 @@ from ..models import (
 )
 from .client import BuilderClient
 from .connection import BuilderConnection
-from .ha_discovery import HaDiscoveryAdapter, KNOWN_ESPHOME_SLUGS
+from .ha_discovery import HaDiscoveryAdapter
 
 _LOGGER = logging.getLogger(__name__)
 

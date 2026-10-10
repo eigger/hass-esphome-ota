@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from custom_components.esphome_ota.config_patch import (
     apply_ota_patch,

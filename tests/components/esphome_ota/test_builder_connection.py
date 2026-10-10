@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, patch
 
 import aiohttp
 import pytest
@@ -16,7 +14,6 @@ from custom_components.esphome_ota.models import (
     BuilderAuthError,
     BuilderConnectionError,
     BuilderError,
-    BuilderTimeoutError,
 )
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
