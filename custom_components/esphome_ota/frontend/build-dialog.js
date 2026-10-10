@@ -143,10 +143,19 @@ button {
   border: 1px solid var(--divider-color, #d1d5db);
   background: var(--card-background-color, #ffffff);
   color: var(--primary-text-color, #1f2937);
+  transition: all 0.15s ease-in-out;
+}
+button:hover:not(:disabled) {
+  background: var(--secondary-background-color, #f1f5f9);
+  border-color: var(--divider-color, #9ca3af);
 }
 button.primary {
   background: var(--primary-color, #0284c7);
   color: #ffffff;
+  border-color: var(--primary-color, #0284c7);
+}
+button.primary:hover:not(:disabled) {
+  opacity: 0.92;
   border-color: var(--primary-color, #0284c7);
 }
 button:disabled {
@@ -159,6 +168,12 @@ button:disabled {
   font-size: 1.2rem;
   padding: 4px 8px;
   border-radius: 6px;
+  color: var(--secondary-text-color, #6b7280);
+  transition: all 0.15s ease-in-out;
+}
+.btn-close:hover {
+  background: var(--secondary-background-color, #f1f5f9);
+  color: var(--primary-text-color, #1f2937);
 }
 `;
 
@@ -316,7 +331,9 @@ class EsphomeOtaBuildDialog extends HTMLElement {
         <div class="modal">
           <div class="header">
             <h2>${escapeHtml(t(this.hass, "build_confirm_title"))}</h2>
-            <button class="btn-close" id="btn-close">✕</button>
+            <button class="btn-close" id="btn-close" aria-label="Close">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
           <div class="body">
             <div>

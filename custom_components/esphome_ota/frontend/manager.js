@@ -87,19 +87,46 @@ h1 {
 .status-error .status-dot, .status-unsupported .status-dot { background: #ef4444; }
 .status-error, .status-unsupported { color: #991b1b; background: #fee2e2; }
 
-.selection-banner {
-  flex: 0 0 auto;
-  margin: 16px 20px 0;
+.bottom-notifications {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 40px);
+  max-width: 680px;
+  z-index: 990;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.selection-banner,
+.migration-banner {
+  pointer-events: auto;
   padding: 12px 16px;
-  background: #fff7ed;
-  border: 1px solid #fdba74;
-  border-radius: 8px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #9a3412;
   font-size: 0.9rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.12), 0 4px 6px -4px rgba(0, 0, 0, 0.08);
+  animation: bannerSlideUp 0.2s ease-out;
+}
+@keyframes bannerSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.selection-banner {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
 }
 .selection-banner select {
   padding: 6px 12px;
@@ -109,20 +136,10 @@ h1 {
   color: #1e293b;
   font-size: 0.85rem;
 }
-
 .migration-banner {
-  flex: 0 0 auto;
-  margin: 16px 20px 0;
-  padding: 12px 16px;
   background: #eff6ff;
   border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   color: #1e40af;
-  font-size: 0.9rem;
 }
 .migration-banner-left {
   display: flex;
@@ -188,23 +205,52 @@ button.danger:hover {
   gap: 12px;
   align-items: center;
 }
+.controls input[type="search"],
+.controls select {
+  height: 40px;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.875rem;
+  border-radius: 8px;
+  border: 1px solid var(--divider-color, #cbd5e1);
+  background: var(--card-background-color, #ffffff);
+  color: inherit;
+  line-height: normal;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+.controls input[type="search"]:focus,
+.controls select:focus {
+  outline: none;
+  border-color: var(--primary-color, #0284c7);
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
 .controls input[type="search"] {
   flex: 1;
   min-width: 220px;
-  padding: 8px 14px;
-  font-size: 0.875rem;
-  border-radius: 8px;
-  border: 1px solid var(--divider-color, #cbd5e1);
-  background: var(--card-background-color, #ffffff);
-  color: inherit;
+  padding: 0 14px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.controls input[type="search"]::-webkit-search-decoration,
+.controls input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
 }
 .controls select {
-  padding: 8px 12px;
-  font-size: 0.875rem;
-  border-radius: 8px;
-  border: 1px solid var(--divider-color, #cbd5e1);
-  background: var(--card-background-color, #ffffff);
-  color: inherit;
+  flex: none;
+  min-width: 12rem;
+  max-width: 100%;
+  padding: 0 32px 0 12px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.controls select::-ms-expand {
+  display: none;
 }
 
 .content {
@@ -314,15 +360,26 @@ button.danger:hover {
 .status-dot-sm.neutral { background: #94a3b8; }
 
 .card-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin-top: auto;
 }
 .card-actions button {
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
+  height: 36px;
+  padding: 0 6px;
+  font-size: 0.8rem;
   justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+.card-actions button:only-child {
+  grid-column: 1 / -1;
 }
 .empty-state {
   text-align: center;
@@ -343,6 +400,14 @@ button.danger:hover {
   }
   .controls {
     padding: 12px 12px 6px;
+    gap: 8px;
+  }
+  .controls input[type="search"] {
+    min-width: 100%;
+  }
+  .controls select {
+    width: 100%;
+    min-width: 0;
   }
   .content {
     padding: 8px 12px 20px;
@@ -573,7 +638,7 @@ class EsphomeOtaManager extends HTMLElement {
 
   async batchBuild() {
     if (this.selectedDevices.size === 0) {
-      alert("Please select at least one device.");
+      this.showToast("Please select at least one device.");
       return;
     }
     try {
@@ -581,11 +646,11 @@ class EsphomeOtaManager extends HTMLElement {
         type: "esphome_ota/batch_build",
         device_ids: Array.from(this.selectedDevices),
       });
-      alert(`Batch build queued for ${this.selectedDevices.size} devices.`);
+      this.showToast(`Batch build queued for ${this.selectedDevices.size} devices.`);
       this.selectedDevices.clear();
       this.render();
     } catch (err) {
-      alert(`Batch build error: ${err.message || err}`);
+      this.showToast(`Batch build error: ${err.message || err}`);
     }
   }
 
@@ -620,9 +685,6 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
       </header>
 
-      <div id="selection-banner" class="selection-banner" style="display: none;"></div>
-      <div id="migration-banner" class="migration-banner" style="display: none;"></div>
-
       <div class="controls">
         <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
         <select id="filter">
@@ -637,6 +699,11 @@ class EsphomeOtaManager extends HTMLElement {
       </div>
 
       <div class="content" id="content-container"></div>
+
+      <div class="bottom-notifications">
+        <div id="selection-banner" class="selection-banner" style="display: none;"></div>
+        <div id="migration-banner" class="migration-banner" style="display: none;"></div>
+      </div>
 
       <esphome-ota-job-dialog></esphome-ota-job-dialog>
       <esphome-ota-device-dialog></esphome-ota-device-dialog>
@@ -722,7 +789,7 @@ class EsphomeOtaManager extends HTMLElement {
             });
             await this.refresh();
           } catch (err) {
-            alert(`Failed to select builder: ${err.message || err}`);
+            this.showToast(`Failed to select builder: ${err.message || err}`);
           }
         }
       });
@@ -743,7 +810,9 @@ class EsphomeOtaManager extends HTMLElement {
       const btnTxt = t(this.hass, "migration_btn_import");
       banner.innerHTML = `
         <div class="migration-banner-left">
-          <span class="migration-banner-icon">📦</span>
+          <span class="migration-banner-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+          </span>
           <div>
             <div class="migration-banner-title">${escapeHtml(title)} (${p.device_count})</div>
             <div class="migration-banner-desc">${escapeHtml(desc)}</div>
@@ -751,7 +820,9 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
           <button class="primary" id="btn-start-migration">${escapeHtml(btnTxt)}</button>
-          <button id="btn-dismiss-migration" style="padding: 4px 8px; border: none; background: transparent; cursor: pointer; font-size: 1.1rem; color: #64748b;">✕</button>
+          <button id="btn-dismiss-migration" style="padding: 4px 6px; border: none; background: transparent; cursor: pointer; color: #64748b; display: inline-flex; align-items: center; justify-content: center;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
         </div>
       `;
       this.shadowRoot.getElementById("btn-start-migration")?.addEventListener("click", () => {
@@ -976,7 +1047,7 @@ class EsphomeOtaManager extends HTMLElement {
       this._renderDeviceList();
       this.showToast(t(this.hass, "hide_success"));
     } catch (err) {
-      alert(`Hide error: ${err.message || err}`);
+      this.showToast(`Hide error: ${err.message || err}`);
     }
   }
 
@@ -990,7 +1061,7 @@ class EsphomeOtaManager extends HTMLElement {
       this._renderDeviceList();
       this.showToast(t(this.hass, "republish_success"));
     } catch (err) {
-      alert(`Republish error: ${err.message || err}`);
+      this.showToast(`Republish error: ${err.message || err}`);
     }
   }
 
@@ -1022,7 +1093,7 @@ class EsphomeOtaManager extends HTMLElement {
       }
       this._renderDeviceList();
     } catch (err) {
-      alert(`Remove OTA error: ${err.message || err}`);
+      this.showToast(`Remove OTA error: ${err.message || err}`);
     }
   }
 

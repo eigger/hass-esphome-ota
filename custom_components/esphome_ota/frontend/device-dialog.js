@@ -47,25 +47,51 @@ const css = `
   font-size: 1.15rem;
   font-weight: 600;
 }
-.tabs {
-  display: flex;
-  background: var(--secondary-background-color, #f9fafb);
+.tabs-container {
+  padding: 12px 20px 10px;
+  background: var(--card-background-color, #ffffff);
   border-bottom: 1px solid var(--divider-color, #e5e7eb);
+  display: flex;
+}
+.tabs {
+  display: inline-flex;
+  background: var(--secondary-background-color, #f1f5f9);
+  padding: 4px;
+  border-radius: 10px;
+  gap: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
 }
 .tab {
-  padding: 10px 18px;
-  font-size: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 15px;
+  font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
   background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--secondary-text-color, #6b7280);
+  border: none;
+  color: var(--secondary-text-color, #64748b);
+  border-radius: 7px;
+  transition: all 0.16s ease-in-out;
+  user-select: none;
+  line-height: 1;
+}
+.tab:hover:not(.active) {
+  color: var(--primary-text-color, #0f172a);
+  background: rgba(255, 255, 255, 0.65);
 }
 .tab.active {
   color: var(--primary-color, #0284c7);
-  border-bottom-color: var(--primary-color, #0284c7);
+  font-weight: 600;
   background: var(--card-background-color, #ffffff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.tab svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke: currentColor;
 }
 .body {
   padding: 18px 20px;
@@ -152,6 +178,20 @@ const css = `
   border-top: 1px solid var(--divider-color, #e5e7eb);
   background: var(--card-background-color, #ffffff);
 }
+#close-x {
+  background: transparent;
+  border: none;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--secondary-text-color, #6b7280);
+  transition: all 0.15s ease-in-out;
+}
+#close-x:hover {
+  background: var(--secondary-background-color, #f1f5f9);
+  color: var(--primary-text-color, #1f2937);
+}
 button {
   padding: 8px 16px;
   border-radius: 8px;
@@ -161,10 +201,19 @@ button {
   border: 1px solid var(--divider-color, #d1d5db);
   background: var(--card-background-color, #ffffff);
   color: var(--primary-text-color, #1f2937);
+  transition: all 0.15s ease-in-out;
+}
+button:hover {
+  background: var(--secondary-background-color, #f1f5f9);
+  border-color: var(--divider-color, #9ca3af);
 }
 button.primary {
   background: var(--primary-color, #0284c7);
   color: #ffffff;
+  border-color: var(--primary-color, #0284c7);
+}
+button.primary:hover {
+  opacity: 0.92;
   border-color: var(--primary-color, #0284c7);
 }
 button.danger {
@@ -174,6 +223,12 @@ button.danger {
 }
 button.danger:hover {
   background: #fef2f2;
+  border-color: #f87171;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 `;
 
@@ -425,12 +480,25 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         <div class="modal">
           <div class="header">
             <h2>${escapeHtml(this.device.friendly_name || this.device.name)}</h2>
-            <button id="close-x">✕</button>
+            <button id="close-x" aria-label="Close">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
-          <div class="tabs">
-            <button class="tab ${this.currentTab === "diff" ? "active" : ""}" data-tab="diff">${escapeHtml(t(this.hass, "btn_prepare"))}</button>
-            <button class="tab ${this.currentTab === "info" ? "active" : ""}" data-tab="info">Device Info</button>
-            <button class="tab ${this.currentTab === "upload" ? "active" : ""}" data-tab="upload">Manual Upload</button>
+          <div class="tabs-container">
+            <div class="tabs">
+              <button class="tab ${this.currentTab === "diff" ? "active" : ""}" data-tab="diff">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                <span>${escapeHtml(t(this.hass, "tab_diff") || "OTA Diff")}</span>
+              </button>
+              <button class="tab ${this.currentTab === "info" ? "active" : ""}" data-tab="info">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                <span>${escapeHtml(t(this.hass, "tab_info") || "Device Info")}</span>
+              </button>
+              <button class="tab ${this.currentTab === "upload" ? "active" : ""}" data-tab="upload">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <span>${escapeHtml(t(this.hass, "tab_upload") || "Manual Upload")}</span>
+              </button>
+            </div>
           </div>
           <div class="body">
             ${this.statusMessage ? `<div class="notice">${escapeHtml(this.statusMessage)}</div>` : ""}
@@ -468,11 +536,14 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     });
 
     this.shadowRoot.querySelectorAll(".tab").forEach((tabBtn) => {
-      tabBtn.addEventListener("click", (e) => {
-        this.currentTab = e.target.getAttribute("data-tab");
-        this.statusMessage = "";
-        this.render();
-        if (this.currentTab === "diff") this.loadDiff();
+      tabBtn.addEventListener("click", () => {
+        const tab = tabBtn.getAttribute("data-tab");
+        if (tab && tab !== this.currentTab) {
+          this.currentTab = tab;
+          this.statusMessage = "";
+          this.render();
+          if (this.currentTab === "diff") this.loadDiff();
+        }
       });
     });
 
@@ -517,7 +588,13 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         );
       }
     } catch (err) {
-      alert(`Token update failed: ${err.message || err}`);
+      this.dispatchEvent(
+        new CustomEvent("hass-notification", {
+          detail: { message: `Token update failed: ${err.message || err}` },
+          bubbles: true,
+          composed: true,
+        })
+      );
     } finally {
       if (btn) btn.disabled = false;
     }
