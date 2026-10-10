@@ -7,6 +7,7 @@ import { definePanelElement } from "./elements.js";
 import "./job-dialog.js";
 import "./device-dialog.js";
 import "./migration-dialog.js";
+import "./build-dialog.js";
 
 const css = `
 :host {
@@ -433,28 +434,19 @@ class EsphomeOtaManager extends HTMLElement {
       this.openJobDialog(activeJob);
       return;
     }
+    this.shadowRoot.querySelector("esphome-ota-build-dialog")?.open(device, this.hass);
+  }
 
-    try {
-      const res = await this.hass.callWS({
-        type: "esphome_ota/build",
-        device_id: device.device_id,
-      });
-      const job = {
-        job_id: res.job_id,
-        device_id: device.device_id,
-        configuration: device.configuration,
-        stage: "submitting",
-        log_tail: [],
-      };
-      this.openJobDialog(job);
-    } catch (err) {
-      const fallbackJob = this._getActiveJob(device.device_id);
-      if (fallbackJob) {
-        this.openJobDialog(fallbackJob);
-        return;
-      }
-      alert(`Build error: ${err.message || err}`);
-    }
+  openBuildStarted(detail) {
+    const job = {
+      job_id: detail.job_id,
+      device_id: detail.device?.device_id,
+      configuration: detail.device?.configuration,
+      stage: "preparing",
+      reserved_version: detail.target_version,
+      log_tail: [],
+    };
+    this.openJobDialog(job);
   }
 
   async batchBuild() {
@@ -524,6 +516,7 @@ class EsphomeOtaManager extends HTMLElement {
       <esphome-ota-job-dialog></esphome-ota-job-dialog>
       <esphome-ota-device-dialog></esphome-ota-device-dialog>
       <esphome-ota-migration-dialog></esphome-ota-migration-dialog>
+      <esphome-ota-build-dialog></esphome-ota-build-dialog>
     `;
 
     this.shadowRoot.getElementById("btn-migration")?.addEventListener("click", () => {
@@ -557,6 +550,11 @@ class EsphomeOtaManager extends HTMLElement {
     migDialog?.addEventListener("migration-completed", () => {
       if (this._migrationPreview) this._migrationPreview.already_migrated = true;
       this._renderMigrationBanner();
+    });
+
+    const buildDialog = this.shadowRoot.querySelector("esphome-ota-build-dialog");
+    buildDialog?.addEventListener("build-started", (e) => {
+      if (e.detail) this.openBuildStarted(e.detail);
     });
 
     this._domInitialized = true;

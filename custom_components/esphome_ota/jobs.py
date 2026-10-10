@@ -152,6 +152,7 @@ class JobRunner:
         client: BuilderClient,
         base_url: str,
         request_id: str | None = None,
+        target_version: str | None = None,
     ) -> str:
         """Start an asynchronous compile-download-verify-publish pipeline.
 
@@ -178,12 +179,15 @@ class JobRunner:
         self._in_flight_requests.add(device_req_key)
 
         # Version allocation (provisional; re-evaluated under device lock)
-        if device.own_project_version:
-            target_version = device.own_project_version
+        override = (target_version or "").strip() or None
+        if override:
+            provisional_version = override
+        elif device.own_project_version:
+            provisional_version = device.own_project_version
         elif device.last_published_version:
-            target_version = bump_patch_version(device.last_published_version)
+            provisional_version = bump_patch_version(device.last_published_version)
         else:
-            target_version = device.managed_version or "1.0.0"
+            provisional_version = device.managed_version or "1.0.0"
 
         job = PipelineJob(
             job_id=job_id,
@@ -191,7 +195,8 @@ class JobRunner:
             configuration=device.configuration,
             request_id=req_id,
             stage=STAGE_PREPARING,
-            reserved_version=target_version,
+            reserved_version=provisional_version,
+            checkpoint={"version_override": override} if override else {},
         )
         self._active_jobs[job_id] = job
         await self.storage.async_save_jobs(self._active_jobs)
@@ -222,13 +227,17 @@ class JobRunner:
                 own_ver = own_project_version(current_yaml)
                 unclear = has_unclear_project_ownership(current_yaml)
 
-                # Re-evaluate version based on latest published version inside lock
+                # Re-evaluate version based on override or latest published version inside lock
+                version_override = job.checkpoint.get("version_override")
                 if not own_ver and not unclear:
-                    if device.last_published_version:
-                        target_version = bump_patch_version(device.last_published_version)
+                    if version_override:
+                        job.reserved_version = str(version_override).strip()
+                    elif device.last_published_version:
+                        job.reserved_version = bump_patch_version(
+                            device.last_published_version
+                        )
                     else:
-                        target_version = device.managed_version or "1.0.0"
-                    job.reserved_version = target_version
+                        job.reserved_version = device.managed_version or "1.0.0"
                     self._notify_job_update(job)
 
                 # Query builder for evaluated device version if available

@@ -177,9 +177,12 @@ def test_migration_frontend_components() -> None:
     i18n_js = (_FRONTEND_DIR / "i18n.js").read_text(encoding="utf-8")
 
     assert 'import "./migration-dialog.js";' in manager_js
+    assert 'import "./build-dialog.js";' in manager_js
     assert 'id="btn-migration"' in manager_js
     assert 'id="migration-banner"' in manager_js
     assert "<esphome-ota-migration-dialog></esphome-ota-migration-dialog>" in manager_js
+    assert "<esphome-ota-build-dialog></esphome-ota-build-dialog>" in manager_js
+    assert (_FRONTEND_DIR / "build-dialog.js").is_file()
 
     assert "esphome-ota-migration-dialog" in mig_dialog_js
     assert "esphome_ota/migrate_preview" in mig_dialog_js
@@ -196,7 +199,7 @@ def test_migration_frontend_components() -> None:
     assert "_filterDefaulted" in manager_js
     assert "_syncDefaultFilter" in manager_js
     assert "definePanelElement" in manager_js
-    assert ( _FRONTEND_DIR / "elements.js").is_file()
+    assert (_FRONTEND_DIR / "elements.js").is_file()
     assert "_getLatestJob" in manager_js
     assert "_getDeviceBadge" in manager_js
     assert "esphome_ota/remove_ota" in manager_js

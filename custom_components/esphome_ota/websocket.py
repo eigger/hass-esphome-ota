@@ -253,6 +253,7 @@ async def ws_apply_ota(
         vol.Required("type"): "esphome_ota/build",
         vol.Required("device_id"): str,
         vol.Optional("request_id"): str,
+        vol.Optional("target_version"): str,
     }
 )
 @websocket_api.async_response
@@ -265,11 +266,18 @@ async def ws_build(
     manager = _get_manager(hass)
     device_id = msg["device_id"]
     req_id = msg.get("request_id")
+    target_version = msg.get("target_version")
 
     client = manager.resolver.active_client
     if not client:
         connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
         return
+
+    if target_version is not None:
+        target_version = str(target_version).strip()
+        if not target_version:
+            connection.send_error(msg["id"], "invalid_version", "Target version cannot be empty")
+            return
 
     dev = manager.device_manager.get_device(device_id)
     if not dev:
@@ -292,6 +300,7 @@ async def ws_build(
             client=client,
             base_url=manager.base_url,
             request_id=req_id,
+            target_version=target_version,
         )
         connection.send_result(msg["id"], {"job_id": job_id})
     except Exception as err:  # noqa: BLE001
