@@ -9,15 +9,17 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
+import re
+
 from homeassistant.core import HomeAssistant
 
 from .builder.client import BuilderClient
 from .config_patch import (
     apply_ota_patch,
     bump_patch_version,
-    ensure_project_version,
     has_unclear_project_ownership,
     own_project_version,
+    set_project_version,
 )
 from .const import (
     MAX_LOG_TAIL_LINES,
@@ -37,7 +39,6 @@ from .const import (
 from .devices import DeviceManager
 from .firmware import inspect_binary
 from .models import (
-    BinaryValidationError,
     BuilderConnectionError,
     BuilderError,
     EsphomeOtaError,
@@ -49,6 +50,18 @@ from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# Mirrors legacy server.py _ANSI_RE: strip ANSI and CSI escape sequences from logs
+_ANSI_STRIP_RE = re.compile(r"(\x1b|\033|\\033)\[[0-?]*[ -/]*[@-~]")
+
+
+def _clean_log_line(line: str) -> str:
+    """Sanitize build output line by removing ANSI escape sequences and tofu characters."""
+    if not line:
+        return ""
+    cleaned = _ANSI_STRIP_RE.sub("", line)
+    cleaned = cleaned.replace("\ufffd", "").replace("\x1b", "")
+    return cleaned.rstrip("\r\n")
 
 
 def _parse_iso_or_timestamp(val: Any) -> float | None:
@@ -256,56 +269,42 @@ class JobRunner:
                     _LOGGER.debug("Could not query builder devices: %s", b_err)
 
                 if override:
-                    # Explicit UI version clarifies ownership by writing top-level
-                    # esphome.project.version (required when packages use !include).
-                    project_name = device.name if device.name else device.device_id
-                    updated_yaml, changed = ensure_project_version(
-                        current_yaml,
-                        override,
-                        project_name=f"esphome_ota.{project_name}",
-                    )
-                    if not changed:
-                        raise BuilderError(
-                            f"Cannot set project.version in {device.configuration} to '{override}'. "
-                            "Add a concrete esphome.project.version in YAML or remove unresolved includes."
+                    # If device YAML declares its own project version at top-level,
+                    # synchronize it so the ESPHome compiler uses the target version.
+                    if own_ver:
+                        synced_yaml, synced = set_project_version(
+                            current_yaml, override
                         )
-                    current_yaml = updated_yaml
-                    own_ver = own_project_version(current_yaml) or override
-                    unclear = has_unclear_project_ownership(current_yaml)
+                        if synced:
+                            current_yaml = synced_yaml
+                            device.own_project_version = override
                     job.reserved_version = override
-                    device.own_project_version = override
+                    target_patch_version = override
+                    device.managed_version = override
                     self._notify_job_update(job)
-
-                if unclear:
-                    raise BuilderError(
-                        f"Cannot build {device.configuration}: project ownership is ambiguous due to external configuration includes or unresolved substitutions. Manual review required."
-                    )
-
-                if not override and not own_ver:
-                    if device.last_published_version:
-                        job.reserved_version = bump_patch_version(
-                            device.last_published_version
-                        )
-                    else:
-                        job.reserved_version = device.managed_version or "1.0.0"
-                    self._notify_job_update(job)
-
-                if own_ver and not override:
-                    # User or external file owns the project version
+                elif own_ver:
                     if ("$" in own_ver or "{" in own_ver) and builder_version:
                         job.reserved_version = builder_version
                         device.own_project_version = builder_version
                     else:
                         job.reserved_version = own_ver
                         device.own_project_version = own_ver
-                    target_patch_version = None
-                elif own_ver and override:
-                    # Version already written to YAML; do not also inject managed project version
-                    target_patch_version = None
-                else:
-                    device.own_project_version = None
-                    device.managed_version = job.reserved_version
                     target_patch_version = job.reserved_version
+                else:
+                    if device.last_published_version:
+                        job.reserved_version = bump_patch_version(
+                            device.last_published_version
+                        )
+                    else:
+                        job.reserved_version = device.managed_version or "1.0.0"
+                    target_patch_version = job.reserved_version
+                    device.managed_version = job.reserved_version
+                    self._notify_job_update(job)
+
+                if unclear and not override and not own_ver:
+                    raise BuilderError(
+                        f"Cannot build {device.configuration}: project ownership is ambiguous due to external configuration includes or unresolved substitutions. Manual review required."
+                    )
 
                 diff_res = apply_ota_patch(
                     yaml_content=current_yaml,
@@ -362,10 +361,12 @@ class JobRunner:
                 await self._update_stage(job, STAGE_BUILDING)
 
                 def _append_log(line: str) -> None:
-                    job.log_tail.append(line)
-                    if len(job.log_tail) > MAX_LOG_TAIL_LINES:
-                        job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
-                    self._notify_job_update(job)
+                    cleaned = _clean_log_line(line)
+                    if cleaned:
+                        job.log_tail.append(cleaned)
+                        if len(job.log_tail) > MAX_LOG_TAIL_LINES:
+                            job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
+                        self._notify_job_update(job)
 
                 await client.wait_for_compile_completion(
                     configuration=device.configuration,
@@ -398,16 +399,29 @@ class JobRunner:
                     job.reserved_version
                     and ("$" in job.reserved_version or "{" in job.reserved_version)
                 )
-                if is_user_owned:
-                    job.reserved_version = info.authoritative_version
-                    device.own_project_version = info.authoritative_version
-                elif (
+
+                # Authoritative version handling (mirrors legacy server.py):
+                # When binary contains an authoritative version, trust it and publish it
+                # rather than aborting the entire build.
+                if (
                     job.reserved_version
                     and info.authoritative_version != job.reserved_version
                 ):
-                    raise BinaryValidationError(
-                        f"Compiled binary version '{info.authoritative_version}' does not match expected version '{job.reserved_version}'"
+                    _LOGGER.warning(
+                        "Compiled binary version '%s' differs from planned version '%s' for %s — publishing binary's authoritative version",
+                        info.authoritative_version,
+                        job.reserved_version,
+                        device.configuration,
                     )
+                    job.log_tail.append(
+                        f"⚠️ Compiled binary reports version '{info.authoritative_version}' (differed from planned '{job.reserved_version}') — "
+                        "publishing binary's authoritative value since device will report it after flashing"
+                    )
+
+                job.reserved_version = info.authoritative_version
+                if is_user_owned:
+                    device.own_project_version = info.authoritative_version
+                device.target_version = info.authoritative_version
                 job.binary_version = info.authoritative_version
                 job.chip_family = info.chip_family
                 device.chip_family = info.chip_family
@@ -682,10 +696,12 @@ class JobRunner:
                     await self._update_stage(job, STAGE_BUILDING)
 
                     def _append_log(line: str) -> None:
-                        job.log_tail.append(line)
-                        if len(job.log_tail) > MAX_LOG_TAIL_LINES:
-                            job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
-                        self._notify_job_update(job)
+                        cleaned = _clean_log_line(line)
+                        if cleaned:
+                            job.log_tail.append(cleaned)
+                            if len(job.log_tail) > MAX_LOG_TAIL_LINES:
+                                job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
+                            self._notify_job_update(job)
 
                     await client.wait_for_compile_completion(
                         configuration=device.configuration,
@@ -721,16 +737,26 @@ class JobRunner:
                     job.reserved_version
                     and ("$" in job.reserved_version or "{" in job.reserved_version)
                 )
-                if is_user_owned:
-                    job.reserved_version = info.authoritative_version
-                    device.own_project_version = info.authoritative_version
-                elif (
+
+                if (
                     job.reserved_version
                     and info.authoritative_version != job.reserved_version
                 ):
-                    raise BinaryValidationError(
-                        f"Compiled binary version '{info.authoritative_version}' does not match expected version '{job.reserved_version}'"
+                    _LOGGER.warning(
+                        "Compiled binary version '%s' differs from planned version '%s' for %s — publishing binary's authoritative version",
+                        info.authoritative_version,
+                        job.reserved_version,
+                        device.configuration,
                     )
+                    job.log_tail.append(
+                        f"⚠️ Compiled binary reports version '{info.authoritative_version}' (differed from planned '{job.reserved_version}') — "
+                        "publishing binary's authoritative value since device will report it after flashing"
+                    )
+
+                job.reserved_version = info.authoritative_version
+                if is_user_owned:
+                    device.own_project_version = info.authoritative_version
+                device.target_version = info.authoritative_version
 
                 job.binary_version = info.authoritative_version
                 job.chip_family = info.chip_family

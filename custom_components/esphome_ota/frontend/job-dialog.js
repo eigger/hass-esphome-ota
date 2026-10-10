@@ -82,7 +82,7 @@ const css = `
 .terminal {
   background: #0f172a;
   color: #cbd5e1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: ui-monospace, SFMono-Regular, "Pretendard", -apple-system, BlinkMacSystemFont, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.8rem;
   line-height: 1.45;
   padding: 14px;
@@ -90,7 +90,8 @@ const css = `
   height: 380px;
   overflow-y: auto;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .footer {
   padding: 14px 20px;
@@ -173,20 +174,28 @@ const ANSI_STYLES = {
 
 export function ansiToHtml(rawText) {
   if (!rawText) return "";
-  let safe = escapeHtml(rawText);
+
+  // Normalize literal escape representations (\033, \\033, \e, \ufffd) to \x1b
+  let text = String(rawText)
+    .replace(/\\033/g, "\x1b")
+    .replace(/\033/g, "\x1b")
+    .replace(/\\e/g, "\x1b")
+    .replace(/\ufffd/g, "\x1b");
+
+  let safe = escapeHtml(text);
 
   // Strip CSI escape sequences other than SGR (e.g. \x1b[K, \x1b[2K, cursor commands)
-  safe = safe.replace(/[\x1b\ufffd]\[[0-9;?]*[a-ln-zA-LN-Z]/g, "");
+  safe = safe.replace(/\x1b\[[0-9;?]*[a-ln-zA-LN-Z]/g, "");
 
   // Strip OSC escape sequences (\x1b] ... \x07 or \x1b\)
-  safe = safe.replace(/[\x1b\ufffd]\][^\x07\x1b]*(\x07|[\x1b\ufffd]\\)/g, "");
+  safe = safe.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "");
 
   // Strip other escape sequences
-  safe = safe.replace(/[\x1b\ufffd][@-Z\\-_]/g, "");
+  safe = safe.replace(/\x1b[@-Z\\-_]/g, "");
 
   // Parse SGR color/style sequences (\x1b[...m)
   let openSpan = false;
-  safe = safe.replace(/[\x1b\ufffd]\[([0-9;]*)m/g, (_match, codeStr) => {
+  safe = safe.replace(/\x1b\[([0-9;]*)m/g, (_match, codeStr) => {
     let result = "";
     if (openSpan) {
       result += "</span>";
@@ -217,8 +226,8 @@ export function ansiToHtml(rawText) {
     safe += "</span>";
   }
 
-  // Strip any leftover ESC / tofu characters and control characters
-  safe = safe.replace(/[\x1b\ufffd]/g, "");
+  // Strip any leftover ESC characters and non-printable control characters
+  safe = safe.replace(/\x1b/g, "");
   safe = safe.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "");
   return safe;
 }

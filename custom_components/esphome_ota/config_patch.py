@@ -535,22 +535,37 @@ def has_unclear_project_ownership(content: str) -> bool:
     )
 
 
+DATE_SEP_RE = re.compile(
+    r"^(20\d\d([-.])(0?[1-9]|1[0-2])\2(0?[1-9]|[12]\d|3[01]))(?:\.(\d+))?$"
+)
+DATE_COMPACT_RE = re.compile(
+    r"^(20\d\d(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01]))(?:\.(\d+))?$"
+)
+
+
 def bump_patch_version(version: str) -> str:
-    """Increment the patch component of a version string (e.g. 1.0.0 -> 1.0.1, v260901 rev.1 -> v260901 rev.2)."""
-    v = version.strip()
-    parts = v.split(".")
-    if len(parts) >= 3 and parts[-1].isdigit():
-        parts[-1] = str(int(parts[-1]) + 1)
-        return ".".join(parts)
-    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-        return f"{parts[0]}.{parts[1]}.1"
-    if len(parts) == 1 and parts[0].isdigit():
-        return f"{parts[0]}.0.1"
-    match = re.match(r"^(.*?)(\d+)$", v)
-    if match:
-        prefix, num = match.group(1), match.group(2)
-        return f"{prefix}{int(num) + 1}"
-    return f"{v}.1"
+    """Increment the last numeric run or append a sequence to date versions (mirrors legacy bump_version)."""
+    text = (version or "").strip().replace('"', "")
+    if not text:
+        return "1.0.0"
+    m = DATE_SEP_RE.match(text) or DATE_COMPACT_RE.match(text)
+    if m:
+        base = m.group(1)
+        seq = m.groups()[-1]
+        if seq is not None:
+            return f"{base}.{int(seq) + 1}"
+        return f"{base}.1"
+    dot_parts = text.split(".")
+    if len(dot_parts) == 1 and dot_parts[0].isdigit():
+        return f"{dot_parts[0]}.0.1"
+    if len(dot_parts) == 2 and dot_parts[0].isdigit() and dot_parts[1].isdigit():
+        return f"{dot_parts[0]}.{dot_parts[1]}.1"
+    parts = re.split(r"(\d+)", text)
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i].isdigit():
+            parts[i] = str(int(parts[i]) + 1)
+            return "".join(parts)
+    return f"{text}.1"
 
 
 def _format_yaml_scalar(value: str) -> str:
