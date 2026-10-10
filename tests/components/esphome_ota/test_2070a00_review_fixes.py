@@ -369,3 +369,112 @@ async def test_concurrent_job_runner_publish_preserves_both_devices(
     assert "dev1" in loaded and "dev2" in loaded
     assert loaded["dev1"].version == "1.0.0"
     assert loaded["dev2"].version == "2.0.0"
+
+
+async def test_cleanup_timer_during_concurrent_publish_does_not_delete_newer_firmware(
+    hass: HomeAssistant,
+) -> None:
+    """[P2] Test that an expiring cleanup timer does not delete newly published firmware."""
+    from custom_components.esphome_ota.devices import DeviceManager
+    from custom_components.esphome_ota.monitor import InstallationMonitor
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    await device_manager.async_register_or_update(
+        device_id="dev1",
+        configuration="dev1.yaml",
+        name="dev1",
+        friendly_name="Dev 1",
+    )
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_cleanup_race_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher, cleanup_hours=1)
+
+    # 1. Publish version 1.0.0
+    blob_v100 = _make_valid_esp32_bin("1.0.0")
+    info_v100 = inspect_binary(blob_v100, target_platform="esp32", reserved_version="1.0.0")
+    art1 = await publisher.async_publish("dev1", "dev1.yaml", "dev1_slug", blob_v100, info_v100)
+    await storage.async_save_artifact("dev1", art1)
+    monitor.schedule_cleanup("dev1", "dev1_slug", delay_seconds=0.05, artifact_id=art1.published_at)
+
+    bin_path = publisher.www_dir / "dev1_slug.ota.bin"
+    manifest_path = publisher.www_dir / "dev1_slug.json"
+    assert bin_path.exists()
+    assert manifest_path.exists()
+
+    # 2. Simulate 1.0.1 publish holding slug lock while 1.0.0 cleanup timer expires
+    blob_v101 = _make_valid_esp32_bin("1.0.1")
+    info_v101 = inspect_binary(blob_v101, target_platform="esp32", reserved_version="1.0.1")
+
+    slug_lock = publisher._get_slug_lock("dev1_slug")
+    async with slug_lock:
+        # Wait for the 1.0.0 timer to fire while slug_lock is held
+        await asyncio.sleep(0.08)
+        # The cleanup task was created and is waiting on slug_lock
+        assert "dev1" in monitor._cleanup_tasks
+
+        # Complete publish of 1.0.1 while holding lock
+        art2 = await hass.async_add_executor_job(
+            publisher._publish_sync,
+            "dev1",
+            "dev1.yaml",
+            "dev1_slug",
+            blob_v101,
+            info_v101,
+            "Dev 1",
+            "",
+            None,
+        )
+        await storage.async_save_artifact("dev1", art2)
+        # Reschedule cleanup for 1.0.1
+        monitor.schedule_cleanup("dev1", "dev1_slug", delay_seconds=3600, artifact_id=art2.published_at)
+
+    # Allow any pending tasks to execute
+    await asyncio.sleep(0.05)
+
+    # 3. Verify that 1.0.1 binary was NOT deleted by 1.0.0's cleanup task!
+    assert bin_path.exists()
+    assert manifest_path.exists()
+
+    import json
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_data["version"] == "1.0.1"
+
+    monitor.async_unload()
+
+
+async def test_cleanup_timer_normal_expiry_deactivates_matching_firmware(
+    hass: HomeAssistant,
+) -> None:
+    """[P2] Test that normal cleanup timer expiry deactivates matching binary."""
+    from custom_components.esphome_ota.devices import DeviceManager
+    from custom_components.esphome_ota.monitor import InstallationMonitor
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    await device_manager.async_register_or_update(
+        device_id="dev2",
+        configuration="dev2.yaml",
+        name="dev2",
+        friendly_name="Dev 2",
+    )
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_cleanup_normal_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher, cleanup_hours=1)
+
+    blob_v100 = _make_valid_esp32_bin("1.0.0")
+    info_v100 = inspect_binary(blob_v100, target_platform="esp32", reserved_version="1.0.0")
+    art1 = await publisher.async_publish("dev2", "dev2.yaml", "dev2_slug", blob_v100, info_v100)
+    monitor.schedule_cleanup("dev2", "dev2_slug", delay_seconds=0.05, artifact_id=art1.published_at)
+
+    bin_path = publisher.www_dir / "dev2_slug.ota.bin"
+    manifest_path = publisher.www_dir / "dev2_slug.json"
+    assert bin_path.exists()
+    assert manifest_path.exists()
+
+    # Wait for cleanup timer and task to run
+    await asyncio.sleep(0.1)
+
+    # Binary deactivated, manifest preserved
+    assert not bin_path.exists()
+    assert manifest_path.exists()
+
+    monitor.async_unload()

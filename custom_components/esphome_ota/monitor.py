@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import Any
 
 from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DEFAULT_AUTO_CLEANUP_HOURS
 from .devices import DeviceManager
-from .models import ManagedDevice
 from .publisher import ArtifactPublisher
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class InstallationMonitor:
         self._unsub_listeners: list[Callable[[], None]] = []
         self._monitored_entities: set[str] = set()
         self._cleanup_timers: dict[str, asyncio.TimerHandle] = {}
+        self._cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
 
     async def async_setup(self) -> None:
         """Discover matching Update entities, listen for new entities, and restore cleanup timers."""
@@ -64,10 +66,20 @@ class InstallationMonitor:
                     remaining = (self.cleanup_hours * 3600) - elapsed
                     dev = self.device_manager.get_device(art.device_id)
                     slug = dev.slug if dev else art.device_id
+                    self.publisher._active_artifacts[slug] = art.published_at
                     if remaining <= 0:
-                        self.hass.async_create_task(self.publisher.async_deactivate(slug))
+                        self.hass.async_create_task(
+                            self.publisher.async_deactivate(
+                                slug, expected_artifact_id=art.published_at
+                            )
+                        )
                     else:
-                        self.schedule_cleanup(art.device_id, slug, delay_seconds=remaining)
+                        self.schedule_cleanup(
+                            art.device_id,
+                            slug,
+                            delay_seconds=remaining,
+                            artifact_id=art.published_at,
+                        )
                 except Exception as ex:  # noqa: BLE001
                     _LOGGER.debug("Could not restore cleanup timer for %s: %s", art.device_id, ex)
 
@@ -180,42 +192,53 @@ class InstallationMonitor:
                 return
 
             # Check if device installed the published firmware
-            if dev.last_published_version and installed_version == dev.last_published_version:
-                if not in_progress:
-                    _LOGGER.info(
-                        "Installation verified for %s at version %s",
-                        device_id,
-                        installed_version,
+            if (
+                dev.last_published_version
+                and installed_version == dev.last_published_version
+                and not in_progress
+            ):
+                _LOGGER.info(
+                    "Installation verified for %s at version %s",
+                    device_id,
+                    installed_version,
+                )
+
+                async def _mark_and_notify() -> None:
+                    await self.device_manager.async_mark_installed(
+                        device_id, installed_version
                     )
-
-                    async def _mark_and_notify() -> None:
-                        await self.device_manager.async_mark_installed(
-                            device_id, installed_version
+                    if self.event_callback:
+                        self.event_callback(
+                            "devices_updated",
+                            {"devices": self.device_manager.list_all()},
                         )
-                        if self.event_callback:
-                            self.event_callback(
-                                "devices_updated",
-                                {"devices": self.device_manager.list_all()},
-                            )
-                            self.event_callback(
-                                "installation_verified",
-                                {
-                                    "device_id": device_id,
-                                    "version": installed_version,
-                                    "devices": self.device_manager.list_all(),
-                                },
-                            )
+                        self.event_callback(
+                            "installation_verified",
+                            {
+                                "device_id": device_id,
+                                "version": installed_version,
+                                "devices": self.device_manager.list_all(),
+                            },
+                        )
 
-                    self.hass.async_create_task(_mark_and_notify())
+                self.hass.async_create_task(_mark_and_notify())
 
         unsub = async_track_state_change_event(self.hass, [entity_id], _state_changed)
         self._unsub_listeners.append(unsub)
 
     def schedule_cleanup(
-        self, device_id: str, slug: str, delay_seconds: float | None = None
+        self,
+        device_id: str,
+        slug: str,
+        delay_seconds: float | None = None,
+        artifact_id: str | None = None,
     ) -> None:
         """Schedule automatic public binary deactivation after expiry period."""
         self.cancel_cleanup(device_id)
+
+        target_artifact_id = artifact_id
+        if target_artifact_id is None:
+            target_artifact_id = self.publisher.get_current_artifact_id(slug)
 
         if delay_seconds is None:
             delay = max(0.0, float(self.cleanup_hours * 3600))
@@ -224,8 +247,18 @@ class InstallationMonitor:
 
         @callback
         def _run_cleanup() -> None:
-            _LOGGER.info("Running automatic cleanup for %s (slug=%s)", device_id, slug)
-            self.hass.async_create_task(self.publisher.async_deactivate(slug))
+            _LOGGER.info(
+                "Running automatic cleanup for %s (slug=%s, target_artifact=%s)",
+                device_id,
+                slug,
+                target_artifact_id,
+            )
+            task = self.hass.async_create_task(
+                self.publisher.async_deactivate(
+                    slug, expected_artifact_id=target_artifact_id
+                )
+            )
+            self._cleanup_tasks[device_id] = task
 
         timer = self.hass.loop.call_later(delay, _run_cleanup)
         self._cleanup_timers[device_id] = timer
@@ -235,6 +268,9 @@ class InstallationMonitor:
         timer = self._cleanup_timers.pop(device_id, None)
         if timer:
             timer.cancel()
+        task = self._cleanup_tasks.pop(device_id, None)
+        if task and not task.done():
+            task.cancel()
 
     def async_unload(self) -> None:
         """Clean up all listeners and timers on unload."""
@@ -246,3 +282,8 @@ class InstallationMonitor:
         for timer in self._cleanup_timers.values():
             timer.cancel()
         self._cleanup_timers.clear()
+
+        for task in self._cleanup_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._cleanup_tasks.clear()

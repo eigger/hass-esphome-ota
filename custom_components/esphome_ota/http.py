@@ -85,7 +85,9 @@ class FirmwareUploadView(HomeAssistantView):
                 dev.device_id, published.version
             )
             if self.manager.monitor:
-                self.manager.monitor.schedule_cleanup(dev.device_id, dev.slug)
+                self.manager.monitor.schedule_cleanup(
+                    dev.device_id, dev.slug, artifact_id=published.published_at
+                )
             self.manager._dispatch_event(
                 "devices_updated",
                 {"devices": self.manager.device_manager.list_all()},

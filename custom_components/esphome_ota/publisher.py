@@ -10,6 +10,7 @@ import shutil
 import threading
 import uuid
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,11 @@ class ArtifactPublisher:
         self._slug_locks: dict[str, asyncio.Lock] = {}
         self._sync_slug_locks: dict[str, threading.Lock] = {}
         self._sync_locks_guard = threading.Lock()
+        self._active_artifacts: dict[str, str] = {}
+
+    def get_current_artifact_id(self, slug: str) -> str | None:
+        """Get currently recorded active publication identifier for slug."""
+        return self._active_artifacts.get(slug)
 
     def _get_slug_lock(self, slug: str) -> asyncio.Lock:
         """Get or create an asyncio.Lock for a specific slug."""
@@ -157,9 +163,11 @@ class ArtifactPublisher:
                 backup_files = [backup_bin, backup_md5, backup_manifest]
 
                 # Build ESP-Web-Tools manifest
+                published_at = datetime.now(timezone.utc).isoformat()
                 manifest: dict[str, Any] = {
                     "name": title or configuration,
                     "version": version,
+                    "published_at": published_at,
                     "builds": [
                         {
                             "chipFamily": chip_family,
@@ -203,6 +211,7 @@ class ArtifactPublisher:
 
                 # 6. Final atomic commit: replace manifest
                 os.replace(stage_manifest, public_manifest)
+                self._active_artifacts[slug] = published_at
             except Exception:
                 # Rollback: restore prior files if they existed, or unlink newly placed public files
                 if prior_bin_exists and backup_bin is not None and backup_bin.exists():
@@ -241,8 +250,6 @@ class ArtifactPublisher:
             len(blob),
         )
 
-        from datetime import datetime, timezone
-
         return PublishedArtifact(
             device_id=device_id,
             configuration=configuration,
@@ -251,7 +258,7 @@ class ArtifactPublisher:
             size=len(blob),
             md5=digest,
             sha256=sha256,
-            published_at=datetime.now(timezone.utc).isoformat(),
+            published_at=published_at,
             private_path=str(private_path),
             public_bin_path=str(public_bin),
             public_manifest_path=str(public_manifest),
@@ -306,11 +313,53 @@ class ArtifactPublisher:
                         except asyncio.CancelledError:
                             pass
 
-    def _deactivate_sync(self, slug: str) -> bool:
+    def _deactivate_sync(
+        self, slug: str, expected_artifact_id: str | None = None
+    ) -> bool:
         """Hide/remove public binary from /local while keeping manifest."""
         with self._get_sync_slug_lock(slug):
+            manifest_path = self.www_dir / f"{slug}.json"
+            if not manifest_path.exists():
+                manifest_path = self.www_dir / f"{slug}.ota.json"
             bin_path = self.www_dir / f"{slug}.ota.bin"
             md5_path = self.www_dir / f"{slug}.ota.bin.md5"
+
+            if expected_artifact_id is not None:
+                matches = False
+                current_pub_at = self._active_artifacts.get(slug)
+                if current_pub_at and current_pub_at == expected_artifact_id:
+                    matches = True
+                elif manifest_path.exists():
+                    try:
+                        manifest_data = json.loads(
+                            manifest_path.read_text(encoding="utf-8")
+                        )
+                        m_pub_at = manifest_data.get("published_at")
+                        m_version = manifest_data.get("version")
+                        builds = manifest_data.get("builds", [])
+                        m_md5 = (
+                            builds[0].get("ota", {}).get("md5") if builds else None
+                        )
+                        if (
+                            (m_pub_at and m_pub_at == expected_artifact_id)
+                            or (m_version and m_version == expected_artifact_id)
+                            or (m_md5 and m_md5 == expected_artifact_id)
+                        ):
+                            matches = True
+                    except (OSError, json.JSONDecodeError) as err:
+                        _LOGGER.warning(
+                            "Error reading manifest for %s during deactivation: %s",
+                            slug,
+                            err,
+                        )
+
+                if not matches:
+                    _LOGGER.info(
+                        "Skipping deactivation for %s: active publication does not match expected %s",
+                        slug,
+                        expected_artifact_id,
+                    )
+                    return False
 
             removed = False
             if bin_path.exists():
@@ -320,12 +369,19 @@ class ArtifactPublisher:
                 md5_path.unlink(missing_ok=True)
                 removed = True
 
+            if removed:
+                self._active_artifacts.pop(slug, None)
+
             return removed
 
-    async def async_deactivate(self, slug: str) -> bool:
+    async def async_deactivate(
+        self, slug: str, expected_artifact_id: str | None = None
+    ) -> bool:
         """Remove public binary from /local."""
         async with self._get_slug_lock(slug):
-            return await self.hass.async_add_executor_job(self._deactivate_sync, slug)
+            return await self.hass.async_add_executor_job(
+                self._deactivate_sync, slug, expected_artifact_id
+            )
 
     def _load_private_artifact_sync(self, private_path: str) -> bytes:
         """Load private binary bytes."""

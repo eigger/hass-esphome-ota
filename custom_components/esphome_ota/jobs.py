@@ -401,7 +401,9 @@ class JobRunner:
 
                 # Schedule automatic cleanup
                 if self.monitor:
-                    self.monitor.schedule_cleanup(device.device_id, device.slug)
+                    self.monitor.schedule_cleanup(
+                        device.device_id, device.slug, artifact_id=published.published_at
+                    )
 
                 # Emit devices_updated so UI device cards update immediately
                 if self.event_callback:
@@ -689,7 +691,9 @@ class JobRunner:
                 )
 
                 if self.monitor:
-                    self.monitor.schedule_cleanup(device.device_id, device.slug)
+                    self.monitor.schedule_cleanup(
+                        device.device_id, device.slug, artifact_id=published.published_at
+                    )
 
                 # Emit devices_updated so UI device cards update immediately
                 if self.event_callback:
@@ -773,7 +777,9 @@ class JobRunner:
         await self.device_manager.async_mark_published(device.device_id, published.version)
 
         if self.monitor:
-            self.monitor.schedule_cleanup(device.device_id, device.slug)
+            self.monitor.schedule_cleanup(
+                device.device_id, device.slug, artifact_id=published.published_at
+            )
 
         if self.event_callback:
             self.event_callback(

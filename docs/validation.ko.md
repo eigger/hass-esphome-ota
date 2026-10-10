@@ -32,7 +32,7 @@
 | **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_cf00be0_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_cf00be0_review_fixes.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
 | **c22c0a2 8차 리뷰 결함 3건 회귀 테스트** | [test_c22c0a2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_c22c0a2_review_fixes.py) | **통과 (100%)** | 새 빌드 취소 시 기존 정상 펌웨어 보존(P1), Auto-detect 옵션 정규화 및 단일 Builder 자동 연결 복원(P2), 패널 Builder 선택 영구 저장 및 재로드 유지(P2), MockBuilderServer 웹소켓 종료 타임아웃 해결 |
 | **3050dea 9차 리뷰 결함 2건 회귀 테스트** | [test_3050dea_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_3050dea_review_fixes.py) | **통과 (100%)** | 파일 교체 중 취소 시 이전 정상 펌웨어 복원(P1), Builder 변경 시 자동 재로드 억제 및 언로드 객체 재연결 방지(P2) |
-| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 시작 전 취소 시 즉시 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2), 다중 기기 동시 배포 시 원자적 아티팩트 저장 보장(P2) |
+| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 시작 전 취소 시 즉시 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2), 다중 기기 동시 배포 시 원자적 아티팩트 저장 보장(P2), 이전 버전 정리 타이머의 새 펌웨어 삭제 방지(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -258,6 +258,10 @@
    - `jobs.py:397` 등에서 여러 기기를 동시에 빌드·게시하거나 수동 업로드할 때, 각 작업이 `async_load_artifacts()`로 전체 이력을 읽은 후 기기 하나를 추가하여 `async_save_artifacts()`를 호출함으로써 마지막에 저장된 기기가 다른 기기의 저장 내역을 덮어쓰던 경쟁 상태 해결.
    - **저장소 계층 락 보호 단일 갱신 함수 도입**: `StorageManager`([storage.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/storage.py))에 `_artifact_lock: asyncio.Lock`을 추가하고, 단일 기기 갱신 전용 비동기 함수 `async_save_artifact(device_id, artifact)`를 신설하여 읽기-수정-쓰기 전 과정을 원자적으로 보호.
    - **빌드·복구·재게시·업로드 공통 적용**: `JobRunner`의 빌드 완료([jobs.py:397](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L397)), 복구 완료([jobs.py:688](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L688)), 프라이빗 재게시([jobs.py:776](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L776)), 수동 펌웨어 업로드([http.py:83](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/http.py#L83)) 전 영역에서 `async_save_artifact`를 호출하도록 통일하여 동시 배포 시에도 모든 기기의 배포 이력과 정리 타이머 복원 메타데이터가 완벽히 보존되도록 보장.
+4. **[P2] 이전 버전의 정리 타이머가 새로 게시한 펌웨어를 삭제하는 결함 해결**:
+   - `monitor.py:228`에서 새 펌웨어 게시 작업(`async_publish`) 진행 중 이전 버전의 정리 타이머가 만료되면, 삭제 작업(`async_deactivate`)이 게시 잠금(`_slug_locks`)을 대기. 새 게시가 완료되어 잠금이 풀리는 즉시 삭제 작업이 실행되어 방금 배포된 새 버전의 바이너리를 삭제하고 매니페스트만 남겨두던 경쟁 상태 해결.
+   - **정리 작업 대상 식별자 기록 및 작업 추적**: `InstallationMonitor`([monitor.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/monitor.py))의 `schedule_cleanup`에 `artifact_id` 매개변수를 추가하여 대상 게시물의 `published_at` 타임스탬프를 보존. 만료 시 생성되는 비동기 삭제 태스크를 `_cleanup_tasks`에 등록하여 새 게시 예약이나 `cancel_cleanup` 시 대기 중인 삭제 태스크를 즉시 취소(`task.cancel()`).
+   - **게시 잠금 획득 후 식별자 일치 검증**: `ArtifactPublisher`([publisher.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/publisher.py))의 `async_deactivate` 및 `_deactivate_sync`에 `expected_artifact_id`를 전달하고, 잠금(`_get_slug_lock`) 획득 후 인메모리 `_active_artifacts` 및 디스크의 매니페스트 JSON(`published_at`, `version`, `md5`)을 대조. 대상 식별자와 일치하지 않는 경우(새 게시물이 이미 반영된 경우) 삭제를 안전하게 건너뛰어 신규 배포 바이너리를 보존.
 
 ---
 
