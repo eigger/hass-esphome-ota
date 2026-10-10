@@ -130,7 +130,7 @@ def test_migration_frontend_components() -> None:
     assert 'batch_build: "Build & Publish Selected"' in i18n_js
     assert "filter_managed" in i18n_js
     assert 'value="managed"' in manager_js
-    assert "position: absolute" in manager_js
+    assert "_filterDefaulted" in manager_js
     assert "_syncDefaultFilter" in manager_js
 
 

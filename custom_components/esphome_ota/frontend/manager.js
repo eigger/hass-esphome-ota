@@ -11,9 +11,6 @@ const css = `
 :host {
   display: flex;
   flex-direction: column;
-  position: absolute;
-  inset: 0;
-  width: 100%;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -294,6 +291,7 @@ class EsphomeOtaManager extends HTMLElement {
     this.query = "";
     this.filter = "all";
     this._filterManual = false;
+    this._filterDefaulted = false;
     this.selectedDevices = new Set();
     this._unsubEvents = null;
     this._domInitialized = false;
@@ -644,14 +642,17 @@ class EsphomeOtaManager extends HTMLElement {
     this._renderDeviceList();
   }
 
+  _isOtaConfigured(dev) {
+    return !!dev?.is_managed;
+  }
+
   _hasOtaConfiguredDevices() {
-    return this.devices.some(
-      (d) => d.is_managed || (d.status && d.status !== "unmanaged")
-    );
+    return this.devices.some((d) => this._isOtaConfigured(d));
   }
 
   _syncDefaultFilter() {
-    if (this._filterManual) return;
+    if (this._filterManual || this._filterDefaulted || this.devices.length === 0) return;
+    this._filterDefaulted = true;
     const next = this._hasOtaConfiguredDevices() ? "managed" : "all";
     this.filter = next;
     const filterSelect = this.shadowRoot?.getElementById("filter");
@@ -674,9 +675,7 @@ class EsphomeOtaManager extends HTMLElement {
         if (!matchesName && !matchesCfg) return false;
       }
       if (this.filter === "all") return true;
-      if (this.filter === "managed") {
-        return !!dev.is_managed || (dev.status && dev.status !== "unmanaged");
-      }
+      if (this.filter === "managed") return this._isOtaConfigured(dev);
       if (this.filter === "unmanaged") return dev.status === "unmanaged";
       if (this.filter === "initial") return dev.status === "needs_initial_install";
       if (this.filter === "update") return dev.status === "update_available";
