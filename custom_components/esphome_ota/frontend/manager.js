@@ -163,6 +163,22 @@ h1 {
   display: flex;
   gap: 8px;
 }
+.selection-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px;
+  color: var(--secondary-text-color, #64748b);
+  font-size: 0.85rem;
+}
+.selection-summary[hidden] { display: none; }
+.selection-summary-text { min-width: 0; }
+.selection-summary button {
+  flex: none;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+}
 button {
   display: inline-flex;
   align-items: center;
@@ -179,6 +195,10 @@ button {
 }
 button:hover {
   background: var(--secondary-background-color, #f1f5f9);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 button.primary {
   background: var(--primary-color, #0284c7);
@@ -388,11 +408,35 @@ button.danger:hover {
 }
 @media (max-width: 650px) {
   header {
-    padding: 0 12px;
+    height: auto;
+    min-height: 0;
+    padding: 10px 12px;
     gap: 8px;
+    flex-wrap: wrap;
   }
+  .header-title-wrap { flex: 1 1 calc(100% - 52px); }
   .header-title-wrap h1 {
     font-size: 1.1rem;
+  }
+  .builder-badge {
+    order: 2;
+    margin-left: 4px;
+  }
+  .header-actions {
+    order: 3;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .header-actions button {
+    min-width: 0;
+    min-height: 38px;
+    padding: 5px 6px;
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.2;
   }
   .builder-badge {
     padding: 4px 8px;
@@ -412,6 +456,7 @@ button.danger:hover {
   .content {
     padding: 8px 12px 20px;
   }
+  .selection-summary { padding: 8px 12px; }
   .grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
@@ -445,6 +490,7 @@ class EsphomeOtaManager extends HTMLElement {
     this._filterManual = false;
     this._filterDefaulted = false;
     this.selectedDevices = new Set();
+    this.batchBuilding = false;
     this._unsubEvents = null;
     this._subscriptionAttempted = false;
     this._subscriptionPending = false;
@@ -671,21 +717,70 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   async batchBuild() {
+    if (this.batchBuilding) return;
     if (this.selectedDevices.size === 0) {
-      this.showToast("Please select at least one device.");
+      this.showToast(t(this.hass, "batch_select_required"));
       return;
     }
+    const requestedIds = Array.from(this.selectedDevices);
+    this.batchBuilding = true;
+    this._renderSelectionSummary();
     try {
-      await this.hass.callWS({
+      const result = await this.hass.callWS({
         type: "esphome_ota/batch_build",
-        device_ids: Array.from(this.selectedDevices),
+        device_ids: requestedIds,
       });
-      this.showToast(`Batch build queued for ${this.selectedDevices.size} devices.`);
-      this.selectedDevices.clear();
-      this.render();
+      const jobs = result?.jobs && typeof result.jobs === "object" ? result.jobs : {};
+      const queuedIds = requestedIds.filter((id) => Object.hasOwn(jobs, id));
+      const failedIds = requestedIds.filter((id) => !Object.hasOwn(jobs, id));
+      queuedIds.forEach((id) => this.selectedDevices.delete(id));
+      this._renderDeviceList();
+      this._renderSelectionSummary();
+      const message = failedIds.length
+        ? this._formatText("batch_partial", { queued: queuedIds.length, failed: failedIds.length })
+        : this._formatText("batch_queued", { count: queuedIds.length });
+      this.showToast(message);
     } catch (err) {
       this.showToast(`Batch build error: ${err.message || err}`);
+    } finally {
+      this.batchBuilding = false;
+      this._renderSelectionSummary();
     }
+  }
+
+  _formatText(key, values) {
+    return Object.entries(values).reduce(
+      (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+      t(this.hass, key),
+    );
+  }
+
+  _renderSelectionSummary() {
+    const summary = this.shadowRoot.getElementById("selection-summary");
+    const text = this.shadowRoot.getElementById("selection-summary-text");
+    const batchButton = this.shadowRoot.getElementById("btn-batch");
+    if (!summary || !text || !batchButton) return;
+    const count = this.selectedDevices.size;
+    const visibleIds = new Set(
+      [...this.shadowRoot.querySelectorAll(".card-select")].map((checkbox) => checkbox.dataset.id),
+    );
+    const hiddenCount = [...this.selectedDevices].filter((id) => !visibleIds.has(id)).length;
+    summary.hidden = count === 0;
+    text.textContent = hiddenCount
+      ? this._formatText("selection_summary_hidden", { count, hidden: hiddenCount })
+      : this._formatText("selection_summary", { count });
+    batchButton.disabled = count === 0 || this.batchBuilding;
+    batchButton.textContent = this.batchBuilding
+      ? t(this.hass, "batch_building")
+      : `${t(this.hass, "batch_build")} (${count})`;
+    const clearButton = this.shadowRoot.getElementById("btn-clear-selection");
+    if (clearButton) {
+      clearButton.textContent = t(this.hass, "clear_selection");
+      clearButton.disabled = this.batchBuilding;
+    }
+    this.shadowRoot.querySelectorAll(".card-select").forEach((checkbox) => {
+      checkbox.disabled = this.batchBuilding;
+    });
   }
 
   openJobDialog(job, returnFocus = undefined) {
@@ -732,6 +827,11 @@ class EsphomeOtaManager extends HTMLElement {
         </select>
       </div>
 
+      <div id="selection-summary" class="selection-summary" hidden>
+        <span id="selection-summary-text" class="selection-summary-text"></span>
+        <button id="btn-clear-selection" type="button"></button>
+      </div>
+
       <div class="content" id="content-container"></div>
 
       <div class="bottom-notifications">
@@ -750,6 +850,11 @@ class EsphomeOtaManager extends HTMLElement {
     });
     this.shadowRoot.getElementById("btn-reconnect")?.addEventListener("click", () => this.refresh());
     this.shadowRoot.getElementById("btn-batch")?.addEventListener("click", () => this.batchBuild());
+    this.shadowRoot.getElementById("btn-clear-selection")?.addEventListener("click", () => {
+      this.selectedDevices.clear();
+      this._renderDeviceList();
+      this._renderSelectionSummary();
+    });
 
     const searchInput = this.shadowRoot.getElementById("search");
     searchInput?.addEventListener("input", (e) => {
@@ -881,6 +986,7 @@ class EsphomeOtaManager extends HTMLElement {
     this._renderSelectionBanner();
     this._renderMigrationBanner();
     this._renderDeviceList();
+    this._renderSelectionSummary();
   }
 
   _isTerminalJobStage(stage) {
@@ -1005,6 +1111,7 @@ class EsphomeOtaManager extends HTMLElement {
           <p>${escapeHtml(emptyMessage)}</p>
         </div>
       `;
+      this._renderSelectionSummary();
       return;
     }
 
@@ -1015,6 +1122,7 @@ class EsphomeOtaManager extends HTMLElement {
     `;
 
     this._attachCardListeners();
+    this._renderSelectionSummary();
   }
 
   _attachCardListeners() {
@@ -1023,6 +1131,7 @@ class EsphomeOtaManager extends HTMLElement {
         const id = e.target.getAttribute("data-id");
         if (e.target.checked) this.selectedDevices.add(id);
         else this.selectedDevices.delete(id);
+        this._renderSelectionSummary();
       });
     });
 
