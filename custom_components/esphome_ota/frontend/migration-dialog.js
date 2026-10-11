@@ -3,7 +3,7 @@
  */
 
 import { t } from "./i18n.js";
-import { definePanelElement } from "./elements.js";
+import { bindModalAccessibility, captureModalFocus, definePanelElement, rememberModalFocus, restoreModalFocus } from "./elements.js";
 
 const css = `
 :host {
@@ -199,6 +199,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
   }
 
   async open(hass) {
+    if (!this.isOpen) rememberModalFocus(this);
     this._hass = hass;
     this.isOpen = true;
     this.loading = true;
@@ -222,6 +223,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
   close() {
     this.isOpen = false;
     this.render();
+    restoreModalFocus(this);
   }
 
   async executeMigration() {
@@ -385,6 +387,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
       startBtnText = t(this._hass, "migration_retry_btn");
     }
 
+    captureModalFocus(this);
     this.shadowRoot.innerHTML = `
       <style>${css}</style>
       <div class="backdrop" id="backdrop">
@@ -405,6 +408,8 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
         </div>
       </div>
     `;
+
+    bindModalAccessibility(this, () => this.close());
 
     let mouseDownTarget = null;
     const backdrop = this.shadowRoot.getElementById("backdrop");

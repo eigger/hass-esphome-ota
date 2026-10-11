@@ -406,22 +406,14 @@ class JobRunner:
                     and ("$" in job.reserved_version or "{" in job.reserved_version)
                 )
 
-                # Authoritative version handling (mirrors legacy server.py):
-                # When binary contains an authoritative version, trust it and publish it
-                # rather than aborting the entire build.
+                # A job is only allowed to publish the version it reserved. A mismatch
+                # means the compiled YAML and the job's version intent diverged.
                 if (
                     job.reserved_version
                     and info.authoritative_version != job.reserved_version
                 ):
-                    _LOGGER.warning(
-                        "Compiled binary version '%s' differs from planned version '%s' for %s — publishing binary's authoritative version",
-                        info.authoritative_version,
-                        job.reserved_version,
-                        device.configuration,
-                    )
-                    job.log_tail.append(
-                        f"⚠️ Compiled binary reports version '{info.authoritative_version}' (differed from planned '{job.reserved_version}') — "
-                        "publishing binary's authoritative value since device will report it after flashing"
+                    raise BuilderError(
+                        f"Compiled binary version '{info.authoritative_version}' differs from planned version '{job.reserved_version}' for {device.configuration}; refusing to publish"
                     )
 
                 job.reserved_version = info.authoritative_version
@@ -748,15 +740,8 @@ class JobRunner:
                     job.reserved_version
                     and info.authoritative_version != job.reserved_version
                 ):
-                    _LOGGER.warning(
-                        "Compiled binary version '%s' differs from planned version '%s' for %s — publishing binary's authoritative version",
-                        info.authoritative_version,
-                        job.reserved_version,
-                        device.configuration,
-                    )
-                    job.log_tail.append(
-                        f"⚠️ Compiled binary reports version '{info.authoritative_version}' (differed from planned '{job.reserved_version}') — "
-                        "publishing binary's authoritative value since device will report it after flashing"
+                    raise BuilderError(
+                        f"Compiled binary version '{info.authoritative_version}' differs from planned version '{job.reserved_version}' for {device.configuration}; refusing to publish"
                     )
 
                 job.reserved_version = info.authoritative_version

@@ -3,7 +3,7 @@
  */
 
 import { t } from "./i18n.js";
-import { definePanelElement } from "./elements.js";
+import { bindModalAccessibility, captureModalFocus, definePanelElement, rememberModalFocus, restoreModalFocus } from "./elements.js";
 
 const css = `
 :host { display: block; }
@@ -259,9 +259,13 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.targetVersion = "";
     this.submitting = false;
     this.error = "";
+    this._sessionId = 0;
   }
 
-  open(device, hass) {
+  open(device, hass, returnFocus = undefined) {
+    if (!this.isOpen) rememberModalFocus(this);
+    if (returnFocus !== undefined) this._modalReturnFocus = returnFocus;
+    this._sessionId++;
     this.device = device;
     this.hass = hass;
     this.isOpen = true;
@@ -272,12 +276,16 @@ class EsphomeOtaBuildDialog extends HTMLElement {
   }
 
   close() {
+    this._sessionId++;
     this.isOpen = false;
     this.render();
+    restoreModalFocus(this);
   }
 
   async confirmBuild() {
     if (this.submitting || !this.device || !this.hass) return;
+    const targetDevice = this.device;
+    const sessionId = this._sessionId;
     const version = (this.targetVersion || "").trim();
     if (!version) {
       this.error = t(this.hass, "build_version_required");
@@ -292,23 +300,33 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     try {
       const payload = {
         type: "esphome_ota/build",
-        device_id: this.device.device_id,
+        device_id: targetDevice.device_id,
         target_version: version,
       };
       const res = await this.hass.callWS(payload);
+      const stillShowingTarget = this.isOpen
+        && this._sessionId === sessionId
+        && this.device?.device_id === targetDevice.device_id;
+      if (!stillShowingTarget) return;
+      const returnFocus = this._modalReturnFocus;
+      this.close();
       this.dispatchEvent(
         new CustomEvent("build-started", {
           detail: {
-            device: this.device,
+            device: targetDevice,
             job_id: res.job_id,
             target_version: version,
+            returnFocus,
           },
           bubbles: true,
           composed: true,
         })
       );
-      this.close();
     } catch (err) {
+      const stillShowingTarget = this.isOpen
+        && this._sessionId === sessionId
+        && this.device?.device_id === targetDevice.device_id;
+      if (!stillShowingTarget) return;
       this.error = err.message || String(err);
       this.submitting = false;
       this.render();
@@ -325,6 +343,7 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     const installed = d.last_installed_version || "—";
     const published = d.last_published_version || "—";
 
+    captureModalFocus(this);
     this.shadowRoot.innerHTML = `
       <style>${css}</style>
       <div class="backdrop" id="backdrop">
@@ -366,6 +385,8 @@ class EsphomeOtaBuildDialog extends HTMLElement {
         </div>
       </div>
     `;
+
+    bindModalAccessibility(this, () => this.close());
 
     let mouseDownTarget = null;
     const backdrop = this.shadowRoot.getElementById("backdrop");

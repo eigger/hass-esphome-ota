@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -14,6 +15,7 @@ from homeassistant.loader import async_get_integration
 
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
+from .firmware import inspect_binary
 from .models import (
     BuilderConnectionError,
     BuilderTimeoutError,
@@ -183,7 +185,9 @@ async def ws_prepare_ota(
     device_id = msg["device_id"]
     client = manager.resolver.active_client
     if not client:
-        connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
+        connection.send_error(
+            msg["id"], "builder_disconnected", "ESPHome Builder is not connected"
+        )
         return
 
     config_file = manager.device_manager.get_configuration(device_id)
@@ -192,7 +196,11 @@ async def ws_prepare_ota(
     dev = manager.device_manager.get_device(device_id)
     if not dev:
         dev_name = raw_info.get("name") if raw_info else device_id.replace(".yaml", "")
-        friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
+        friendly = (
+            (raw_info.get("friendly_name") or raw_info.get("name"))
+            if raw_info
+            else dev_name
+        )
         plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
         dev = await manager.device_manager.async_register_or_update(
             device_id=device_id.replace(".yaml", ""),
@@ -247,7 +255,9 @@ async def ws_apply_ota(
 
     client = manager.resolver.active_client
     if not client:
-        connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
+        connection.send_error(
+            msg["id"], "builder_disconnected", "ESPHome Builder is not connected"
+        )
         return
 
     config_file = manager.device_manager.get_configuration(device_id)
@@ -283,13 +293,17 @@ async def ws_build(
 
     client = manager.resolver.active_client
     if not client:
-        connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
+        connection.send_error(
+            msg["id"], "builder_disconnected", "ESPHome Builder is not connected"
+        )
         return
 
     if target_version is not None:
         target_version = str(target_version).strip()
         if not target_version:
-            connection.send_error(msg["id"], "invalid_version", "Target version cannot be empty")
+            connection.send_error(
+                msg["id"], "invalid_version", "Target version cannot be empty"
+            )
             return
 
     dev = manager.device_manager.get_device(device_id)
@@ -297,7 +311,11 @@ async def ws_build(
         config_file = manager.device_manager.get_configuration(device_id)
         raw_info = manager.device_manager.get_builder_raw(device_id)
         dev_name = raw_info.get("name") if raw_info else device_id.replace(".yaml", "")
-        friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
+        friendly = (
+            (raw_info.get("friendly_name") or raw_info.get("name"))
+            if raw_info
+            else dev_name
+        )
         plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
         dev = await manager.device_manager.async_register_or_update(
             device_id=device_id.replace(".yaml", ""),
@@ -338,7 +356,9 @@ async def ws_batch_build(
     device_ids = msg["device_ids"]
     client = manager.resolver.active_client
     if not client:
-        connection.send_error(msg["id"], "builder_disconnected", "ESPHome Builder is not connected")
+        connection.send_error(
+            msg["id"], "builder_disconnected", "ESPHome Builder is not connected"
+        )
         return
 
     job_ids: dict[str, str] = {}
@@ -348,7 +368,11 @@ async def ws_batch_build(
             config_file = manager.device_manager.get_configuration(dev_id)
             raw_info = manager.device_manager.get_builder_raw(dev_id)
             dev_name = raw_info.get("name") if raw_info else dev_id.replace(".yaml", "")
-            friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
+            friendly = (
+                (raw_info.get("friendly_name") or raw_info.get("name"))
+                if raw_info
+                else dev_name
+            )
             plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
             dev = await manager.device_manager.async_register_or_update(
                 device_id=dev_id.replace(".yaml", ""),
@@ -392,12 +416,16 @@ async def ws_republish(
     artifacts = await manager.storage.async_load_artifacts()
     art = artifacts.get(device_id)
     if not art:
-        connection.send_error(msg["id"], "no_artifact", "No private artifact exists for this device")
+        connection.send_error(
+            msg["id"], "no_artifact", "No private artifact exists for this device"
+        )
         return
 
     try:
         published = await manager.job_runner.async_republish(dev, art)
-        connection.send_result(msg["id"], {"success": True, "version": published.version})
+        connection.send_result(
+            msg["id"], {"success": True, "version": published.version}
+        )
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "republish_failed", str(err))
 
@@ -452,64 +480,280 @@ async def ws_set_token(
     new_token = msg["token"].strip()
 
     clean_dev_id = device_id.replace(".yaml", "")
-    dev = manager.device_manager.get_device(clean_dev_id)
-    if not dev:
-        config_file = manager.device_manager.get_configuration(clean_dev_id)
+    async with manager.device_manager.get_lock(clean_dev_id):
+        dev = manager.device_manager.get_device(clean_dev_id)
+        was_managed = dev is not None
         raw_info = manager.device_manager.get_builder_raw(clean_dev_id)
-        dev_name = raw_info.get("name") if raw_info else clean_dev_id
-        friendly = (raw_info.get("friendly_name") or raw_info.get("name")) if raw_info else dev_name
-        plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
-        dev = await manager.device_manager.async_register_or_update(
-            device_id=clean_dev_id,
-            configuration=config_file,
-            name=dev_name,
-            friendly_name=friendly,
-            target_platform=plat,
-            token=new_token,
+        if not dev and not raw_info:
+            connection.send_error(msg["id"], "device_not_found", "Device not found")
+            return
+
+        name = dev.name if dev else (raw_info.get("name") or clean_dev_id)
+        configuration = (
+            dev.configuration
+            if dev
+            else manager.device_manager.get_configuration(clean_dev_id)
         )
-        old_slug = None
-    else:
-        old_slug = dev.slug
-        dev.token = new_token
-        dev.slug = f"{dev.name}_{new_token}" if new_token else dev.name
-        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+        friendly_name = (
+            dev.friendly_name if dev else (raw_info.get("friendly_name") or name)
+        )
+        target_platform = (
+            dev.target_platform if dev else raw_info.get("target_platform", "esp32")
+        )
+        old_token = dev.token if dev else ""
+        old_slug = dev.slug if dev else name
+        new_slug = f"{name}_{new_token}" if new_token else name
+        client = manager.resolver.active_client
+        original_yaml = updated_yaml = None
+        yaml_changed = False
+        artifact = None
+        new_artifact = None
+        new_binary_published = False
+        old_binary_deactivation_attempted = False
+        cleanup_update_attempted = False
+        firmware_blob = None
+        binary_info = None
+        old_binary_path = manager.publisher.www_dir / f"{old_slug}.ota.bin"
+        old_cleanup_delay = None
+        old_cleanup_artifact_id = manager.publisher.get_current_artifact_id(old_slug)
+        if manager.monitor:
+            timer = manager.monitor._cleanup_timers.get(clean_dev_id)
+            if timer:
+                old_cleanup_delay = max(0.0, timer.when() - hass.loop.time())
 
-    # 1. Synchronize YAML if Builder is connected
-    client = manager.resolver.active_client
-    if client and dev.configuration:
-        config_file = dev.configuration
+        if old_slug != new_slug and configuration and not client:
+            connection.send_error(
+                msg["id"],
+                "builder_disconnected",
+                "Reconnect the ESPHome Builder before changing the token so YAML and published files can stay synchronized.",
+            )
+            return
+
         try:
-            yaml_content = await client.get_config(config_file)
-            updated_yaml, changed = set_package_ota_slug(yaml_content, dev.slug)
-            if changed:
-                await client.update_config(config_file, updated_yaml, expected=yaml_content)
-        except Exception as err:
-            _LOGGER.warning("Could not sync ota_slug to YAML for %s: %s", dev.name, err)
+            artifacts = await manager.storage.async_load_artifacts()
+            artifact = artifacts.get(clean_dev_id) if dev else None
+            if old_slug != new_slug:
+                new_binary_path = manager.publisher.www_dir / f"{new_slug}.ota.bin"
+                new_md5_path = manager.publisher.www_dir / f"{new_slug}.ota.bin.md5"
+                new_manifest_path = manager.publisher.www_dir / f"{new_slug}.json"
+                new_ota_manifest_path = (
+                    manager.publisher.www_dir / f"{new_slug}.ota.json"
+                )
+                if any(
+                    path.exists()
+                    for path in (
+                        new_binary_path,
+                        new_md5_path,
+                        new_manifest_path,
+                        new_ota_manifest_path,
+                    )
+                ):
+                    raise RuntimeError(
+                        f"The requested public slug '{new_slug}' already has published files; choose a different token."
+                    )
+                if old_binary_path.is_file():
+                    if not artifact:
+                        raise RuntimeError(
+                            f"The current public slug '{old_slug}' has no stored artifact record; refusing to rotate the token."
+                        )
+                    try:
+                        firmware_blob = (
+                            await manager.publisher.async_load_private_artifact(
+                                artifact.private_path
+                            )
+                        )
+                    except Exception as artifact_err:  # noqa: BLE001
+                        raise RuntimeError(
+                            f"The current artifact for '{old_slug}' cannot be recovered; refusing to rotate the token."
+                        ) from artifact_err
+                    binary_info = inspect_binary(
+                        blob=firmware_blob,
+                        target_platform=target_platform,
+                        expected_chip=artifact.chip_family,
+                        reserved_version=artifact.version,
+                    )
 
-    # 2. Synchronize published binary and manifest if active artifact exists
-    if old_slug and old_slug != dev.slug:
-        artifacts = await manager.storage.async_load_artifacts()
-        art = artifacts.get(dev.device_id)
-        has_pub_bin = False
-        try:
-            has_pub_bin = (manager.publisher.www_dir / f"{old_slug}.ota.bin").is_file()
-        except Exception:
-            has_pub_bin = False
+            # Prepare the YAML update and keep a rollback copy until all other
+            # synchronized state has been updated successfully.
+            if client and configuration:
+                original_yaml = await client.get_config(configuration)
+                updated_yaml, yaml_changed = set_package_ota_slug(
+                    original_yaml, new_slug
+                )
+                already_configured = bool(
+                    re.search(
+                        rf"^[ \t]*ota_slug\s*:\s*(['\"]?){re.escape(new_slug)}\1\s*(?:#.*)?$",
+                        original_yaml,
+                        re.MULTILINE,
+                    )
+                )
+                if old_slug != new_slug and not yaml_changed and not already_configured:
+                    raise RuntimeError(
+                        "Could not establish the requested ota_slug in the Builder YAML. "
+                        "The setting may be absent or controlled by an included/external package."
+                    )
+                if yaml_changed:
+                    await client.update_config(
+                        configuration, updated_yaml, expected=original_yaml
+                    )
 
-        if art and dev.last_published_version and has_pub_bin:
-            try:
-                await manager.publisher.async_deactivate(old_slug)
-                await manager.job_runner.async_republish(dev, art)
-            except Exception as err:
-                _LOGGER.warning("Could not republish artifact under new slug for %s: %s", dev.name, err)
-        try:
-            (manager.publisher.www_dir / f"{old_slug}.json").unlink(missing_ok=True)
-            (manager.publisher.www_dir / f"{old_slug}.ota.json").unlink(missing_ok=True)
-        except Exception:
-            pass
+            if old_slug != new_slug and artifact and old_binary_path.is_file():
+                new_artifact = await manager.publisher.async_publish(
+                    device_id=clean_dev_id,
+                    configuration=configuration,
+                    slug=new_slug,
+                    blob=firmware_blob,
+                    info=binary_info,
+                    title=friendly_name,
+                )
+                new_binary_published = True
+                await manager.storage.async_save_artifact(clean_dev_id, new_artifact)
 
-    manager._dispatch_event("devices_updated", {"devices": manager.device_manager.list_all()})
-    connection.send_result(msg["id"], {"success": True, "token": dev.token, "slug": dev.slug})
+                # Publish the replacement before hiding the old URL so a failed
+                # publication can never leave the device without a working artifact.
+                old_binary_deactivation_attempted = True
+                if not await manager.publisher.async_deactivate(old_slug):
+                    raise RuntimeError(
+                        f"Could not deactivate previous public slug '{old_slug}'"
+                    )
+
+            if dev:
+                dev.token = new_token
+                dev.slug = new_slug
+                await manager.storage.async_save_devices(
+                    manager.device_manager._managed_devices
+                )
+            else:
+                dev = await manager.device_manager.async_register_or_update(
+                    device_id=clean_dev_id,
+                    configuration=configuration,
+                    name=name,
+                    friendly_name=friendly_name,
+                    target_platform=target_platform,
+                    token=new_token,
+                )
+            if manager.monitor and old_slug != new_slug:
+                cleanup_update_attempted = True
+                if new_artifact:
+                    manager.monitor.schedule_cleanup(
+                        clean_dev_id,
+                        new_slug,
+                        delay_seconds=old_cleanup_delay,
+                        artifact_id=new_artifact.published_at,
+                    )
+                else:
+                    manager.monitor.cancel_cleanup(clean_dev_id)
+            # Retire stale manifests only after the new state has been committed.
+            if old_slug != new_slug:
+                try:
+                    (manager.publisher.www_dir / f"{old_slug}.json").unlink(
+                        missing_ok=True
+                    )
+                    (manager.publisher.www_dir / f"{old_slug}.ota.json").unlink(
+                        missing_ok=True
+                    )
+                except OSError as cleanup_err:
+                    _LOGGER.warning(
+                        "Could not remove stale manifests for %s: %s", name, cleanup_err
+                    )
+        except Exception as err:  # noqa: BLE001
+            rollback_errors = []
+            if new_binary_published:
+                try:
+                    await manager.publisher.async_deactivate(new_slug)
+                    (manager.publisher.www_dir / f"{new_slug}.json").unlink(
+                        missing_ok=True
+                    )
+                    (manager.publisher.www_dir / f"{new_slug}.ota.json").unlink(
+                        missing_ok=True
+                    )
+                    if artifact:
+                        await manager.storage.async_save_artifact(
+                            clean_dev_id, artifact
+                        )
+                except Exception as rollback_err:  # noqa: BLE001
+                    rollback_errors.append(str(rollback_err))
+            restored_old_artifact = None
+            if (
+                old_binary_deactivation_attempted
+                and artifact
+                and firmware_blob
+                and binary_info
+            ):
+                try:
+                    restored_old_artifact = await manager.publisher.async_publish(
+                        device_id=clean_dev_id,
+                        configuration=configuration,
+                        slug=old_slug,
+                        blob=firmware_blob,
+                        info=binary_info,
+                        title=friendly_name,
+                    )
+                    await manager.storage.async_save_artifact(
+                        clean_dev_id, restored_old_artifact
+                    )
+                except Exception as rollback_err:  # noqa: BLE001
+                    rollback_errors.append(str(rollback_err))
+            if manager.monitor and (
+                old_binary_deactivation_attempted or cleanup_update_attempted
+            ):
+                try:
+                    restored_artifact_id = (
+                        restored_old_artifact.published_at
+                        if restored_old_artifact
+                        else artifact.published_at
+                        if artifact
+                        else old_cleanup_artifact_id
+                    )
+                    if restored_artifact_id:
+                        manager.monitor.schedule_cleanup(
+                            clean_dev_id,
+                            old_slug,
+                            delay_seconds=old_cleanup_delay,
+                            artifact_id=restored_artifact_id,
+                        )
+                    else:
+                        manager.monitor.cancel_cleanup(clean_dev_id)
+                except Exception as rollback_err:  # noqa: BLE001
+                    rollback_errors.append(str(rollback_err))
+            if was_managed and dev and (dev.token != old_token or dev.slug != old_slug):
+                dev.token = old_token
+                dev.slug = old_slug
+                try:
+                    await manager.storage.async_save_devices(
+                        manager.device_manager._managed_devices
+                    )
+                except Exception as rollback_err:  # noqa: BLE001
+                    rollback_errors.append(str(rollback_err))
+            elif not was_managed and dev:
+                try:
+                    await manager.device_manager.async_remove_device(clean_dev_id)
+                except Exception as rollback_err:  # noqa: BLE001
+                    rollback_errors.append(str(rollback_err))
+            if (
+                yaml_changed
+                and client
+                and original_yaml is not None
+                and updated_yaml is not None
+            ):
+                try:
+                    await client.update_config(
+                        configuration, original_yaml, expected=updated_yaml
+                    )
+                except Exception as rollback_err:  # noqa: BLE001
+                    rollback_errors.append(str(rollback_err))
+            detail = str(err)
+            if rollback_errors:
+                detail += f" (rollback also failed: {'; '.join(rollback_errors)})"
+            connection.send_error(msg["id"], "token_update_failed", detail)
+            return
+
+        manager._dispatch_event(
+            "devices_updated", {"devices": manager.device_manager.list_all()}
+        )
+        connection.send_result(
+            msg["id"], {"success": True, "token": dev.token, "slug": dev.slug}
+        )
 
 
 @websocket_api.require_admin
@@ -749,13 +993,15 @@ async def ws_reconnect(
         vol.Required("type"): "esphome_ota/subscribe",
     }
 )
-def ws_subscribe(
+@websocket_api.async_response
+async def ws_subscribe(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
     """Subscribe to real-time events and receive initial snapshot."""
     manager = _get_manager(hass)
+    integration = await async_get_integration(hass, DOMAIN)
 
     @callback
     def _send_event(event_type: str, data: dict[str, Any]) -> None:
@@ -772,6 +1018,32 @@ def ws_subscribe(
     # Initial snapshot acknowledge
     snapshot_payload = {
         "status": manager.resolver.status,
+        "builder": (
+            {
+                "slug": manager.resolver.active_candidate.slug,
+                "name": manager.resolver.active_candidate.name,
+                "host": manager.resolver.active_candidate.host,
+                "port": manager.resolver.active_candidate.port,
+                "source": manager.resolver.active_candidate.source,
+                "is_running": manager.resolver.active_candidate.is_running,
+                "version": manager.resolver.active_candidate.version,
+            }
+            if manager.resolver.active_candidate
+            else None
+        ),
+        "base_url": manager.base_url,
+        "candidates": [
+            {
+                "slug": candidate.slug,
+                "name": candidate.name,
+                "host": candidate.host,
+                "port": candidate.port,
+                "source": candidate.source,
+                "is_running": candidate.is_running,
+            }
+            for candidate in manager.resolver.candidates
+        ],
+        "version": str(integration.version),
         "devices": manager.device_manager.list_all(),
         "jobs": [j.to_dict() for j in manager.job_runner.list_jobs()],
     }
