@@ -8,6 +8,7 @@ from aiohttp import FormData
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.esphome_ota.const import DOMAIN
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
 
@@ -26,6 +27,15 @@ async def test_manual_firmware_upload(
     ):
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
+
+        manager = hass.data[DOMAIN]["manager"]
+        await manager.device_manager.async_register_or_update(
+            device_id="livingroom",
+            configuration="livingroom.yaml",
+            name="livingroom",
+            friendly_name="Living Room",
+            target_platform="esp32",
+        )
 
         client = await hass_client()
 

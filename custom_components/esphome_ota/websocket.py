@@ -58,6 +58,26 @@ def _get_manager(hass: HomeAssistant) -> Any:
     return entry_data["manager"]
 
 
+def _candidate_payload(candidate: Any) -> dict[str, Any]:
+    """Return JSON-safe metadata for an ESPHome Builder candidate."""
+    version = getattr(candidate, "version", None)
+    slug = getattr(candidate, "slug", None)
+    name = getattr(candidate, "name", None)
+    host = getattr(candidate, "host", None)
+    port = getattr(candidate, "port", None)
+    source = getattr(candidate, "source", None)
+    is_running = getattr(candidate, "is_running", None)
+    return {
+        "slug": slug if isinstance(slug, str) else None,
+        "name": name if isinstance(name, str) else None,
+        "host": host if isinstance(host, str) else None,
+        "port": port if isinstance(port, int) and not isinstance(port, bool) else None,
+        "source": source if isinstance(source, str) else None,
+        "is_running": is_running if isinstance(is_running, bool) else None,
+        "version": version if isinstance(version, str) else None,
+    }
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
@@ -74,16 +94,7 @@ async def ws_status(
     manager = _get_manager(hass)
     builder_info = None
     if manager.resolver.active_candidate:
-        c = manager.resolver.active_candidate
-        builder_info = {
-            "slug": c.slug,
-            "name": c.name,
-            "host": c.host,
-            "port": c.port,
-            "source": c.source,
-            "is_running": c.is_running,
-            "version": c.version,
-        }
+        builder_info = _candidate_payload(manager.resolver.active_candidate)
 
     integration = await async_get_integration(hass, DOMAIN)
     version = str(integration.version)
@@ -95,15 +106,8 @@ async def ws_status(
             "builder": builder_info,
             "base_url": manager.base_url,
             "candidates": [
-                {
-                    "slug": cand.slug,
-                    "name": cand.name,
-                    "host": cand.host,
-                    "port": cand.port,
-                    "source": cand.source,
-                    "is_running": cand.is_running,
-                }
-                for cand in manager.resolver.candidates
+                _candidate_payload(candidate)
+                for candidate in manager.resolver.candidates
             ],
             "version": version,
         },
@@ -521,14 +525,6 @@ async def ws_set_token(
             if timer:
                 old_cleanup_delay = max(0.0, timer.when() - hass.loop.time())
 
-        if old_slug != new_slug and configuration and not client:
-            connection.send_error(
-                msg["id"],
-                "builder_disconnected",
-                "Reconnect the ESPHome Builder before changing the token so YAML and published files can stay synchronized.",
-            )
-            return
-
         try:
             artifacts = await manager.storage.async_load_artifacts()
             artifact = artifacts.get(clean_dev_id) if dev else None
@@ -550,6 +546,20 @@ async def ws_set_token(
                 ):
                     raise RuntimeError(
                         f"The requested public slug '{new_slug}' already has published files; choose a different token."
+                    )
+                old_public_state_exists = artifact is not None or any(
+                    path.exists()
+                    for path in (
+                        old_binary_path,
+                        manager.publisher.www_dir / f"{old_slug}.ota.bin.md5",
+                        manager.publisher.www_dir / f"{old_slug}.json",
+                        manager.publisher.www_dir / f"{old_slug}.ota.json",
+                    )
+                )
+                if old_public_state_exists and not client:
+                    raise RuntimeError(
+                        "Reconnect the ESPHome Builder before changing this token; "
+                        "an existing firmware artifact or public URL must be synchronized."
                     )
                 if old_binary_path.is_file():
                     if not artifact:
@@ -1018,30 +1028,12 @@ async def ws_subscribe(
     # Initial snapshot acknowledge
     snapshot_payload = {
         "status": manager.resolver.status,
-        "builder": (
-            {
-                "slug": manager.resolver.active_candidate.slug,
-                "name": manager.resolver.active_candidate.name,
-                "host": manager.resolver.active_candidate.host,
-                "port": manager.resolver.active_candidate.port,
-                "source": manager.resolver.active_candidate.source,
-                "is_running": manager.resolver.active_candidate.is_running,
-                "version": manager.resolver.active_candidate.version,
-            }
-            if manager.resolver.active_candidate
-            else None
-        ),
+        "builder": _candidate_payload(manager.resolver.active_candidate)
+        if manager.resolver.active_candidate
+        else None,
         "base_url": manager.base_url,
         "candidates": [
-            {
-                "slug": candidate.slug,
-                "name": candidate.name,
-                "host": candidate.host,
-                "port": candidate.port,
-                "source": candidate.source,
-                "is_running": candidate.is_running,
-            }
-            for candidate in manager.resolver.candidates
+            _candidate_payload(candidate) for candidate in manager.resolver.candidates
         ],
         "version": str(integration.version),
         "devices": manager.device_manager.list_all(),

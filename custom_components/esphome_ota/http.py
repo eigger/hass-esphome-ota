@@ -60,6 +60,16 @@ class FirmwareUploadView(HomeAssistantView):
         blob = b"".join(chunks)
         clean_device_id = device_id.removesuffix(".yaml")
 
+        # Reject obviously non-firmware payloads before resolving the device. The
+        # full platform/chip validation still runs once a known target is found.
+        if len(blob) < 1024 or blob[0] != 0xE9:
+            return web.json_response(
+                {
+                    "error": "Invalid firmware binary structure: missing ESP image header"
+                },
+                status=422,
+            )
+
         async with self.manager.device_manager.get_lock(clean_device_id):
             dev = self.manager.device_manager.get_device(clean_device_id)
             newly_registered = False
