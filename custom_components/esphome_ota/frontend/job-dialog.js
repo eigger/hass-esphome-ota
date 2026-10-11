@@ -93,6 +93,28 @@ const css = `
   word-break: break-all;
   overflow-wrap: anywhere;
 }
+.terminal-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 30px;
+}
+.terminal-toolbar button {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+.terminal-toolbar button[hidden] {
+  display: none;
+}
+.log-history-notice {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--secondary-background-color, #f1f5f9);
+  color: var(--secondary-text-color, #64748b);
+  font-size: 0.82rem;
+}
+.log-line {
+  min-height: 1.45em;
+}
 .footer {
   padding: 14px 20px;
   display: flex;
@@ -267,6 +289,11 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this.hass = null;
     this.isOpen = false;
     this._hasInitialScrolled = false;
+    this._followLogs = true;
+    this._logHistory = [];
+    this._historyJobId = null;
+    this._historyTruncated = false;
+    this._pendingRemovedLines = 0;
   }
 
   open(job, hass, returnFocus = undefined) {
@@ -276,6 +303,11 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this.hass = hass;
     this.isOpen = true;
     this._hasInitialScrolled = false;
+    this._followLogs = true;
+    this._historyJobId = job.job_id;
+    this._logHistory = [...(job.log_tail || [])];
+    this._historyTruncated = false;
+    this._pendingRemovedLines = 0;
     this.render();
   }
 
@@ -288,8 +320,53 @@ class EsphomeOtaJobDialog extends HTMLElement {
   updateJob(job) {
     if (!this.isOpen) return;
     if (this.job && this.job.job_id === job.job_id) {
+      this._mergeLogSnapshot(job.log_tail || []);
       this.job = job;
       this.render();
+    }
+  }
+
+  _mergeLogSnapshot(snapshot) {
+    const incoming = Array.isArray(snapshot) ? snapshot : [];
+    if (this._historyJobId !== this.job?.job_id) {
+      this._historyJobId = this.job?.job_id || null;
+      this._logHistory = [];
+      this._historyTruncated = false;
+      this._pendingRemovedLines = 0;
+    }
+    if (!incoming.length) return;
+    if (!this._logHistory.length) {
+      this._logHistory = [...incoming];
+      return;
+    }
+
+    // The server sends a rolling 200-line snapshot. Merge its longest overlap
+    // with our accumulated tail so repeated snapshots do not duplicate lines.
+    const maxOverlap = Math.min(this._logHistory.length, incoming.length);
+    let overlap = 0;
+    for (let size = maxOverlap; size > 0; size -= 1) {
+      const historyStart = this._logHistory.length - size;
+      let matches = true;
+      for (let i = 0; i < size; i += 1) {
+        if (this._logHistory[historyStart + i] !== incoming[i]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        overlap = size;
+        break;
+      }
+    }
+
+    if (overlap === 0) this._historyTruncated = true;
+    this._logHistory.push(...incoming.slice(overlap));
+    const maxHistoryLines = 2000;
+    if (this._logHistory.length > maxHistoryLines) {
+      const removed = this._logHistory.length - maxHistoryLines;
+      this._logHistory.splice(0, removed);
+      this._pendingRemovedLines += removed;
+      this._historyTruncated = true;
     }
   }
 
@@ -322,19 +399,27 @@ class EsphomeOtaJobDialog extends HTMLElement {
       return;
     }
 
+    const previousTerminal = this.shadowRoot.getElementById("terminal");
+    const previousScrollTop = previousTerminal?.scrollTop || 0;
+    let removedHeight = 0;
+    if (previousTerminal && this._pendingRemovedLines > 0) {
+      const oldLines = [...previousTerminal.querySelectorAll(".log-line")];
+      removedHeight = oldLines
+        .slice(0, this._pendingRemovedLines)
+        .reduce((height, line) => height + line.getBoundingClientRect().height, 0);
+    }
+    if (previousTerminal) {
+      this._followLogs =
+        previousTerminal.scrollHeight - previousTerminal.scrollTop - previousTerminal.clientHeight < 60;
+    }
+
     const stage = this.job.stage || "preparing";
     const stageText = t(this.hass, `stage_${stage}`) || stage;
-    const logLines = (this.job.log_tail || []).join("\n").trim();
-    let logs = logLines;
+    const logLines = [...this._logHistory];
     if (this.job.error && (stage === "failed" || stage === "cancelled")) {
-      if (logs) {
-        logs += `\n\n\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`;
-      } else {
-        logs = `\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`;
-      }
-    } else if (!logs) {
-      logs = "Waiting for compiler output...";
+      logLines.push("", "", `\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`);
     }
+    if (!logLines.length) logLines.push("Waiting for compiler output...");
 
     let stageClass = "stage-banner";
     if (stage === "building" || stage === "downloading" || stage === "submitting") {
@@ -367,6 +452,10 @@ class EsphomeOtaJobDialog extends HTMLElement {
               ${this.job.reserved_version ? `<span>(Target Version: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
               ${this.job.error ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
             </div>
+            ${this._historyTruncated ? `<div class="log-history-notice" role="status">${escapeHtml(t(this.hass, "logs_history_truncated"))}</div>` : ""}
+            <div class="terminal-toolbar">
+              <button class="secondary" id="btn-follow-logs" type="button" hidden>${escapeHtml(t(this.hass, "logs_jump_latest"))}</button>
+            </div>
             <div class="terminal" id="terminal"></div>
           </div>
           <div class="footer">
@@ -378,18 +467,58 @@ class EsphomeOtaJobDialog extends HTMLElement {
       </div>
     `;
 
-    bindModalAccessibility(this, () => this.close());
-
     const terminalEl = this.shadowRoot.getElementById("terminal");
+    const followButton = this.shadowRoot.getElementById("btn-follow-logs");
     if (terminalEl) {
-      const isAtBottom =
-        terminalEl.scrollHeight - terminalEl.scrollTop - terminalEl.clientHeight < 60;
-      terminalEl.innerHTML = ansiToHtml(logs);
-      if (isAtBottom || !this._hasInitialScrolled) {
+      terminalEl.innerHTML = logLines
+        .map((line) => `<div class="log-line">${ansiToHtml(line) || "&nbsp;"}</div>`)
+        .join("");
+      if (this._followLogs || !this._hasInitialScrolled) {
         terminalEl.scrollTop = terminalEl.scrollHeight;
         this._hasInitialScrolled = true;
+        this._followLogs = true;
+      } else {
+        const anchorExpired = previousScrollTop < removedHeight;
+        terminalEl.scrollTop = Math.max(0, previousScrollTop - removedHeight);
+        if (anchorExpired) {
+          this._historyTruncated = true;
+          const notice = this.shadowRoot.querySelector(".log-history-notice");
+          if (notice) notice.textContent = t(this.hass, "logs_history_truncated");
+          else {
+            const body = this.shadowRoot.querySelector(".body");
+            const newNotice = document.createElement("div");
+            newNotice.className = "log-history-notice";
+            newNotice.setAttribute("role", "status");
+            newNotice.textContent = t(this.hass, "logs_history_truncated");
+            body?.insertBefore(newNotice, this.shadowRoot.querySelector(".terminal-toolbar"));
+          }
+        }
+      }
+      this._pendingRemovedLines = 0;
+
+      followButton.hidden = this._followLogs;
+      terminalEl.addEventListener("scroll", () => {
+        this._followLogs =
+          terminalEl.scrollHeight - terminalEl.scrollTop - terminalEl.clientHeight < 60;
+        followButton.hidden = this._followLogs;
+      }, { passive: true });
+      followButton.addEventListener("click", () => {
+        terminalEl.scrollTop = terminalEl.scrollHeight;
+        this._followLogs = true;
+        followButton.hidden = true;
+      });
+    }
+
+    const focusTarget = this._modalFocusTarget;
+    if (focusTarget) {
+      const target = focusTarget.id
+        ? this.shadowRoot.getElementById(focusTarget.id)
+        : this.shadowRoot.querySelector(`[${focusTarget.attribute}="${focusTarget.value}"]`);
+      if (!target || target.hidden || target.getAttribute("aria-hidden") === "true") {
+        this._modalFocusTarget = { id: "btn-close" };
       }
     }
+    bindModalAccessibility(this, () => this.close());
 
     this.shadowRoot.getElementById("close-x")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());

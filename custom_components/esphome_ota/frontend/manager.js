@@ -1068,6 +1068,18 @@ class EsphomeOtaManager extends HTMLElement {
     const container = this.shadowRoot.getElementById("content-container");
     if (!container) return;
 
+    // Live job events can arrive several times a second. Keep the list position
+    // and the active card control stable while replacing the card markup.
+    const scrollTop = container.scrollTop;
+    const active = this.shadowRoot.activeElement;
+    const focusTarget = active && container.contains(active)
+      ? {
+          className: [...active.classList].find((name) => name !== "") || "",
+          deviceId: active.dataset?.id,
+          jobId: active.dataset?.jobId,
+        }
+      : null;
+
     this._syncDefaultFilter();
 
     const filtered = this.devices.filter((dev) => {
@@ -1111,6 +1123,7 @@ class EsphomeOtaManager extends HTMLElement {
           <p>${escapeHtml(emptyMessage)}</p>
         </div>
       `;
+      container.scrollTop = scrollTop;
       this._renderSelectionSummary();
       return;
     }
@@ -1122,6 +1135,14 @@ class EsphomeOtaManager extends HTMLElement {
     `;
 
     this._attachCardListeners();
+    container.scrollTop = scrollTop;
+    if (focusTarget?.className) {
+      const candidate = [...container.querySelectorAll(`.${focusTarget.className}`)].find((el) =>
+        (focusTarget.deviceId === undefined || el.dataset.id === focusTarget.deviceId) &&
+        (focusTarget.jobId === undefined || el.dataset.jobId === focusTarget.jobId),
+      );
+      candidate?.focus({ preventScroll: true });
+    }
     this._renderSelectionSummary();
   }
 
