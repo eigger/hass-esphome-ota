@@ -109,14 +109,24 @@ const css = `
   background: var(--secondary-background-color, #f1f5f9);
 }
 .hint {
-  font-size: 0.8rem;
-  color: var(--secondary-text-color, #64748b);
-  line-height: 1.4;
-  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--primary-color, #0284c7);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--secondary-background-color, #f8fafc);
+  line-height: 1.45;
 }
-.hint p { margin: 0; }
-.hint details { margin-top: 5px; }
-.hint summary { cursor: pointer; color: var(--primary-color, #0284c7); }
+.hint-title {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.hint p {
+  margin: 0;
+  color: var(--secondary-text-color, #64748b);
+  font-size: 0.8rem;
+}
 .notice {
   padding: 10px 12px;
   border-radius: 8px;
@@ -389,8 +399,8 @@ class EsphomeOtaBuildDialog extends HTMLElement {
               <input id="target-version" type="text" value="${escapeHtml(this.targetVersion)}" ${this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
             </div>
             <div class="hint">
-              <p>${escapeHtml(t(this.hass, "build_version_hint"))}</p>
-              <details><summary>${escapeHtml(t(this.hass, "build_version_hint_more"))}</summary><p>${escapeHtml(t(this.hass, "build_version_hint_details"))}</p></details>
+              <span class="hint-title">${escapeHtml(t(this.hass, "build_version_hint"))}</span>
+              <p>${escapeHtml(t(this.hass, "build_version_hint_details"))}</p>
             </div>
             ${this.error ? `<div class="error">${escapeHtml(this.error)}</div>` : ""}
           </div>
