@@ -93,7 +93,7 @@ const css = `
   font-weight: 600;
   margin-bottom: 6px;
 }
-.field input {
+.field input[type="text"] {
   width: 100%;
   padding: 10px 12px;
   font-size: 1rem;
@@ -104,7 +104,35 @@ const css = `
   color: inherit;
   box-sizing: border-box;
 }
-.field input:disabled {
+.field select {
+  width: 100%;
+  padding: 9px 10px;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--divider-color, #cbd5e1);
+  background: var(--card-background-color, #ffffff);
+  color: inherit;
+}
+.template-options { display: grid; gap: 8px; }
+.template-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--secondary-background-color, #f8fafc);
+  border: 1px solid var(--divider-color, #e2e8f0);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.template-option.selected { border-color: var(--primary-color, #0284c7); box-shadow: inset 0 0 0 1px var(--primary-color, #0284c7); }
+.template-option input[type="radio"] { flex: none; width: auto; padding: 0; margin: 3px 0 0; accent-color: var(--primary-color, #0284c7); }
+.template-option-content { flex: 1; min-width: 0; }
+.template-option label { display: block; font-weight: 600; cursor: pointer; }
+.template-example, .template-next { display: block; margin-top: 2px; color: var(--secondary-text-color, #64748b); }
+.template-next code { color: var(--primary-text-color, #1f2937); font-size: 0.88rem; font-weight: 600; overflow-wrap: anywhere; }
+.template-option select { max-width: 150px; margin-top: 7px; }
+.field input[type="text"]:disabled {
   opacity: 0.7;
   background: var(--secondary-background-color, #f1f5f9);
 }
@@ -217,61 +245,83 @@ const DATE_SEP_RE =
 const DATE_COMPACT_RE =
   /^(20\d\d(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01]))(?:\.(\d+))?$/;
 
-function bumpPatchVersion(version) {
-  const text = String(version || "").trim().replace(/"/g, "");
-  if (!text) {
-    return "1.0.0";
-  }
-  const sepMatch = text.match(DATE_SEP_RE);
-  if (sepMatch) {
-    const base = sepMatch[1];
-    const seq = sepMatch[5];
-    return seq !== undefined ? `${base}.${Number(seq) + 1}` : `${base}.1`;
-  }
-  const compactMatch = text.match(DATE_COMPACT_RE);
-  if (compactMatch) {
-    const base = compactMatch[1];
-    const seq = compactMatch[4];
-    return seq !== undefined ? `${base}.${Number(seq) + 1}` : `${base}.1`;
-  }
-  const dotParts = text.split(".");
-  if (dotParts.length === 1 && /^\d+$/.test(dotParts[0])) {
-    return `${dotParts[0]}.0.1`;
-  }
-  if (
-    dotParts.length === 2 &&
-    /^\d+$/.test(dotParts[0]) &&
-    /^\d+$/.test(dotParts[1])
-  ) {
-    return `${dotParts[0]}.${dotParts[1]}.1`;
-  }
-  const parts = text.split(/(\d+)/);
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (/^\d+$/.test(parts[i])) {
-      parts[i] = String(Number(parts[i]) + 1);
-      return parts.join("");
+function parseDateVersion(version) {
+  const text = String(version || "").trim().replace(/^['"]|['"]$/g, "");
+  let year, month, day, revision;
+  let match = text.match(/^(\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:\.(\d+))?$/);
+  if (match) {
+    year = 2000 + Number(match[1]);
+    month = Number(match[2]);
+    day = Number(match[3]);
+    revision = Number(match[4] || 0);
+  } else {
+    const compactMatch = text.match(DATE_COMPACT_RE);
+    const separatedMatch = text.match(DATE_SEP_RE);
+    if (compactMatch) {
+      match = compactMatch;
+      const date = match[1].replace(/[-.]/g, "");
+      year = Number(date.slice(0, 4));
+      month = Number(match[2]);
+      day = Number(match[3]);
+      revision = Number(match[4] || 0);
+    } else if (separatedMatch) {
+      match = separatedMatch;
+      year = Number(match[1].slice(0, 4));
+      month = Number(match[3]);
+      day = Number(match[4]);
+      revision = Number(match[5] || 0);
+    } else {
+      match = text.match(/^v(\d{2})(\d{2})(\d{2})\s+rev\.(\d+)$/i);
+      if (!match) return null;
+      year = 2000 + Number(match[1]);
+      month = Number(match[2]);
+      day = Number(match[3]);
+      revision = Number(match[4]);
     }
   }
-  return `${text}.1`;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return { key: `${String(year).slice(-2)}${String(month).padStart(2, "0")}${String(day).padStart(2, "0")}`, revision };
 }
 
-function suggestTargetVersion(device) {
-  const own = device?.own_project_version;
-  const published = device?.last_published_version;
-  const installed = device?.last_installed_version;
+function parseSemver(version) {
+  const text = String(version || "").trim().replace(/^['"]|['"]$/g, "");
+  if (parseDateVersion(text)) return null;
+  const match = text.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  return match ? match.slice(1).map(Number) : null;
+}
 
-  if (own) {
-    // If own version is distinct from what is currently installed/published,
-    // the user might have intentionally bumped it in YAML.
-    if ((!installed || own !== installed) && (!published || own !== published)) {
-      return own;
-    }
-    // If own version is what is currently running/published, suggest the next bump.
-    return bumpPatchVersion(own);
-  }
-  if (published) return bumpPatchVersion(published);
-  if (installed) return bumpPatchVersion(installed);
-  return device?.managed_version || "1.0.0";
+function currentDateKey(timeZone) {
+  const options = { year: "numeric", month: "2-digit", day: "2-digit" };
+  if (timeZone) options.timeZone = timeZone;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", options).formatToParts(new Date()).map(({ type, value }) => [type, value])
+  );
+  return `${parts.year.slice(-2)}${parts.month}${parts.day}`;
+}
+
+function currentYamlVersion(device) {
+  return device?.own_project_version || device?.last_published_version || device?.last_installed_version || device?.managed_version || "1.0.0";
+}
+
+function suggestDateVersion(device, today) {
+  const revisions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version]
+    .map(parseDateVersion)
+    .filter((version) => version?.key === today)
+    .map((version) => version.revision);
+  return `${today}.${Math.max(0, ...revisions) + 1}`;
+}
+
+function suggestSemver(device, increment) {
+  const versions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version]
+    .map(parseSemver)
+    .filter(Boolean)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  if (!versions.length) return "1.0.0";
+  const [major, minor, patch] = versions[versions.length - 1];
+  if (increment === "major") return `${major + 1}.0.0`;
+  if (increment === "minor") return `${major}.${minor + 1}.0`;
+  return `${major}.${minor}.${patch + 1}`;
 }
 
 class EsphomeOtaBuildDialog extends HTMLElement {
@@ -282,6 +332,9 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.device = null;
     this.hass = null;
     this.targetVersion = "";
+    this.manualVersion = "";
+    this.versionTemplate = "date";
+    this.versionIncrement = "patch";
     this.submitting = false;
     this.error = "";
     this._sessionId = 0;
@@ -296,8 +349,20 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.isOpen = true;
     this.submitting = false;
     this.error = "";
-    this.targetVersion = suggestTargetVersion(device);
+    this.versionTemplate = "date";
+    this.versionIncrement = "patch";
+    this.manualVersion = currentYamlVersion(device);
+    this.targetVersion = suggestDateVersion(device, currentDateKey(hass?.config?.time_zone));
     this.render();
+    const sessionId = this._sessionId;
+    setTimeout(() => {
+      if (!this.isOpen || this._sessionId !== sessionId) return;
+      const target = this.versionTemplate === "manual"
+        ? this.shadowRoot.getElementById("target-version")
+        : this.shadowRoot.getElementById(`template-${this.versionTemplate}`);
+      target?.focus();
+      if (target?.id === "target-version") target.select();
+    }, 0);
   }
 
   close() {
@@ -367,6 +432,13 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     const d = this.device;
     const installed = d.last_installed_version || "—";
     const published = d.last_published_version || "—";
+    const dateExample = "261012.1";
+    const semverExample = "1.2.3";
+    const dateSuggestion = suggestDateVersion(d, currentDateKey(this.hass?.config?.time_zone));
+    const semverSuggestion = suggestSemver(d, this.versionIncrement);
+    const isManual = this.versionTemplate === "manual";
+    const dateSelected = this.versionTemplate === "date";
+    const semverSelected = this.versionTemplate === "semver";
 
     captureModalFocus(this);
     this.shadowRoot.innerHTML = `
@@ -395,9 +467,44 @@ class EsphomeOtaBuildDialog extends HTMLElement {
               </div>
             </div>
             <div class="field">
-              <label for="target-version">${escapeHtml(t(this.hass, "build_target_version"))}</label>
-              <input id="target-version" type="text" value="${escapeHtml(this.targetVersion)}" ${this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
+              <span class="version-label">${escapeHtml(t(this.hass, "version_template_label"))}</span>
+              <div class="template-options" role="radiogroup" aria-label="${escapeHtml(t(this.hass, "version_template_label"))}">
+                <div class="template-option ${dateSelected ? "selected" : ""}">
+                  <input type="radio" id="template-date" name="version-template" value="date" ${dateSelected ? "checked" : ""} ${this.submitting ? "disabled" : ""}>
+                  <div class="template-option-content">
+                    <label for="template-date">${escapeHtml(t(this.hass, "version_template_date"))}</label>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(dateExample)}</span>
+                    <span class="template-next">${escapeHtml(t(this.hass, "version_template_suggestion"))}: <code>${escapeHtml(dateSuggestion)}</code></span>
+                    ${dateSelected ? `<span class="template-example">${escapeHtml(t(this.hass, "version_template_date_help"))}</span>` : ""}
+                  </div>
+                </div>
+                <div class="template-option ${semverSelected ? "selected" : ""}">
+                  <input type="radio" id="template-semver" name="version-template" value="semver" ${semverSelected ? "checked" : ""} ${this.submitting ? "disabled" : ""}>
+                  <div class="template-option-content">
+                    <label for="template-semver">${escapeHtml(t(this.hass, "version_template_semver"))}</label>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(semverExample)}</span>
+                    <span class="template-next">${escapeHtml(t(this.hass, "version_template_suggestion"))}: <code>${escapeHtml(semverSuggestion)}</code></span>
+                    ${semverSelected ? `<select id="version-increment" aria-label="${escapeHtml(t(this.hass, "version_increment_label"))}" ${this.submitting ? "disabled" : ""}>
+                      <option value="patch" ${this.versionIncrement === "patch" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_patch"))}</option>
+                      <option value="minor" ${this.versionIncrement === "minor" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_minor"))}</option>
+                      <option value="major" ${this.versionIncrement === "major" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_major"))}</option>
+                    </select>` : ""}
+                  </div>
+                </div>
+                <div class="template-option ${isManual ? "selected" : ""}">
+                  <input type="radio" id="template-manual" name="version-template" value="manual" ${isManual ? "checked" : ""} ${this.submitting ? "disabled" : ""}>
+                  <div class="template-option-content">
+                    <label for="template-manual">${escapeHtml(t(this.hass, "version_template_manual"))}</label>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(t(this.hass, "version_template_manual_example"))}</span>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_manual_help"))}</span>
+                  </div>
+                </div>
+              </div>
             </div>
+            ${isManual ? `<div class="field">
+              <label for="target-version">${escapeHtml(t(this.hass, "build_target_version"))}</label>
+              <input id="target-version" type="text" value="${escapeHtml(this.manualVersion)}" ${this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
+            </div>` : `<div class="field"><span class="version-label">${escapeHtml(t(this.hass, "build_target_version"))}</span><div class="version-value">${escapeHtml(this.targetVersion)}</div></div>`}
             <div class="hint">
               <span class="hint-title">${escapeHtml(t(this.hass, "build_version_hint"))}</span>
               <p>${escapeHtml(t(this.hass, "build_version_hint_details"))}</p>
@@ -431,19 +538,32 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-start")?.addEventListener("click", () => this.confirmBuild());
 
+    this.shadowRoot.querySelectorAll('input[name="version-template"]').forEach((radio) => radio.addEventListener("change", (event) => {
+      this.versionTemplate = event.target.value;
+      this.targetVersion = this.versionTemplate === "date"
+        ? suggestDateVersion(this.device, currentDateKey(this.hass?.config?.time_zone))
+        : this.versionTemplate === "semver"
+          ? suggestSemver(this.device, this.versionIncrement)
+          : this.manualVersion;
+      this.render();
+      this.shadowRoot.getElementById(`template-${this.versionTemplate}`)?.focus();
+    }));
+    const incrementSelect = this.shadowRoot.getElementById("version-increment");
+    incrementSelect?.addEventListener("change", (event) => {
+      this.versionIncrement = event.target.value;
+      this.targetVersion = suggestSemver(this.device, this.versionIncrement);
+      this.render();
+      this.shadowRoot.getElementById("version-increment")?.focus();
+    });
+
     const input = this.shadowRoot.getElementById("target-version");
     input?.addEventListener("input", (e) => {
       this.targetVersion = e.target.value;
+      this.manualVersion = e.target.value;
     });
     input?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.confirmBuild();
     });
-    if (!this.submitting) {
-      setTimeout(() => {
-        input?.focus();
-        input?.select();
-      }, 0);
-    }
   }
 }
 
