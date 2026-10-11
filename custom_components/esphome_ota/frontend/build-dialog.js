@@ -113,8 +113,11 @@ const css = `
   background: var(--card-background-color, #ffffff);
   color: inherit;
 }
-.template-preview {
-  margin-top: 8px;
+.template-options { display: grid; gap: 8px; }
+.template-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--secondary-background-color, #f8fafc);
@@ -122,13 +125,13 @@ const css = `
   font-size: 0.8rem;
   line-height: 1.45;
 }
-.template-preview > span { display: block; color: var(--secondary-text-color, #64748b); }
-.template-value { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }
-.template-value code { font-size: 0.9rem; font-weight: 600; overflow-wrap: anywhere; }
-.template-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
-.template-actions select { max-width: 150px; }
-.template-actions button { padding: 6px 10px; }
-.template-manual { margin: 0; color: var(--secondary-text-color, #64748b); }
+.template-option.selected { border-color: var(--primary-color, #0284c7); box-shadow: inset 0 0 0 1px var(--primary-color, #0284c7); }
+.template-option input[type="radio"] { margin: 3px 0 0; accent-color: var(--primary-color, #0284c7); }
+.template-option-content { flex: 1; min-width: 0; }
+.template-option label { display: block; font-weight: 600; cursor: pointer; }
+.template-example, .template-next { display: block; margin-top: 2px; color: var(--secondary-text-color, #64748b); }
+.template-next code { color: var(--primary-text-color, #1f2937); font-size: 0.88rem; font-weight: 600; overflow-wrap: anywhere; }
+.template-option select { max-width: 150px; margin-top: 7px; }
 .field input:disabled {
   opacity: 0.7;
   background: var(--secondary-background-color, #f1f5f9);
@@ -329,7 +332,8 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.device = null;
     this.hass = null;
     this.targetVersion = "";
-    this.versionTemplate = "manual";
+    this.manualVersion = "";
+    this.versionTemplate = "date";
     this.versionIncrement = "patch";
     this.submitting = false;
     this.error = "";
@@ -345,16 +349,19 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.isOpen = true;
     this.submitting = false;
     this.error = "";
-    this.versionTemplate = "manual";
+    this.versionTemplate = "date";
     this.versionIncrement = "patch";
-    this.targetVersion = currentYamlVersion(device);
+    this.manualVersion = currentYamlVersion(device);
+    this.targetVersion = suggestDateVersion(device, currentDateKey(hass?.config?.time_zone));
     this.render();
     const sessionId = this._sessionId;
     setTimeout(() => {
       if (!this.isOpen || this._sessionId !== sessionId) return;
-      const input = this.shadowRoot.getElementById("target-version");
-      input?.focus();
-      input?.select();
+      const target = this.versionTemplate === "manual"
+        ? this.shadowRoot.getElementById("target-version")
+        : this.shadowRoot.getElementById(`template-${this.versionTemplate}`);
+      target?.focus();
+      if (target?.id === "target-version") target.select();
     }, 0);
   }
 
@@ -430,8 +437,8 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     const dateSuggestion = suggestDateVersion(d, currentDateKey(this.hass?.config?.time_zone));
     const semverSuggestion = suggestSemver(d, this.versionIncrement);
     const isManual = this.versionTemplate === "manual";
-    const example = this.versionTemplate === "date" ? dateExample : semverExample;
-    const suggestion = this.versionTemplate === "date" ? dateSuggestion : semverSuggestion;
+    const dateSelected = this.versionTemplate === "date";
+    const semverSelected = this.versionTemplate === "semver";
 
     captureModalFocus(this);
     this.shadowRoot.innerHTML = `
@@ -460,33 +467,44 @@ class EsphomeOtaBuildDialog extends HTMLElement {
               </div>
             </div>
             <div class="field">
-              <label for="version-template">${escapeHtml(t(this.hass, "version_template_label"))}</label>
-              <select id="version-template" ${this.submitting ? "disabled" : ""}>
-                <option value="manual" ${isManual ? "selected" : ""}>${escapeHtml(t(this.hass, "version_template_manual"))}</option>
-                <option value="date" ${this.versionTemplate === "date" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_template_date"))}</option>
-                <option value="semver" ${this.versionTemplate === "semver" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_template_semver"))}</option>
-              </select>
-              <div class="template-preview">
-                ${isManual
-                  ? `<p class="template-manual">${escapeHtml(t(this.hass, "version_template_manual_help"))}</p><span>${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(t(this.hass, "version_template_manual_example"))}</span>`
-                  : `<span>${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(example)}</span>
-                    <div class="template-value"><span>${escapeHtml(t(this.hass, "version_template_suggestion"))}</span><code>${escapeHtml(suggestion)}</code></div>
-                    <div class="template-actions">
-                      ${this.versionTemplate === "semver"
-                        ? `<select id="version-increment" aria-label="${escapeHtml(t(this.hass, "version_increment_label"))}" ${this.submitting ? "disabled" : ""}>
-                            <option value="patch" ${this.versionIncrement === "patch" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_patch"))}</option>
-                            <option value="minor" ${this.versionIncrement === "minor" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_minor"))}</option>
-                            <option value="major" ${this.versionIncrement === "major" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_major"))}</option>
-                          </select>`
-                        : `<span>${escapeHtml(t(this.hass, "version_template_date_help"))}</span>`}
-                      <button id="btn-apply-template" ${this.submitting ? "disabled" : ""}>${escapeHtml(t(this.hass, "version_template_apply"))}</button>
-                    </div>`}
+              <span class="version-label">${escapeHtml(t(this.hass, "version_template_label"))}</span>
+              <div class="template-options" role="radiogroup" aria-label="${escapeHtml(t(this.hass, "version_template_label"))}">
+                <div class="template-option ${dateSelected ? "selected" : ""}">
+                  <input type="radio" id="template-date" name="version-template" value="date" ${dateSelected ? "checked" : ""} ${this.submitting ? "disabled" : ""}>
+                  <div class="template-option-content">
+                    <label for="template-date">${escapeHtml(t(this.hass, "version_template_date"))}</label>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(dateExample)}</span>
+                    <span class="template-next">${escapeHtml(t(this.hass, "version_template_suggestion"))}: <code>${escapeHtml(dateSuggestion)}</code></span>
+                    ${dateSelected ? `<span class="template-example">${escapeHtml(t(this.hass, "version_template_date_help"))}</span>` : ""}
+                  </div>
+                </div>
+                <div class="template-option ${semverSelected ? "selected" : ""}">
+                  <input type="radio" id="template-semver" name="version-template" value="semver" ${semverSelected ? "checked" : ""} ${this.submitting ? "disabled" : ""}>
+                  <div class="template-option-content">
+                    <label for="template-semver">${escapeHtml(t(this.hass, "version_template_semver"))}</label>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(semverExample)}</span>
+                    <span class="template-next">${escapeHtml(t(this.hass, "version_template_suggestion"))}: <code>${escapeHtml(semverSuggestion)}</code></span>
+                    ${semverSelected ? `<select id="version-increment" aria-label="${escapeHtml(t(this.hass, "version_increment_label"))}" ${this.submitting ? "disabled" : ""}>
+                      <option value="patch" ${this.versionIncrement === "patch" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_patch"))}</option>
+                      <option value="minor" ${this.versionIncrement === "minor" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_minor"))}</option>
+                      <option value="major" ${this.versionIncrement === "major" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_major"))}</option>
+                    </select>` : ""}
+                  </div>
+                </div>
+                <div class="template-option ${isManual ? "selected" : ""}">
+                  <input type="radio" id="template-manual" name="version-template" value="manual" ${isManual ? "checked" : ""} ${this.submitting ? "disabled" : ""}>
+                  <div class="template-option-content">
+                    <label for="template-manual">${escapeHtml(t(this.hass, "version_template_manual"))}</label>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(t(this.hass, "version_template_manual_example"))}</span>
+                    <span class="template-example">${escapeHtml(t(this.hass, "version_template_manual_help"))}</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="field">
+            ${isManual ? `<div class="field">
               <label for="target-version">${escapeHtml(t(this.hass, "build_target_version"))}</label>
-              <input id="target-version" type="text" value="${escapeHtml(this.targetVersion)}" ${this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
-            </div>
+              <input id="target-version" type="text" value="${escapeHtml(this.manualVersion)}" ${this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
+            </div>` : `<div class="field"><span class="version-label">${escapeHtml(t(this.hass, "build_target_version"))}</span><div class="version-value">${escapeHtml(this.targetVersion)}</div></div>`}
             <div class="hint">
               <span class="hint-title">${escapeHtml(t(this.hass, "build_version_hint"))}</span>
               <p>${escapeHtml(t(this.hass, "build_version_hint_details"))}</p>
@@ -520,31 +538,28 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-start")?.addEventListener("click", () => this.confirmBuild());
 
-    const templateSelect = this.shadowRoot.getElementById("version-template");
-    templateSelect?.addEventListener("change", (event) => {
+    this.shadowRoot.querySelectorAll('input[name="version-template"]').forEach((radio) => radio.addEventListener("change", (event) => {
       this.versionTemplate = event.target.value;
+      this.targetVersion = this.versionTemplate === "date"
+        ? suggestDateVersion(this.device, currentDateKey(this.hass?.config?.time_zone))
+        : this.versionTemplate === "semver"
+          ? suggestSemver(this.device, this.versionIncrement)
+          : this.manualVersion;
       this.render();
-      this.shadowRoot.getElementById("version-template")?.focus();
-    });
+      this.shadowRoot.getElementById(`template-${this.versionTemplate}`)?.focus();
+    }));
     const incrementSelect = this.shadowRoot.getElementById("version-increment");
     incrementSelect?.addEventListener("change", (event) => {
       this.versionIncrement = event.target.value;
+      this.targetVersion = suggestSemver(this.device, this.versionIncrement);
       this.render();
       this.shadowRoot.getElementById("version-increment")?.focus();
-    });
-    this.shadowRoot.getElementById("btn-apply-template")?.addEventListener("click", () => {
-      this.targetVersion = this.versionTemplate === "date"
-        ? suggestDateVersion(this.device, currentDateKey(this.hass?.config?.time_zone))
-        : suggestSemver(this.device, this.versionIncrement);
-      this.render();
-      const input = this.shadowRoot.getElementById("target-version");
-      input?.focus();
-      input?.select();
     });
 
     const input = this.shadowRoot.getElementById("target-version");
     input?.addEventListener("input", (e) => {
       this.targetVersion = e.target.value;
+      this.manualVersion = e.target.value;
     });
     input?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.confirmBuild();
