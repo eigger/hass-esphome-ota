@@ -111,11 +111,11 @@ const css = `
 .notice {
   padding: 12px 14px;
   border-radius: 8px;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warning-background-color, #fef3c7);
+  color: var(--warning-color, #92400e);
   font-size: 0.85rem;
   line-height: 1.45;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--warning-color, #fde68a);
 }
 .notice.success {
   background: var(--success-background-color, #dcfce7);
@@ -580,14 +580,14 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           </div>
         ` : ""}
         <table class="info-table">
-          <tr><td>Name</td><td>${escapeHtml(this.device.name)}</td></tr>
-          <tr><td>Configuration</td><td>${escapeHtml(this.device.configuration)}</td></tr>
-          <tr><td>Chip Family</td><td>${escapeHtml(this.device.chip_family)}</td></tr>
+          <tr><td>${escapeHtml(t(this.hass, "device_name"))}</td><td>${escapeHtml(this.device.name)}</td></tr>
+          <tr><td>${escapeHtml(t(this.hass, "configuration"))}</td><td>${escapeHtml(this.device.configuration)}</td></tr>
+          <tr><td>${escapeHtml(t(this.hass, "chip_family_label"))}</td><td>${escapeHtml(this.device.chip_family)}</td></tr>
           <tr>
-            <td>Token</td>
+            <td>${escapeHtml(t(this.hass, "token"))}</td>
             <td>
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                <input type="text" id="token-input" value="${escapeHtml(this.device.token || "")}" placeholder="None (Legacy)" style="flex: 1; min-width: 140px; font-family: monospace; font-size: 0.82rem; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--divider-color, #cbd5e1); background: var(--card-background-color, #ffffff); color: inherit;">
+                <input type="text" id="token-input" aria-label="${escapeHtml(t(this.hass, "token"))}" value="${escapeHtml(this.device.token || "")}" placeholder="${escapeHtml(t(this.hass, "token_none"))}" style="flex: 1; min-width: 140px; font-family: monospace; font-size: 0.82rem; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--divider-color, #cbd5e1); background: var(--card-background-color, #ffffff); color: inherit;">
                 <button class="primary" id="btn-save-token" style="padding: 5px 12px; font-size: 0.8rem;">${escapeHtml(t(this.hass, "btn_save_token") || "Save")}</button>
               </div>
               <div style="font-size: 0.72rem; color: var(--secondary-text-color, #64748b); margin-top: 4px;">
@@ -595,9 +595,9 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
               </div>
             </td>
           </tr>
-          <tr><td>Public Slug</td><td id="token-slug-val"><code>${escapeHtml(this.device.slug)}</code></td></tr>
-          <tr><td>Installed Version</td><td>${escapeHtml(this.device.last_installed_version || "Not detected")}</td></tr>
-          <tr><td>Published Version</td><td>${escapeHtml(this.device.last_published_version || "None")}</td></tr>
+          <tr><td>${escapeHtml(t(this.hass, "public_slug"))}</td><td id="token-slug-val"><code>${escapeHtml(this.device.slug)}</code></td></tr>
+          <tr><td>${escapeHtml(t(this.hass, "installed_version"))}</td><td>${escapeHtml(this.device.last_installed_version || t(this.hass, "version_not_detected"))}</td></tr>
+          <tr><td>${escapeHtml(t(this.hass, "published_version"))}</td><td>${escapeHtml(this.device.last_published_version || t(this.hass, "version_none"))}</td></tr>
           ${this.device.last_published_version ? `
             <tr>
               <td>${escapeHtml(t(this.hass, "firmware_binary"))}</td>
@@ -636,27 +636,27 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         <div class="modal">
           <div class="header">
             <h2>${escapeHtml(this.device.friendly_name || this.device.name)}</h2>
-            <button id="close-x" aria-label="Close">
+            <button id="close-x" aria-label="${escapeHtml(t(this.hass, "close"))}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
           </div>
           <div class="tabs-container">
-            <div class="tabs">
-              <button class="tab ${this.currentTab === "diff" ? "active" : ""}" data-tab="diff">
+            <div class="tabs" role="tablist" aria-label="${escapeHtml(t(this.hass, "device_tabs"))}">
+              <button role="tab" aria-selected="${this.currentTab === "diff"}" tabindex="${this.currentTab === "diff" ? "0" : "-1"}" aria-controls="device-tabpanel" id="tab-diff" class="tab ${this.currentTab === "diff" ? "active" : ""}" data-tab="diff">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
                 <span>${escapeHtml(t(this.hass, "tab_diff") || "OTA Diff")}</span>
               </button>
-              <button class="tab ${this.currentTab === "info" ? "active" : ""}" data-tab="info">
+              <button role="tab" aria-selected="${this.currentTab === "info"}" tabindex="${this.currentTab === "info" ? "0" : "-1"}" aria-controls="device-tabpanel" id="tab-info" class="tab ${this.currentTab === "info" ? "active" : ""}" data-tab="info">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
                 <span>${escapeHtml(t(this.hass, "tab_info") || "Device Info")}</span>
               </button>
-              <button class="tab ${this.currentTab === "upload" ? "active" : ""}" data-tab="upload">
+              <button role="tab" aria-selected="${this.currentTab === "upload"}" tabindex="${this.currentTab === "upload" ? "0" : "-1"}" aria-controls="device-tabpanel" id="tab-upload" class="tab ${this.currentTab === "upload" ? "active" : ""}" data-tab="upload">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 <span>${escapeHtml(t(this.hass, "tab_upload") || "Manual Upload")}</span>
               </button>
             </div>
           </div>
-          <div class="body">
+          <div class="body" role="tabpanel" id="device-tabpanel" aria-labelledby="tab-${this.currentTab}" tabindex="0">
             ${this.statusMessage ? `<div class="notice ${this.statusType}" role="${this.statusType === "error" ? "alert" : "status"}" aria-live="${this.statusType === "error" ? "assertive" : "polite"}">${escapeHtml(this.statusMessage)}</div>` : ""}
             ${tabContent}
           </div>
@@ -703,6 +703,22 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           this.render();
           if (this.currentTab === "diff") this.loadDiff();
         }
+      });
+      tabBtn.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const tabs = [...this.shadowRoot.querySelectorAll('[role="tab"]')];
+        const index = tabs.indexOf(tabBtn);
+        const next = event.key === "Home" ? 0
+          : event.key === "End" ? tabs.length - 1
+            : (index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+        const target = tabs[next];
+        if (!target) return;
+        const targetTab = target.dataset.tab;
+        target.click();
+        // Tab activation rerenders the dialog, so focus the replacement node.
+        this.shadowRoot.querySelector(`[role="tab"][data-tab="${targetTab}"]`)
+          ?.focus({ preventScroll: true });
       });
     });
 

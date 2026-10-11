@@ -324,12 +324,12 @@ button.danger:hover {
   font-size: 0.75rem;
   font-weight: 500;
 }
-.badge-unmanaged { background: #f1f5f9; color: #475569; }
-.badge-initial { background: #fef3c7; color: #92400e; }
-.badge-update { background: #dcfce7; color: #166534; }
-.badge-installed { background: #e0f2fe; color: #0369a1; }
-.badge-building { background: #ede9fe; color: #6d28d9; }
-.badge-failed { background: #fee2e2; color: #991b1b; }
+.badge-unmanaged { background: var(--secondary-background-color, #f1f5f9); color: var(--secondary-text-color, #475569); }
+.badge-initial { background: var(--warning-background-color, #fef3c7); color: var(--warning-color, #92400e); }
+.badge-update { background: var(--success-background-color, #dcfce7); color: var(--success-color, #166534); }
+.badge-installed { background: var(--info-background-color, #e0f2fe); color: var(--info-color, #0369a1); }
+.badge-building { background: var(--info-background-color, #e0f2fe); color: var(--info-color, #075985); }
+.badge-failed { background: var(--error-background-color, #fee2e2); color: var(--error-color, #991b1b); }
 
 .card-stats {
   display: grid;
@@ -372,12 +372,12 @@ button.danger:hover {
   line-height: 1.2;
 }
 .binary-active {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--success-background-color, #dcfce7);
+  color: var(--success-color, #166534);
 }
 .binary-hidden {
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--secondary-background-color, #f1f5f9);
+  color: var(--secondary-text-color, #64748b);
 }
 .status-dot-sm {
   width: 6px;
@@ -385,7 +385,7 @@ button.danger:hover {
   border-radius: 50%;
   display: inline-block;
 }
-.status-dot-sm.ok { background: #16a34a; }
+.status-dot-sm.ok { background: var(--success-color, #16a34a); }
 .status-dot-sm.neutral { background: #94a3b8; }
 
 .card-actions {
@@ -410,6 +410,37 @@ button.danger:hover {
 .card-actions button:only-child {
   grid-column: 1 / -1;
 }
+.card-actions .card-more { position: relative; grid-column: 1 / -1; }
+.card-more summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  border: 1px solid var(--divider-color, #cbd5e1);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--secondary-text-color, #64748b);
+}
+.card-more summary::-webkit-details-marker { display: none; }
+.card-more[open] summary { color: var(--primary-text-color, #1e293b); }
+.card-more-menu {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: calc(100% + 6px);
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid var(--divider-color, #cbd5e1);
+  border-radius: 10px;
+  background: var(--card-background-color, #fff);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .16);
+  display: grid;
+  gap: 4px;
+}
+.card-actions .card-more-menu button { justify-content: flex-start; text-align: left; }
+.card-more-menu .danger { color: var(--error-color, #b91c1c); }
 .empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -630,6 +661,7 @@ class EsphomeOtaManager extends HTMLElement {
     }
     if (devicesResult.status === "fulfilled") {
       this.devices = devicesResult.value.devices || [];
+      this.initialLoadError = false;
     } else {
       console.error("Initial devices fallback error:", devicesResult.reason);
       this.devices = [];
@@ -824,8 +856,8 @@ class EsphomeOtaManager extends HTMLElement {
       </header>
 
       <div class="controls">
-        <input type="search" id="search" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
-        <select id="filter">
+        <input type="search" id="search" aria-label="${escapeHtml(t(this.hass, "search_label"))}" placeholder="${escapeHtml(t(this.hass, "search_placeholder") || "Search devices...")}" value="${escapeHtml(this.query)}">
+        <select id="filter" aria-label="${escapeHtml(t(this.hass, "filter_label"))}">
           <option value="all">${escapeHtml(t(this.hass, "filter_all") || "All Devices")}</option>
           <option value="managed">${escapeHtml(t(this.hass, "filter_managed") || "OTA Configured")}</option>
           <option value="unmanaged">${escapeHtml(t(this.hass, "filter_unmanaged") || "Unmanaged")}</option>
@@ -1028,7 +1060,7 @@ class EsphomeOtaManager extends HTMLElement {
       if (activeJob.stage === "recovery_required") {
         return { badgeKey: "stage_recovery_required", badgeClass: "badge-initial" };
       }
-      return { badgeKey: "badge_building", badgeClass: "badge-update" };
+      return { badgeKey: "badge_building", badgeClass: "badge-building" };
     }
 
     const latest = this._getLatestJob(dev.device_id);
@@ -1080,6 +1112,10 @@ class EsphomeOtaManager extends HTMLElement {
     // Live job events can arrive several times a second. Keep the list position
     // and the active card control stable while replacing the card markup.
     const scrollTop = container.scrollTop;
+    const openCardMenuIds = new Set(
+      [...container.querySelectorAll(".card-more[open] summary[data-id]")]
+        .map((summary) => summary.dataset.id),
+    );
     const active = this.shadowRoot.activeElement;
     const focusTarget = active && container.contains(active)
       ? {
@@ -1130,8 +1166,25 @@ class EsphomeOtaManager extends HTMLElement {
       container.innerHTML = `
         <div class="empty-state">
           <p>${escapeHtml(emptyMessage)}</p>
+          ${this.initialLoadError
+            ? `<button class="primary" id="btn-empty-retry">${escapeHtml(t(this.hass, "retry"))}</button>`
+            : this.devices.length > 0
+              ? `<button id="btn-empty-reset">${escapeHtml(t(this.hass, "reset_search_filter"))}</button>`
+              : ""}
         </div>
       `;
+      this.shadowRoot.getElementById("btn-empty-retry")?.addEventListener("click", async () => {
+        await this.refresh();
+        if (this.initialLoadError) await this.loadInitialFallback();
+      });
+      this.shadowRoot.getElementById("btn-empty-reset")?.addEventListener("click", () => {
+        this.query = "";
+        this.filter = "all";
+        this._filterManual = true;
+        this.shadowRoot.getElementById("search").value = "";
+        this.shadowRoot.getElementById("filter").value = "all";
+        this._renderDeviceList();
+      });
       container.scrollTop = scrollTop;
       this._renderSelectionSummary();
       return;
@@ -1144,6 +1197,10 @@ class EsphomeOtaManager extends HTMLElement {
     `;
 
     this._attachCardListeners();
+    container.querySelectorAll(".card-more").forEach((menu) => {
+      const deviceId = menu.querySelector("summary[data-id]")?.dataset.id;
+      if (deviceId && openCardMenuIds.has(deviceId)) menu.open = true;
+    });
     container.scrollTop = scrollTop;
     if (focusTarget?.className) {
       const candidate = [...container.querySelectorAll(`.${focusTarget.className}`)].find((el) =>
@@ -1170,6 +1227,14 @@ class EsphomeOtaManager extends HTMLElement {
         const id = e.target.getAttribute("data-id");
         const dev = this.devices.find((d) => d.device_id === id);
         if (dev) this.openDeviceDialog(dev, "diff");
+      });
+    });
+
+    this.shadowRoot.querySelectorAll(".btn-initial-steps").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const id = e.target.getAttribute("data-id");
+        const dev = this.devices.find((d) => d.device_id === id);
+        if (dev) this.openDeviceDialog(dev, "info");
       });
     });
 
@@ -1292,6 +1357,7 @@ class EsphomeOtaManager extends HTMLElement {
     const isSelected = this.selectedDevices.has(dev.device_id);
     const needsInitialInstall = dev.status === "needs_initial_install"
       || (!dev.has_http_ota && !dev.last_installed_version);
+    const hasSecondaryActions = needsInitialInstall || !!dev.is_managed || !!dev.last_published_version;
 
     let actionButton = "";
     if (activeJob) {
@@ -1311,7 +1377,7 @@ class EsphomeOtaManager extends HTMLElement {
       <div class="card" data-id="${escapeHtml(dev.device_id)}">
         <div class="card-header">
           <div style="display: flex; gap: 8px; align-items: flex-start;">
-            <input type="checkbox" class="card-select" data-id="${escapeHtml(dev.device_id)}" ${isSelected ? "checked" : ""}>
+            <input type="checkbox" class="card-select" data-id="${escapeHtml(dev.device_id)}" aria-label="${escapeHtml(t(this.hass, "select_device"))}: ${escapeHtml(dev.friendly_name || dev.name)}" ${isSelected ? "checked" : ""}>
             <div>
               <h3 class="card-title">${escapeHtml(dev.friendly_name || dev.name)}</h3>
               <div class="card-sub">${escapeHtml(dev.configuration)} • ${escapeHtml(dev.chip_family)}</div>
@@ -1342,13 +1408,20 @@ class EsphomeOtaManager extends HTMLElement {
 
         <div class="card-actions">
           ${actionButton}
-          ${dev.last_published_version && !activeJob ? (
-            dev.has_public_binary
-              ? `<button class="btn-hide" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_hide"))}</button>`
-              : `<button class="btn-republish" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_republish"))}</button>`
-          ) : ""}
-          <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, needsInitialInstall ? "initial_install_steps" : "btn_details"))}</button>
-          ${dev.is_managed ? `<button class="danger btn-remove-ota" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_remove_ota"))}</button>` : ""}
+          <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_details"))}</button>
+          ${hasSecondaryActions ? `
+            <details class="card-more">
+              <summary class="card-more-toggle" data-id="${escapeHtml(dev.device_id)}" aria-label="${escapeHtml(t(this.hass, "more_actions"))}: ${escapeHtml(dev.friendly_name || dev.name)}">${escapeHtml(t(this.hass, "more_actions"))}</summary>
+              <div class="card-more-menu">
+                ${needsInitialInstall ? `<button class="btn-initial-steps" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "initial_install_steps"))}</button>` : ""}
+                ${dev.last_published_version && !activeJob ? (
+                  dev.has_public_binary
+                    ? `<button class="btn-hide" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_hide"))}</button>`
+                    : `<button class="btn-republish" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_republish"))}</button>`
+                ) : ""}
+                ${dev.is_managed ? `<button class="danger btn-remove-ota" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_remove_ota"))}</button>` : ""}
+              </div>
+            </details>` : ""}
         </div>
       </div>
     `;
