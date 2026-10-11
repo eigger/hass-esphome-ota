@@ -77,7 +77,7 @@ const translations = {
     build_version_hint_more: "How this works",
     build_version_required: "Please enter a target version.",
     btn_republish: "Publish",
-    btn_hide: "Hide",
+    btn_hide: "Unpublish",
     status_active: "Public",
     status_hidden: "Private",
     hide_success: "Binary is now private.",
