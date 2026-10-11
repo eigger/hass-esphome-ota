@@ -252,13 +252,21 @@ function parseDateVersion(version) {
     day = Number(match[3]);
     revision = Number(match[4] || 0);
   } else {
-    match = text.match(DATE_COMPACT_RE) || text.match(DATE_SEP_RE);
-    if (match) {
+    const compactMatch = text.match(DATE_COMPACT_RE);
+    const separatedMatch = text.match(DATE_SEP_RE);
+    if (compactMatch) {
+      match = compactMatch;
       const date = match[1].replace(/[-.]/g, "");
       year = Number(date.slice(0, 4));
-      month = Number(date.slice(4, 6));
-      day = Number(date.slice(6, 8));
-      revision = Number(match[5] || match[4] || 0);
+      month = Number(match[2]);
+      day = Number(match[3]);
+      revision = Number(match[4] || 0);
+    } else if (separatedMatch) {
+      match = separatedMatch;
+      year = Number(match[1].slice(0, 4));
+      month = Number(match[3]);
+      day = Number(match[4]);
+      revision = Number(match[5] || 0);
     } else {
       match = text.match(/^v(\d{2})(\d{2})(\d{2})\s+rev\.(\d+)$/i);
       if (!match) return null;
@@ -290,11 +298,11 @@ function currentDateKey(timeZone) {
 }
 
 function currentYamlVersion(device) {
-  return device?.own_project_version || device?.managed_version || device?.last_published_version || device?.last_installed_version || "1.0.0";
+  return device?.own_project_version || device?.last_published_version || device?.last_installed_version || device?.managed_version || "1.0.0";
 }
 
 function suggestDateVersion(device, today) {
-  const revisions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version, device?.managed_version]
+  const revisions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version]
     .map(parseDateVersion)
     .filter((version) => version?.key === today)
     .map((version) => version.revision);
@@ -302,7 +310,7 @@ function suggestDateVersion(device, today) {
 }
 
 function suggestSemver(device, increment) {
-  const versions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version, device?.managed_version]
+  const versions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version]
     .map(parseSemver)
     .filter(Boolean)
     .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
@@ -341,6 +349,13 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.versionIncrement = "patch";
     this.targetVersion = currentYamlVersion(device);
     this.render();
+    const sessionId = this._sessionId;
+    setTimeout(() => {
+      if (!this.isOpen || this._sessionId !== sessionId) return;
+      const input = this.shadowRoot.getElementById("target-version");
+      input?.focus();
+      input?.select();
+    }, 0);
   }
 
   close() {
@@ -534,12 +549,6 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     input?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.confirmBuild();
     });
-    if (!this.submitting) {
-      setTimeout(() => {
-        input?.focus();
-        input?.select();
-      }, 0);
-    }
   }
 }
 
