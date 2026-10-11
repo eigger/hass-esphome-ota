@@ -178,7 +178,9 @@ def test_issue4_xss_escaping_in_frontend() -> None:
     assert "escapeHtml(l)" in dev_dialog
     assert "function escapeHtml" in job_dialog
     assert "ansiToHtml" in job_dialog
-    assert "terminalEl.innerHTML = ansiToHtml(logs)" in job_dialog
+    assert "export function ansiToHtml(rawText)" in job_dialog
+    assert "let safe = escapeHtml(text)" in job_dialog
+    assert "ansiToHtml(line)" in job_dialog
     assert "function escapeHtml" in manager_js
 
 

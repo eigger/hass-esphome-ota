@@ -419,7 +419,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
     if (this.job.error && (stage === "failed" || stage === "cancelled")) {
       logLines.push("", "", `\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`);
     }
-    if (!logLines.length) logLines.push("Waiting for compiler output...");
+    if (!logLines.length) logLines.push(t(this.hass, "logs_waiting_output"));
 
     let stageClass = "stage-banner";
     if (stage === "building" || stage === "downloading" || stage === "submitting") {
@@ -448,8 +448,8 @@ class EsphomeOtaJobDialog extends HTMLElement {
           </div>
           <div class="body">
             <div class="${stageClass}">
-              <span><strong>Status:</strong> ${escapeHtml(stageText)}</span>
-              ${this.job.reserved_version ? `<span>(Target Version: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
+              <span><strong>${escapeHtml(t(this.hass, "job_status"))}:</strong> ${escapeHtml(stageText)}</span>
+              ${this.job.reserved_version ? `<span>(${escapeHtml(t(this.hass, "target_version"))}: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
               ${this.job.error ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
             </div>
             ${this._historyTruncated ? `<div class="log-history-notice" role="status">${escapeHtml(t(this.hass, "logs_history_truncated"))}</div>` : ""}

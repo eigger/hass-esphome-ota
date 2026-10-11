@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -45,7 +46,14 @@ async def test_websocket_api_commands(
         assert msg["success"] is True
         assert "status" in msg["result"]
         assert msg["result"]["base_url"] == "https://my-ha.duckdns.org"
-        assert msg["result"]["version"] == "1.0.7"
+        manifest_path = (
+            Path(__file__).parents[3]
+            / "custom_components"
+            / "esphome_ota"
+            / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert msg["result"]["version"] == manifest["version"]
 
         # 2. devices
         await ws.send_json({"id": 2, "type": "esphome_ota/devices"})

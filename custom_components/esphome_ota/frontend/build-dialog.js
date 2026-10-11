@@ -23,6 +23,8 @@ const css = `
   color: var(--primary-text-color, #1f2937);
   width: 100%;
   max-width: 480px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   border-radius: 14px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
   display: flex;
@@ -47,6 +49,9 @@ const css = `
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .device-name {
   font-weight: 600;
@@ -109,22 +114,25 @@ const css = `
   line-height: 1.4;
   margin: 0;
 }
+.hint p { margin: 0; }
+.hint details { margin-top: 5px; }
+.hint summary { cursor: pointer; color: var(--primary-color, #0284c7); }
 .notice {
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warning-background-color, #fef3c7);
+  color: var(--warning-color, #92400e);
   font-size: 0.82rem;
   line-height: 1.4;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--warning-color, #fde68a);
 }
 .error {
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fef2f2;
-  color: #991b1b;
+  background: var(--error-background-color, #fef2f2);
+  color: var(--error-color, #991b1b);
   font-size: 0.82rem;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--error-color, #fecaca);
 }
 .footer {
   padding: 14px 20px;
@@ -133,6 +141,13 @@ const css = `
   gap: 10px;
   border-top: 1px solid var(--divider-color, #e5e7eb);
   background: var(--secondary-background-color, #fafafa);
+  flex: none;
+}
+@media (max-height: 560px) {
+  .backdrop { align-items: flex-start; padding: 8px; overflow-y: auto; }
+  .modal { max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); }
+  .header, .footer { padding: 10px 14px; }
+  .body { padding: 12px 14px; gap: 10px; }
 }
 button {
   padding: 8px 16px;
@@ -350,7 +365,7 @@ class EsphomeOtaBuildDialog extends HTMLElement {
         <div class="modal">
           <div class="header">
             <h2>${escapeHtml(t(this.hass, "build_confirm_title"))}</h2>
-            <button class="btn-close" id="btn-close" aria-label="Close">
+            <button class="btn-close" id="btn-close" aria-label="${escapeHtml(t(this.hass, "close"))}">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
           </div>
@@ -373,7 +388,10 @@ class EsphomeOtaBuildDialog extends HTMLElement {
               <label for="target-version">${escapeHtml(t(this.hass, "build_target_version"))}</label>
               <input id="target-version" type="text" value="${escapeHtml(this.targetVersion)}" ${this.submitting ? "disabled" : ""} autocomplete="off" spellcheck="false">
             </div>
-            <p class="hint">${escapeHtml(t(this.hass, "build_version_hint"))}</p>
+            <div class="hint">
+              <p>${escapeHtml(t(this.hass, "build_version_hint"))}</p>
+              <details><summary>${escapeHtml(t(this.hass, "build_version_hint_more"))}</summary><p>${escapeHtml(t(this.hass, "build_version_hint_details"))}</p></details>
+            </div>
             ${this.error ? `<div class="error">${escapeHtml(this.error)}</div>` : ""}
           </div>
           <div class="footer">
