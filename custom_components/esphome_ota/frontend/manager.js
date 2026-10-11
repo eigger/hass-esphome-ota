@@ -352,6 +352,15 @@ button.danger:hover {
 .stat-val {
   font-weight: 600;
 }
+.initial-install-guidance {
+  padding: 9px 11px;
+  border: 1px solid var(--warning-color, #fcd34d);
+  border-radius: 8px;
+  background: var(--secondary-background-color, #fffbeb);
+  color: var(--primary-text-color, #78350f);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
 .binary-status {
   display: inline-flex;
   align-items: center;
@@ -1281,6 +1290,8 @@ class EsphomeOtaManager extends HTMLElement {
 
     const badgeText = t(this.hass, badgeKey);
     const isSelected = this.selectedDevices.has(dev.device_id);
+    const needsInitialInstall = dev.status === "needs_initial_install"
+      || (!dev.has_http_ota && !dev.last_installed_version);
 
     let actionButton = "";
     if (activeJob) {
@@ -1327,6 +1338,8 @@ class EsphomeOtaManager extends HTMLElement {
           </div>
         </div>
 
+        ${needsInitialInstall ? `<div class="initial-install-guidance" role="status">${escapeHtml(t(this.hass, "initial_install_card_help"))}</div>` : ""}
+
         <div class="card-actions">
           ${actionButton}
           ${dev.last_published_version && !activeJob ? (
@@ -1334,7 +1347,7 @@ class EsphomeOtaManager extends HTMLElement {
               ? `<button class="btn-hide" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_hide"))}</button>`
               : `<button class="btn-republish" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_republish"))}</button>`
           ) : ""}
-          <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_details"))}</button>
+          <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, needsInitialInstall ? "initial_install_steps" : "btn_details"))}</button>
           ${dev.is_managed ? `<button class="danger btn-remove-ota" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_remove_ota"))}</button>` : ""}
         </div>
       </div>

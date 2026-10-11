@@ -117,6 +117,16 @@ const css = `
   line-height: 1.45;
   border: 1px solid #fde68a;
 }
+.notice.success {
+  background: var(--success-background-color, #dcfce7);
+  color: var(--success-color, #166534);
+  border-color: var(--success-color, #86efac);
+}
+.notice.error {
+  background: var(--error-background-color, #fee2e2);
+  color: var(--error-color, #991b1b);
+  border-color: var(--error-color, #fca5a5);
+}
 .diff-viewer {
   background: #0f172a;
   color: #f8fafc;
@@ -149,6 +159,11 @@ const css = `
   font-weight: 600;
   color: var(--secondary-text-color, #6b7280);
   width: 35%;
+}
+.selected-file {
+  color: var(--secondary-text-color, #64748b);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }
 .binary-status {
   display: inline-flex;
@@ -259,9 +274,13 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     this.diffData = null;
     this._diffDeviceId = null;
     this._diffRequest = 0;
+    this._applyGeneration = 0;
     this._deviceRequest = 0;
     this.uploading = false;
+    this.applying = false;
+    this.selectedFirmwareFile = null;
     this.statusMessage = "";
+    this.statusType = "info";
   }
 
   async open(device, hass, tab = "diff") {
@@ -269,13 +288,17 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     const changedDevice = this.device?.device_id !== device?.device_id;
     if (changedDevice) {
       this._deviceRequest++;
+      this._applyGeneration++;
       this.uploading = false;
+      this.applying = false;
+      this.selectedFirmwareFile = null;
     }
     this.device = device;
     this.hass = hass;
     this.isOpen = true;
     this.currentTab = tab;
     this.statusMessage = "";
+    this.statusType = "info";
     if (changedDevice || tab === "diff") {
       this.diffData = null;
       this._diffDeviceId = null;
@@ -291,6 +314,8 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
   close() {
     this.isOpen = false;
     this.uploading = false;
+    this.applying = false;
+    this._applyGeneration++;
     this._diffRequest++;
     this._deviceRequest++;
     this.render();
@@ -324,27 +349,33 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         request !== this._diffRequest ||
         this.device?.device_id !== deviceId
       ) return;
-      this.statusMessage = `Failed preparing diff: ${err.message || err}`;
+      this.statusMessage = `${t(this.hass, "prepare_error")}: ${err.message || err}`;
+      this.statusType = "error";
       this.render();
     }
   }
 
   async applyDiff(andBuild = false) {
-    if (!this.diffData || this._diffDeviceId !== this.device?.device_id) return;
+    if (this.applying || !this.diffData || this._diffDeviceId !== this.device?.device_id) return;
     const targetDevice = this.device;
     const targetDeviceId = targetDevice.device_id;
-    const request = this._diffRequest;
+    const diffData = this.diffData;
+    const operation = ++this._applyGeneration;
+    this.applying = true;
+    this.statusMessage = t(this.hass, "applying_changes");
+    this.statusType = "info";
+    this.render();
     try {
       await this.hass.callWS({
         type: "esphome_ota/apply_ota",
         device_id: targetDeviceId,
-        content: this.diffData.modified,
-        expected: this.diffData.expected || this.diffData.original,
+        content: diffData.modified,
+        expected: diffData.expected || diffData.original,
       });
       const stillShowingTarget =
         this.isOpen &&
         this.device?.device_id === targetDeviceId &&
-        this._diffRequest === request;
+        this._applyGeneration === operation;
       if (andBuild && stillShowingTarget) {
         const returnFocus = this._modalReturnFocus;
         this.close();
@@ -354,30 +385,43 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           }),
         );
       } else if (stillShowingTarget) {
-        this.statusMessage = "Successfully applied OTA configuration to YAML!";
+        this.statusMessage = t(this.hass, "apply_success");
+        this.statusType = "success";
         this.render();
       }
     } catch (err) {
       if (
         this.isOpen &&
         this.device?.device_id === targetDeviceId &&
-        this._diffRequest === request
+        this._applyGeneration === operation
       ) {
-        this.statusMessage = `Apply error: ${err.message || err}`;
+        this.statusMessage = `${t(this.hass, "apply_error")}: ${err.message || err}`;
+        this.statusType = "error";
+        this.render();
+      }
+    } finally {
+      if (
+        this.isOpen &&
+        this.device?.device_id === targetDeviceId &&
+        this._applyGeneration === operation
+      ) {
+        this.applying = false;
         this.render();
       }
     }
   }
 
   async uploadFirmware(file) {
-    if (!file || !this.device) return;
+    if (this.uploading || !file || !this.device) return;
     const targetDeviceId = this.device.device_id;
     const request = this._deviceRequest;
     const stillShowingTarget = () => this.isOpen
       && this.device?.device_id === targetDeviceId
       && this._deviceRequest === request;
     this.uploading = true;
-    this.statusMessage = "Uploading and validating binary...";
+    this.selectedFirmwareFile = file;
+    this.statusMessage = t(this.hass, "uploading_firmware");
+    this.statusType = "info";
     this.render();
 
     const formData = new FormData();
@@ -395,13 +439,18 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       const data = await resp.json();
       if (!stillShowingTarget()) return;
       if (resp.ok) {
-        this.statusMessage = `Success! Published version ${data.version} (${data.size} bytes).`;
+        this.statusMessage = `${t(this.hass, "upload_success")} ${data.version} (${data.size} bytes).`;
+        this.statusType = "success";
         this.dispatchEvent(new CustomEvent("device-updated"));
       } else {
-        this.statusMessage = `Upload error: ${data.error || "Unknown error"}`;
+        this.statusMessage = `${t(this.hass, "upload_error")}: ${data.error || t(this.hass, "unknown_error")}`;
+        this.statusType = "error";
       }
     } catch (err) {
-      if (stillShowingTarget()) this.statusMessage = `Upload failed: ${err.message || err}`;
+      if (stillShowingTarget()) {
+        this.statusMessage = `${t(this.hass, "upload_error")}: ${err.message || err}`;
+        this.statusType = "error";
+      }
     } finally {
       if (stillShowingTarget()) {
         this.uploading = false;
@@ -432,7 +481,8 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       }
     } catch (err) {
       if (stillShowingTarget()) {
-        this.statusMessage = `Remove OTA error: ${err.message || err}`;
+        this.statusMessage = `${t(this.hass, "remove_ota_error")}: ${err.message || err}`;
+        this.statusType = "error";
         this.render();
       }
     }
@@ -454,11 +504,13 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       if (!stillShowingTarget()) return;
       targetDevice.has_public_binary = false;
       this.statusMessage = t(this.hass, "hide_success");
+      this.statusType = "success";
       this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
       this.render();
     } catch (err) {
       if (stillShowingTarget()) {
-        this.statusMessage = `Hide error: ${err.message || err}`;
+        this.statusMessage = `${t(this.hass, "binary_action_error")}: ${err.message || err}`;
+        this.statusType = "error";
         this.render();
       }
     }
@@ -480,11 +532,13 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       if (!stillShowingTarget()) return;
       targetDevice.has_public_binary = true;
       this.statusMessage = t(this.hass, "republish_success");
+      this.statusType = "success";
       this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
       this.render();
     } catch (err) {
       if (stillShowingTarget()) {
-        this.statusMessage = `Republish error: ${err.message || err}`;
+        this.statusMessage = `${t(this.hass, "binary_action_error")}: ${err.message || err}`;
+        this.statusType = "error";
         this.render();
       }
     }
@@ -516,10 +570,11 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         <div class="diff-viewer">${diffFormatted}</div>
       `;
     } else if (this.currentTab === "info") {
-      const needsInitial = !this.device.has_http_ota && !this.device.last_installed_version;
+      const needsInitial = this.device.status === "needs_initial_install"
+        || (!this.device.has_http_ota && !this.device.last_installed_version);
       tabContent = `
         ${needsInitial ? `
-          <div class="notice">
+          <div class="notice" role="status" aria-live="polite">
             <strong>${escapeHtml(t(this.hass, "initial_install_title"))}</strong><br>
             ${escapeHtml(t(this.hass, "initial_install_help"))}
           </div>
@@ -569,7 +624,8 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           <strong>${escapeHtml(t(this.hass, "upload_title"))}</strong><br>
           ${escapeHtml(t(this.hass, "upload_help"))}
         </div>
-        <input type="file" id="firmware-file" accept=".bin" style="margin: 12px 0;">
+        <input type="file" id="firmware-file" accept=".bin,application/octet-stream" style="margin: 12px 0;" ${this.uploading ? "disabled" : ""}>
+        <div class="selected-file" aria-live="polite">${escapeHtml(this.selectedFirmwareFile?.name || t(this.hass, "no_firmware_selected"))}</div>
       `;
     }
 
@@ -601,16 +657,16 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
             </div>
           </div>
           <div class="body">
-            ${this.statusMessage ? `<div class="notice">${escapeHtml(this.statusMessage)}</div>` : ""}
+            ${this.statusMessage ? `<div class="notice ${this.statusType}" role="${this.statusType === "error" ? "alert" : "status"}" aria-live="${this.statusType === "error" ? "assertive" : "polite"}">${escapeHtml(this.statusMessage)}</div>` : ""}
             ${tabContent}
           </div>
           <div class="footer">
             ${this.currentTab === "diff" ? `
-              <button id="btn-apply" ${!this.diffData || this._diffDeviceId !== this.device.device_id ? "disabled" : ""}>${escapeHtml(t(this.hass, "apply_changes"))}</button>
-              <button class="primary" id="btn-apply-build" ${!this.diffData || this._diffDeviceId !== this.device.device_id ? "disabled" : ""}>${escapeHtml(t(this.hass, "apply_and_build"))}</button>
+              <button id="btn-apply" ${this.applying || !this.diffData || this._diffDeviceId !== this.device.device_id ? "disabled" : ""}>${escapeHtml(t(this.hass, this.applying ? "applying_changes" : "apply_changes"))}</button>
+              <button class="primary" id="btn-apply-build" ${this.applying || !this.diffData || this._diffDeviceId !== this.device.device_id ? "disabled" : ""}>${escapeHtml(t(this.hass, this.applying ? "applying_changes" : "apply_and_build"))}</button>
             ` : ""}
             ${this.currentTab === "upload" ? `
-              <button class="primary" id="btn-upload" ${this.uploading ? "disabled" : ""}>${escapeHtml(t(this.hass, "upload_btn"))}</button>
+              <button class="primary" id="btn-upload" ${this.uploading || !this.selectedFirmwareFile ? "disabled" : ""}>${escapeHtml(t(this.hass, this.uploading ? "uploading_firmware" : "upload_btn"))}</button>
             ` : ""}
             ${this.device.is_managed && this.currentTab === "info" ? `
               <button class="danger" id="btn-remove-ota">${escapeHtml(t(this.hass, "btn_remove_ota"))}</button>
@@ -643,6 +699,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         if (tab && tab !== this.currentTab) {
           this.currentTab = tab;
           this.statusMessage = "";
+          this.statusType = "info";
           this.render();
           if (this.currentTab === "diff") this.loadDiff();
         }
@@ -656,10 +713,24 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     this.shadowRoot.querySelector(".btn-hide")?.addEventListener("click", () => this.hideBinary());
     this.shadowRoot.querySelector(".btn-republish")?.addEventListener("click", () => this.republishBinary());
     this.shadowRoot.getElementById("btn-upload")?.addEventListener("click", () => {
-      const fileInput = this.shadowRoot.getElementById("firmware-file");
-      if (fileInput && fileInput.files && fileInput.files[0]) {
-        this.uploadFirmware(fileInput.files[0]);
+      if (this.selectedFirmwareFile) this.uploadFirmware(this.selectedFirmwareFile);
+    });
+    this.shadowRoot.getElementById("firmware-file")?.addEventListener("change", (event) => {
+      if (this.uploading) {
+        this.render();
+        return;
       }
+      const file = event.target.files?.[0] || null;
+      if (file && !file.name.toLowerCase().endsWith(".bin")) {
+        this.selectedFirmwareFile = null;
+        this.statusMessage = t(this.hass, "firmware_bin_required");
+        this.statusType = "error";
+      } else {
+        this.selectedFirmwareFile = file;
+        this.statusMessage = "";
+        this.statusType = "info";
+      }
+      this.render();
     });
   }
 
