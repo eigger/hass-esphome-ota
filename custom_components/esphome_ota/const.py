@@ -21,7 +21,7 @@ STORAGE_KEY_MIGRATION = f"{DOMAIN}.migration"
 # Panel & Frontend
 PANEL_NAME = "esphome-ota"
 PANEL_TITLE = "ESPHome OTA"
-PANEL_ICON = "mdi:cellphone-arrow-down"
+PANEL_ICON = "mdi:publish"
 FRONTEND_URL_PATH = "/esphome_ota_frontend"
 
 # Connection Statuses

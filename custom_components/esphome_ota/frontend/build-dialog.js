@@ -104,6 +104,31 @@ const css = `
   color: inherit;
   box-sizing: border-box;
 }
+.field select {
+  width: 100%;
+  padding: 9px 10px;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--divider-color, #cbd5e1);
+  background: var(--card-background-color, #ffffff);
+  color: inherit;
+}
+.template-preview {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--secondary-background-color, #f8fafc);
+  border: 1px solid var(--divider-color, #e2e8f0);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.template-preview > span { display: block; color: var(--secondary-text-color, #64748b); }
+.template-value { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }
+.template-value code { font-size: 0.9rem; font-weight: 600; overflow-wrap: anywhere; }
+.template-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.template-actions select { max-width: 150px; }
+.template-actions button { padding: 6px 10px; }
+.template-manual { margin: 0; color: var(--secondary-text-color, #64748b); }
 .field input:disabled {
   opacity: 0.7;
   background: var(--secondary-background-color, #f1f5f9);
@@ -217,61 +242,75 @@ const DATE_SEP_RE =
 const DATE_COMPACT_RE =
   /^(20\d\d(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01]))(?:\.(\d+))?$/;
 
-function bumpPatchVersion(version) {
-  const text = String(version || "").trim().replace(/"/g, "");
-  if (!text) {
-    return "1.0.0";
-  }
-  const sepMatch = text.match(DATE_SEP_RE);
-  if (sepMatch) {
-    const base = sepMatch[1];
-    const seq = sepMatch[5];
-    return seq !== undefined ? `${base}.${Number(seq) + 1}` : `${base}.1`;
-  }
-  const compactMatch = text.match(DATE_COMPACT_RE);
-  if (compactMatch) {
-    const base = compactMatch[1];
-    const seq = compactMatch[4];
-    return seq !== undefined ? `${base}.${Number(seq) + 1}` : `${base}.1`;
-  }
-  const dotParts = text.split(".");
-  if (dotParts.length === 1 && /^\d+$/.test(dotParts[0])) {
-    return `${dotParts[0]}.0.1`;
-  }
-  if (
-    dotParts.length === 2 &&
-    /^\d+$/.test(dotParts[0]) &&
-    /^\d+$/.test(dotParts[1])
-  ) {
-    return `${dotParts[0]}.${dotParts[1]}.1`;
-  }
-  const parts = text.split(/(\d+)/);
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (/^\d+$/.test(parts[i])) {
-      parts[i] = String(Number(parts[i]) + 1);
-      return parts.join("");
+function parseDateVersion(version) {
+  const text = String(version || "").trim().replace(/^['"]|['"]$/g, "");
+  let year, month, day, revision;
+  let match = text.match(/^(\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:\.(\d+))?$/);
+  if (match) {
+    year = 2000 + Number(match[1]);
+    month = Number(match[2]);
+    day = Number(match[3]);
+    revision = Number(match[4] || 0);
+  } else {
+    match = text.match(DATE_COMPACT_RE) || text.match(DATE_SEP_RE);
+    if (match) {
+      const date = match[1].replace(/[-.]/g, "");
+      year = Number(date.slice(0, 4));
+      month = Number(date.slice(4, 6));
+      day = Number(date.slice(6, 8));
+      revision = Number(match[5] || match[4] || 0);
+    } else {
+      match = text.match(/^v(\d{2})(\d{2})(\d{2})\s+rev\.(\d+)$/i);
+      if (!match) return null;
+      year = 2000 + Number(match[1]);
+      month = Number(match[2]);
+      day = Number(match[3]);
+      revision = Number(match[4]);
     }
   }
-  return `${text}.1`;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return { key: `${String(year).slice(-2)}${String(month).padStart(2, "0")}${String(day).padStart(2, "0")}`, revision };
 }
 
-function suggestTargetVersion(device) {
-  const own = device?.own_project_version;
-  const published = device?.last_published_version;
-  const installed = device?.last_installed_version;
+function parseSemver(version) {
+  const text = String(version || "").trim().replace(/^['"]|['"]$/g, "");
+  if (parseDateVersion(text)) return null;
+  const match = text.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  return match ? match.slice(1).map(Number) : null;
+}
 
-  if (own) {
-    // If own version is distinct from what is currently installed/published,
-    // the user might have intentionally bumped it in YAML.
-    if ((!installed || own !== installed) && (!published || own !== published)) {
-      return own;
-    }
-    // If own version is what is currently running/published, suggest the next bump.
-    return bumpPatchVersion(own);
-  }
-  if (published) return bumpPatchVersion(published);
-  if (installed) return bumpPatchVersion(installed);
-  return device?.managed_version || "1.0.0";
+function currentDateKey(timeZone) {
+  const options = { year: "numeric", month: "2-digit", day: "2-digit" };
+  if (timeZone) options.timeZone = timeZone;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", options).formatToParts(new Date()).map(({ type, value }) => [type, value])
+  );
+  return `${parts.year.slice(-2)}${parts.month}${parts.day}`;
+}
+
+function currentYamlVersion(device) {
+  return device?.own_project_version || device?.managed_version || device?.last_published_version || device?.last_installed_version || "1.0.0";
+}
+
+function suggestDateVersion(device, today) {
+  const revisions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version, device?.managed_version]
+    .map(parseDateVersion)
+    .filter((version) => version?.key === today)
+    .map((version) => version.revision);
+  return `${today}.${Math.max(0, ...revisions) + 1}`;
+}
+
+function suggestSemver(device, increment) {
+  const versions = [device?.last_installed_version, device?.last_published_version, device?.own_project_version, device?.managed_version]
+    .map(parseSemver)
+    .filter(Boolean)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  if (!versions.length) return "1.0.0";
+  const [major, minor, patch] = versions[versions.length - 1];
+  if (increment === "major") return `${major + 1}.0.0`;
+  if (increment === "minor") return `${major}.${minor + 1}.0`;
+  return `${major}.${minor}.${patch + 1}`;
 }
 
 class EsphomeOtaBuildDialog extends HTMLElement {
@@ -282,6 +321,8 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.device = null;
     this.hass = null;
     this.targetVersion = "";
+    this.versionTemplate = "manual";
+    this.versionIncrement = "patch";
     this.submitting = false;
     this.error = "";
     this._sessionId = 0;
@@ -296,7 +337,9 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.isOpen = true;
     this.submitting = false;
     this.error = "";
-    this.targetVersion = suggestTargetVersion(device);
+    this.versionTemplate = "manual";
+    this.versionIncrement = "patch";
+    this.targetVersion = currentYamlVersion(device);
     this.render();
   }
 
@@ -367,6 +410,13 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     const d = this.device;
     const installed = d.last_installed_version || "—";
     const published = d.last_published_version || "—";
+    const dateExample = "261012.1";
+    const semverExample = "1.2.3";
+    const dateSuggestion = suggestDateVersion(d, currentDateKey(this.hass?.config?.time_zone));
+    const semverSuggestion = suggestSemver(d, this.versionIncrement);
+    const isManual = this.versionTemplate === "manual";
+    const example = this.versionTemplate === "date" ? dateExample : semverExample;
+    const suggestion = this.versionTemplate === "date" ? dateSuggestion : semverSuggestion;
 
     captureModalFocus(this);
     this.shadowRoot.innerHTML = `
@@ -392,6 +442,30 @@ class EsphomeOtaBuildDialog extends HTMLElement {
               <div class="version-card">
                 <span class="version-label">${escapeHtml(t(this.hass, "published_version"))}</span>
                 <span class="version-value">${escapeHtml(published)}</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="version-template">${escapeHtml(t(this.hass, "version_template_label"))}</label>
+              <select id="version-template" ${this.submitting ? "disabled" : ""}>
+                <option value="manual" ${isManual ? "selected" : ""}>${escapeHtml(t(this.hass, "version_template_manual"))}</option>
+                <option value="date" ${this.versionTemplate === "date" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_template_date"))}</option>
+                <option value="semver" ${this.versionTemplate === "semver" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_template_semver"))}</option>
+              </select>
+              <div class="template-preview">
+                ${isManual
+                  ? `<p class="template-manual">${escapeHtml(t(this.hass, "version_template_manual_help"))}</p><span>${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(t(this.hass, "version_template_manual_example"))}</span>`
+                  : `<span>${escapeHtml(t(this.hass, "version_template_example"))}: ${escapeHtml(example)}</span>
+                    <div class="template-value"><span>${escapeHtml(t(this.hass, "version_template_suggestion"))}</span><code>${escapeHtml(suggestion)}</code></div>
+                    <div class="template-actions">
+                      ${this.versionTemplate === "semver"
+                        ? `<select id="version-increment" aria-label="${escapeHtml(t(this.hass, "version_increment_label"))}" ${this.submitting ? "disabled" : ""}>
+                            <option value="patch" ${this.versionIncrement === "patch" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_patch"))}</option>
+                            <option value="minor" ${this.versionIncrement === "minor" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_minor"))}</option>
+                            <option value="major" ${this.versionIncrement === "major" ? "selected" : ""}>${escapeHtml(t(this.hass, "version_increment_major"))}</option>
+                          </select>`
+                        : `<span>${escapeHtml(t(this.hass, "version_template_date_help"))}</span>`}
+                      <button id="btn-apply-template" ${this.submitting ? "disabled" : ""}>${escapeHtml(t(this.hass, "version_template_apply"))}</button>
+                    </div>`}
               </div>
             </div>
             <div class="field">
@@ -430,6 +504,28 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-start")?.addEventListener("click", () => this.confirmBuild());
+
+    const templateSelect = this.shadowRoot.getElementById("version-template");
+    templateSelect?.addEventListener("change", (event) => {
+      this.versionTemplate = event.target.value;
+      this.render();
+      this.shadowRoot.getElementById("version-template")?.focus();
+    });
+    const incrementSelect = this.shadowRoot.getElementById("version-increment");
+    incrementSelect?.addEventListener("change", (event) => {
+      this.versionIncrement = event.target.value;
+      this.render();
+      this.shadowRoot.getElementById("version-increment")?.focus();
+    });
+    this.shadowRoot.getElementById("btn-apply-template")?.addEventListener("click", () => {
+      this.targetVersion = this.versionTemplate === "date"
+        ? suggestDateVersion(this.device, currentDateKey(this.hass?.config?.time_zone))
+        : suggestSemver(this.device, this.versionIncrement);
+      this.render();
+      const input = this.shadowRoot.getElementById("target-version");
+      input?.focus();
+      input?.select();
+    });
 
     const input = this.shadowRoot.getElementById("target-version");
     input?.addEventListener("input", (e) => {
