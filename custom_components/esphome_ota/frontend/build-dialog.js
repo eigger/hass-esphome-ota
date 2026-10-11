@@ -93,7 +93,7 @@ const css = `
   font-weight: 600;
   margin-bottom: 6px;
 }
-.field input {
+.field input[type="text"] {
   width: 100%;
   padding: 10px 12px;
   font-size: 1rem;
@@ -126,13 +126,13 @@ const css = `
   line-height: 1.45;
 }
 .template-option.selected { border-color: var(--primary-color, #0284c7); box-shadow: inset 0 0 0 1px var(--primary-color, #0284c7); }
-.template-option input[type="radio"] { margin: 3px 0 0; accent-color: var(--primary-color, #0284c7); }
+.template-option input[type="radio"] { flex: none; width: auto; padding: 0; margin: 3px 0 0; accent-color: var(--primary-color, #0284c7); }
 .template-option-content { flex: 1; min-width: 0; }
 .template-option label { display: block; font-weight: 600; cursor: pointer; }
 .template-example, .template-next { display: block; margin-top: 2px; color: var(--secondary-text-color, #64748b); }
 .template-next code { color: var(--primary-text-color, #1f2937); font-size: 0.88rem; font-weight: 600; overflow-wrap: anywhere; }
 .template-option select { max-width: 150px; margin-top: 7px; }
-.field input:disabled {
+.field input[type="text"]:disabled {
   opacity: 0.7;
   background: var(--secondary-background-color, #f1f5f9);
 }
