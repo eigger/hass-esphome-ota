@@ -3,7 +3,7 @@
  */
 
 import { t } from "./i18n.js";
-import { definePanelElement } from "./elements.js";
+import { bindModalAccessibility, captureModalFocus, definePanelElement, rememberModalFocus, restoreModalFocus } from "./elements.js";
 
 const css = `
 :host {
@@ -269,7 +269,9 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this._hasInitialScrolled = false;
   }
 
-  open(job, hass) {
+  open(job, hass, returnFocus = undefined) {
+    if (!this.isOpen) rememberModalFocus(this);
+    if (returnFocus !== undefined) this._modalReturnFocus = returnFocus;
     this.job = job;
     this.hass = hass;
     this.isOpen = true;
@@ -280,6 +282,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
   close() {
     this.isOpen = false;
     this.render();
+    restoreModalFocus(this);
   }
 
   updateJob(job) {
@@ -347,6 +350,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
     const isRunning = ["preparing", "validating", "submitting", "queued", "building", "downloading", "verifying", "publishing"].includes(stage);
     const isRecovery = stage === "recovery_required";
 
+    captureModalFocus(this);
     this.shadowRoot.innerHTML = `
       <style>${css}</style>
       <div class="backdrop" id="backdrop">
@@ -373,6 +377,8 @@ class EsphomeOtaJobDialog extends HTMLElement {
         </div>
       </div>
     `;
+
+    bindModalAccessibility(this, () => this.close());
 
     const terminalEl = this.shadowRoot.getElementById("terminal");
     if (terminalEl) {

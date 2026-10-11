@@ -98,8 +98,21 @@ class StorageManager:
         """Atomically record or update a single device's published artifact in storage."""
         async with self._artifact_lock:
             data = await self._artifact_store.async_load()
-            current: dict[str, Any] = data if isinstance(data, dict) else {}
+            current: dict[str, Any] = dict(data) if isinstance(data, dict) else {}
             current[device_id] = artifact.to_dict()
+            await self._artifact_store.async_save(current)
+
+    async def async_restore_artifact(
+        self, device_id: str, artifact: PublishedArtifact | None
+    ) -> None:
+        """Atomically restore or remove one device's artifact record."""
+        async with self._artifact_lock:
+            data = await self._artifact_store.async_load()
+            current: dict[str, Any] = dict(data) if isinstance(data, dict) else {}
+            if artifact is None:
+                current.pop(device_id, None)
+            else:
+                current[device_id] = artifact.to_dict()
             await self._artifact_store.async_save(current)
 
     async def async_load_migration(self) -> dict[str, Any]:

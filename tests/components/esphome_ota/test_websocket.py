@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.core import HomeAssistant
@@ -282,6 +283,8 @@ async def test_set_token_syncs_yaml_and_republishes(
     hass: HomeAssistant,
     hass_ws_client: any,
     mock_config_entry: MockConfigEntry,
+    mock_builder: MockBuilderServer,
+    tmp_path: Path,
 ) -> None:
     """Set token should update YAML using update_config and republish artifact without error."""
     mock_config_entry.add_to_hass(hass)
@@ -319,6 +322,8 @@ async def test_set_token_syncs_yaml_and_republishes(
         pub_bin = manager.publisher.www_dir / f"{old_slug}.ota.bin"
         pub_bin.parent.mkdir(parents=True, exist_ok=True)
         pub_bin.write_bytes(b"dummy_bin")
+        private_bin = tmp_path / "firmware.ota.bin"
+        private_bin.write_bytes(mock_builder.binary_blob)
 
         # Mock artifact in storage
         from custom_components.esphome_ota.models import PublishedArtifact
@@ -331,33 +336,42 @@ async def test_set_token_syncs_yaml_and_republishes(
             md5="1234567890abcdef",
             sha256="abcdef1234567890",
             published_at="2026-10-10T00:00:00Z",
-            private_path="/tmp/fake.bin",
+            private_path=str(private_bin),
             public_bin_path=str(pub_bin),
             public_manifest_path="/tmp/fake.json",
         )
         await manager.storage.async_save_artifacts({"esp-tab": art})
 
-        with patch.object(manager.job_runner, "async_republish", new_callable=AsyncMock) as mock_repub:
-            ws = await hass_ws_client(hass)
-            await ws.send_json(
-                {"id": 40, "type": "esphome_ota/set_token", "device_id": "esp-tab", "token": "new_tok"}
-            )
+        ws = await hass_ws_client(hass)
+        await ws.send_json(
+            {
+                "id": 40,
+                "type": "esphome_ota/set_token",
+                "device_id": "esp-tab",
+                "token": "new_tok",
+            }
+        )
+        msg = await ws.receive_json()
+        while msg.get("type") == "event":
             msg = await ws.receive_json()
-            while msg.get("type") == "event":
-                msg = await ws.receive_json()
 
-            assert msg["success"] is True
-            assert msg["result"]["token"] == "new_tok"
-            assert msg["result"]["slug"] == "esp-tab_new_tok"
+        assert msg["success"] is True
+        assert msg["result"]["token"] == "new_tok"
+        assert msg["result"]["slug"] == "esp-tab_new_tok"
 
-            # Check YAML update_config called
-            mock_client.update_config.assert_called_once()
-            call_args = mock_client.update_config.call_args
-            assert "esp-tab_new_tok" in call_args[0][1]
+        # Check YAML update_config called
+        mock_client.update_config.assert_called_once()
+        call_args = mock_client.update_config.call_args
+        assert "esp-tab_new_tok" in call_args[0][1]
 
-            # Check republish called
-            mock_repub.assert_called_once()
-            await ws.close()
+        # The token rotation republishes the recoverable private artifact under
+        # the new slug and retires the prior public binary.
+        assert not pub_bin.exists()
+        new_public_bin = manager.publisher.www_dir / "esp-tab_new_tok.ota.bin"
+        assert new_public_bin.is_file()
+        artifacts = await manager.storage.async_load_artifacts()
+        assert artifacts["esp-tab"].public_bin_path == str(new_public_bin)
+        await ws.close()
 
 
 

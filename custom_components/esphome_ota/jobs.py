@@ -51,6 +51,12 @@ from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _is_unresolved_version(version: str | None) -> bool:
+    """Return whether a version still contains an ESPHome substitution template."""
+    return bool(version and ("$" in version or "{" in version or "}" in version))
+
+
 # Mirrors legacy server.py _ANSI_RE: strip ANSI and CSI escape sequences from logs
 _ANSI_STRIP_RE = re.compile(r"(\x1b|\033|\\033)\[[0-?]*[ -/]*[@-~]")
 
@@ -399,29 +405,25 @@ class JobRunner:
                     blob=blob,
                     target_platform=device.target_platform,
                     expected_chip=device.chip_family,
-                    reserved_version=job.reserved_version,
+                    reserved_version=(
+                        None
+                        if _is_unresolved_version(job.reserved_version)
+                        else job.reserved_version
+                    ),
                 )
                 is_user_owned = device.own_project_version is not None or (
-                    job.reserved_version
-                    and ("$" in job.reserved_version or "{" in job.reserved_version)
+                    _is_unresolved_version(job.reserved_version)
                 )
 
-                # Authoritative version handling (mirrors legacy server.py):
-                # When binary contains an authoritative version, trust it and publish it
-                # rather than aborting the entire build.
+                # Concrete reserved versions must match the binary. Template values
+                # cannot be compared until ESPHome resolves them during compilation.
                 if (
                     job.reserved_version
+                    and not _is_unresolved_version(job.reserved_version)
                     and info.authoritative_version != job.reserved_version
                 ):
-                    _LOGGER.warning(
-                        "Compiled binary version '%s' differs from planned version '%s' for %s — publishing binary's authoritative version",
-                        info.authoritative_version,
-                        job.reserved_version,
-                        device.configuration,
-                    )
-                    job.log_tail.append(
-                        f"⚠️ Compiled binary reports version '{info.authoritative_version}' (differed from planned '{job.reserved_version}') — "
-                        "publishing binary's authoritative value since device will report it after flashing"
+                    raise BuilderError(
+                        f"Compiled binary version '{info.authoritative_version}' differs from planned version '{job.reserved_version}' for {device.configuration}; refusing to publish"
                     )
 
                 job.reserved_version = info.authoritative_version
@@ -737,26 +739,23 @@ class JobRunner:
                     blob=blob,
                     target_platform=device.target_platform,
                     expected_chip=device.chip_family,
-                    reserved_version=job.reserved_version,
+                    reserved_version=(
+                        None
+                        if _is_unresolved_version(job.reserved_version)
+                        else job.reserved_version
+                    ),
                 )
                 is_user_owned = device.own_project_version is not None or (
-                    job.reserved_version
-                    and ("$" in job.reserved_version or "{" in job.reserved_version)
+                    _is_unresolved_version(job.reserved_version)
                 )
 
                 if (
                     job.reserved_version
+                    and not _is_unresolved_version(job.reserved_version)
                     and info.authoritative_version != job.reserved_version
                 ):
-                    _LOGGER.warning(
-                        "Compiled binary version '%s' differs from planned version '%s' for %s — publishing binary's authoritative version",
-                        info.authoritative_version,
-                        job.reserved_version,
-                        device.configuration,
-                    )
-                    job.log_tail.append(
-                        f"⚠️ Compiled binary reports version '{info.authoritative_version}' (differed from planned '{job.reserved_version}') — "
-                        "publishing binary's authoritative value since device will report it after flashing"
+                    raise BuilderError(
+                        f"Compiled binary version '{info.authoritative_version}' differs from planned version '{job.reserved_version}' for {device.configuration}; refusing to publish"
                     )
 
                 job.reserved_version = info.authoritative_version

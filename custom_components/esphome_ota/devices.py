@@ -41,6 +41,7 @@ class DeviceManager:
         self._managed_devices: dict[str, ManagedDevice] = {}
         self._builder_devices: list[dict[str, Any]] = []
         self._device_locks: dict[str, asyncio.Lock] = {}
+        self._registration_lock = asyncio.Lock()
 
     def get_lock(self, device_id: str) -> asyncio.Lock:
         """Return a persistent asyncio.Lock for a specific device."""
@@ -331,59 +332,66 @@ class DeviceManager:
         yaml_mode: str | None = None,
     ) -> ManagedDevice:
         """Register a new managed device or update existing record."""
-        clean_dev_id = device_id.replace(".yaml", "")
-        clean_config = (
-            configuration
-            if configuration.endswith(".yaml")
-            else f"{configuration}.yaml"
-        )
-        existing = self._managed_devices.get(clean_dev_id)
-        chip, _ = chip_family(target_platform)
-
-        if existing:
-            existing.configuration = clean_config
-            existing.name = name
-            existing.friendly_name = friendly_name
-            existing.target_platform = target_platform
-            if chip:
-                existing.chip_family = chip
-            if own_project_version is not None:
-                existing.own_project_version = own_project_version
-            if managed_version is not None:
-                existing.managed_version = managed_version
-            if yaml_mode is not None:
-                existing.yaml_mode = yaml_mode
-            if token is not None:
-                existing.token = token
-                existing.slug = f"{name}_{token}" if token else name
-            if has_http_ota:
-                existing.has_http_ota = True
-            existing.status = self._calculate_status(existing)
-            existing.updated_at = datetime.now(timezone.utc).isoformat()
-            device = existing
-        else:
-            # Mint 32-char hex token for fresh device
-            assigned_token = token if token is not None else secrets.token_hex(16)
-            slug = f"{name}_{assigned_token}" if assigned_token else name
-            device = ManagedDevice(
-                device_id=clean_dev_id,
-                configuration=clean_config,
-                name=name,
-                friendly_name=friendly_name,
-                token=assigned_token,
-                slug=slug,
-                target_platform=target_platform,
-                chip_family=chip or "ESP32",
-                yaml_mode=yaml_mode or YAML_MODE_INLINE_PACKAGE,
-                own_project_version=own_project_version,
-                managed_version=managed_version or "1.0.0",
-                has_http_ota=has_http_ota,
+        async with self._registration_lock:
+            clean_dev_id = device_id.replace(".yaml", "")
+            clean_config = (
+                configuration
+                if configuration.endswith(".yaml")
+                else f"{configuration}.yaml"
             )
-            device.status = self._calculate_status(device)
-            self._managed_devices[clean_dev_id] = device
+            existing = self._managed_devices.get(clean_dev_id)
+            chip, _ = chip_family(target_platform)
 
-        await self.storage.async_save_devices(self._managed_devices)
-        return device
+            if existing:
+                existing.configuration = clean_config
+                existing.name = name
+                existing.friendly_name = friendly_name
+                existing.target_platform = target_platform
+                if chip:
+                    existing.chip_family = chip
+                if own_project_version is not None:
+                    existing.own_project_version = own_project_version
+                if managed_version is not None:
+                    existing.managed_version = managed_version
+                if yaml_mode is not None:
+                    existing.yaml_mode = yaml_mode
+                if token is not None:
+                    existing.token = token
+                    existing.slug = f"{name}_{token}" if token else name
+                if has_http_ota:
+                    existing.has_http_ota = True
+                existing.status = self._calculate_status(existing)
+                existing.updated_at = datetime.now(timezone.utc).isoformat()
+                device = existing
+            else:
+                # Mint 32-char hex token for fresh device
+                assigned_token = token if token is not None else secrets.token_hex(16)
+                slug = f"{name}_{assigned_token}" if assigned_token else name
+                device = ManagedDevice(
+                    device_id=clean_dev_id,
+                    configuration=clean_config,
+                    name=name,
+                    friendly_name=friendly_name,
+                    token=assigned_token,
+                    slug=slug,
+                    target_platform=target_platform,
+                    chip_family=chip or "ESP32",
+                    yaml_mode=yaml_mode or YAML_MODE_INLINE_PACKAGE,
+                    own_project_version=own_project_version,
+                    managed_version=managed_version or "1.0.0",
+                    has_http_ota=has_http_ota,
+                )
+                device.status = self._calculate_status(device)
+                # Persist a candidate mapping before exposing the newly-created
+                # record in memory. A storage failure must not leave a phantom
+                # device that later rollback code could mistake for an old record.
+                candidate_devices = {**self._managed_devices, clean_dev_id: device}
+                await self.storage.async_save_devices(candidate_devices)
+                self._managed_devices[clean_dev_id] = device
+                return device
+
+            await self.storage.async_save_devices(self._managed_devices)
+            return device
 
     async def async_mark_published(
         self,

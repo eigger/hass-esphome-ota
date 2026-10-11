@@ -434,6 +434,8 @@ class EsphomeOtaManager extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this.devices = [];
+    this.devicesLoaded = false;
+    this.initialLoadError = false;
     this.jobs = [];
     this.candidates = [];
     this.status = "discovering";
@@ -444,6 +446,8 @@ class EsphomeOtaManager extends HTMLElement {
     this._filterDefaulted = false;
     this.selectedDevices = new Set();
     this._unsubEvents = null;
+    this._subscriptionAttempted = false;
+    this._subscriptionPending = false;
     this._domInitialized = false;
     this._migrationPreview = null;
     this._dismissedMigration = false;
@@ -509,7 +513,6 @@ class EsphomeOtaManager extends HTMLElement {
     this._initDom();
     this.render();
     if (this._hass) {
-      this.loadInitialData();
       if (!this._unsubEvents) {
         this.subscribe();
       }
@@ -524,23 +527,10 @@ class EsphomeOtaManager extends HTMLElement {
       this._unsubEvents();
       this._unsubEvents = null;
     }
+    this._subscriptionAttempted = false;
   }
 
-  async loadInitialData() {
-    try {
-      const res = await this.hass.callWS({ type: "esphome_ota/status" });
-      if (res) {
-        if (res.version) this._backendVersion = res.version;
-        if (res.status !== undefined) this.status = res.status;
-        if (res.candidates !== undefined) this.candidates = res.candidates;
-        if (res.devices) this.devices = res.devices;
-        if (res.jobs) this.jobs = res.jobs;
-        this.render();
-      }
-    } catch (err) {
-      console.debug("Initial status fetch error:", err);
-    }
-
+  async loadMigrationPreview() {
     try {
       const mig = await this.hass.callWS({ type: "esphome_ota/migrate_preview" });
       if (mig) {
@@ -553,15 +543,48 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   async subscribe() {
+    if (this._subscriptionAttempted || this._subscriptionPending) return;
+    this._subscriptionAttempted = true;
+    this._subscriptionPending = true;
     try {
       this._unsubEvents = await this.hass.connection.subscribeMessage(
         (msg) => this.handleEvent(msg),
         { type: "esphome_ota/subscribe" }
       );
-      await this.loadInitialData();
+      await this.loadMigrationPreview();
     } catch (err) {
       console.error("Subscription error:", err);
+      await this.loadInitialFallback();
+    } finally {
+      this._subscriptionPending = false;
     }
+  }
+
+  async loadInitialFallback() {
+    const [statusResult, devicesResult] = await Promise.allSettled([
+      this.hass.callWS({ type: "esphome_ota/status" }),
+      this.hass.callWS({ type: "esphome_ota/devices" }),
+    ]);
+
+    if (statusResult.status === "fulfilled") {
+      const status = statusResult.value;
+      this.status = status.status || this.status;
+      this.builder = status.builder || null;
+      this.candidates = status.candidates || [];
+      if (status.version) this._backendVersion = status.version;
+    }
+    if (devicesResult.status === "fulfilled") {
+      this.devices = devicesResult.value.devices || [];
+    } else {
+      console.error("Initial devices fallback error:", devicesResult.reason);
+      this.devices = [];
+      this.initialLoadError = true;
+    }
+
+    this.devicesLoaded = true;
+    this._updateVersionTag();
+    this.render();
+    await this.loadMigrationPreview();
   }
 
   handleEvent(msg) {
@@ -569,9 +592,11 @@ class EsphomeOtaManager extends HTMLElement {
     const { event, data } = msg;
     if (event === "snapshot" && data) {
       if (data.version) this._backendVersion = data.version;
+      this.initialLoadError = false;
       this.status = data.status || this.status;
       if (data.candidates) this.candidates = data.candidates;
       this.devices = data.devices || [];
+      this.devicesLoaded = true;
       this.jobs = data.jobs || [];
       this.render();
     } else if (event === "status_changed" && data) {
@@ -581,10 +606,12 @@ class EsphomeOtaManager extends HTMLElement {
       this._renderSelectionBanner();
     } else if (event === "devices_updated" && data) {
       this.devices = data.devices || [];
+      this.devicesLoaded = true;
       this._renderDeviceList();
     } else if (event === "installation_verified" && data) {
       if (data.devices) {
         this.devices = data.devices;
+        this.devicesLoaded = true;
       }
       this._renderDeviceList();
     } else if (event === "job_updated" && data) {
@@ -602,6 +629,7 @@ class EsphomeOtaManager extends HTMLElement {
     } else if (msg.status !== undefined) {
       this.status = msg.status;
       this.devices = msg.devices || [];
+      this.devicesLoaded = true;
       this.jobs = msg.jobs || [];
       this.render();
     }
@@ -610,18 +638,24 @@ class EsphomeOtaManager extends HTMLElement {
   async refresh() {
     try {
       await this.hass.callWS({ type: "esphome_ota/reconnect" });
+      if (!this._unsubEvents && !this._subscriptionPending) {
+        this._subscriptionAttempted = false;
+        await this.subscribe();
+      }
     } catch (err) {
       console.error("Refresh error:", err);
     }
   }
 
-  async buildDevice(device) {
+  async buildDevice(device, returnFocus = undefined) {
     const activeJob = this._getActiveJob(device.device_id);
     if (activeJob) {
-      this.openJobDialog(activeJob);
+      this.openJobDialog(activeJob, returnFocus);
       return;
     }
-    this.shadowRoot.querySelector("esphome-ota-build-dialog")?.open(device, this.hass);
+    this.shadowRoot
+      .querySelector("esphome-ota-build-dialog")
+      ?.open(device, this.hass, returnFocus);
   }
 
   openBuildStarted(detail) {
@@ -633,7 +667,7 @@ class EsphomeOtaManager extends HTMLElement {
       reserved_version: detail.target_version,
       log_tail: [],
     };
-    this.openJobDialog(job);
+    this.openJobDialog(job, detail.returnFocus);
   }
 
   async batchBuild() {
@@ -654,9 +688,9 @@ class EsphomeOtaManager extends HTMLElement {
     }
   }
 
-  openJobDialog(job) {
+  openJobDialog(job, returnFocus = undefined) {
     const dialog = this.shadowRoot.querySelector("esphome-ota-job-dialog");
-    dialog?.open(job, this.hass);
+    dialog?.open(job, this.hass, returnFocus);
   }
 
   openDeviceDialog(device, tab = "diff") {
@@ -732,7 +766,9 @@ class EsphomeOtaManager extends HTMLElement {
 
     const devDialog = this.shadowRoot.querySelector("esphome-ota-device-dialog");
     devDialog?.addEventListener("start-build", (e) => {
-      if (e.detail?.device) this.buildDevice(e.detail.device);
+      if (e.detail?.device) {
+        this.buildDevice(e.detail.device, e.detail.returnFocus);
+      }
     });
     devDialog?.addEventListener("device-updated", () => {
       this.refresh();
@@ -954,9 +990,19 @@ class EsphomeOtaManager extends HTMLElement {
     });
 
     if (filtered.length === 0) {
+      let emptyMessage;
+      if (!this.devicesLoaded) {
+        emptyMessage = t(this.hass, "empty_loading");
+      } else if (this.initialLoadError) {
+        emptyMessage = t(this.hass, "empty_load_error");
+      } else if (this.devices.length === 0) {
+        emptyMessage = t(this.hass, "empty_no_devices");
+      } else {
+        emptyMessage = t(this.hass, "empty_no_matches");
+      }
       container.innerHTML = `
         <div class="empty-state">
-          <p>No devices matching criteria.</p>
+          <p>${escapeHtml(emptyMessage)}</p>
         </div>
       `;
       return;
@@ -1088,6 +1134,7 @@ class EsphomeOtaManager extends HTMLElement {
         const res = await this.hass.callWS({ type: "esphome_ota/devices" });
         if (Array.isArray(res)) this.devices = res;
         else if (res?.devices) this.devices = res.devices;
+        this.devicesLoaded = true;
       } catch (_err) {
         // devices_updated subscription will refresh the list
       }

@@ -2,7 +2,7 @@
 
 Specifically verifies:
 1. bump_patch_version matches legacy bump_version behavior (v260901 rev.1 -> rev.2, dates, semver).
-2. Authoritative binary version is published even when different from reserved version (no crash).
+2. A compiled binary version mismatch is rejected before publication.
 3. Automatic managed_version advance after successful publish (advance_registered_version).
 4. Build log sanitization strips ANSI escape sequences, literal 033, and tofu characters.
 5. Explicit compile failure/cancellation/false status is not bypassed by success logs in stream.
@@ -24,7 +24,7 @@ from custom_components.esphome_ota.config_patch import (
     bump_patch_version,
     set_project_version,
 )
-from custom_components.esphome_ota.const import STAGE_PUBLISHED
+from custom_components.esphome_ota.const import STAGE_FAILED
 from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.jobs import JobRunner, _clean_log_line
 from custom_components.esphome_ota.models import BuilderError
@@ -120,15 +120,11 @@ def test_clean_log_line() -> None:
     assert _clean_log_line(raw4) == "[01m[K../src/components/ledc.cpp"
 
 
-async def test_job_runner_publishes_authoritative_binary_version_and_advances(
+async def test_job_runner_rejects_authoritative_binary_version_mismatch(
     hass: HomeAssistant,
     mock_builder: MockBuilderServer,
 ) -> None:
-    """Verify that when compiled binary reports a version different from reserved version,
-
-    the pipeline does not crash with BinaryValidationError, publishes the binary version,
-    and advances managed_version for the next build.
-    """
+    """A binary whose version differs from the requested version must not publish."""
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_parity_test")
@@ -160,14 +156,16 @@ async def test_job_runner_publishes_authoritative_binary_version_and_advances(
 
         job = runner.get_job(job_id)
         assert job is not None
-        assert job.stage == STAGE_PUBLISHED
-        assert job.error is None
-        assert job.binary_version == "1.0.0"
+        assert job.stage == STAGE_FAILED
+        assert job.error is not None
+        assert "differs from planned version" in job.error
+        assert job.binary_version is None
 
         updated_dev = device_manager.get_device("livingroom")
         assert updated_dev is not None
-        assert updated_dev.last_published_version == "1.0.0"
-        assert updated_dev.managed_version == "1.0.1"
+        assert updated_dev.last_published_version is None
+        assert updated_dev.managed_version == "9.9.9"
+        assert await storage.async_load_artifacts() == {}
 
 
 async def test_wait_for_compile_completion_explicit_failure_never_succeeds() -> None:

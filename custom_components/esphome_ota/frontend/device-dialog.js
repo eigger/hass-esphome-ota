@@ -3,7 +3,13 @@
  */
 
 import { t } from "./i18n.js";
-import { definePanelElement } from "./elements.js";
+import {
+  bindModalAccessibility,
+  captureModalFocus,
+  definePanelElement,
+  rememberModalFocus,
+  restoreModalFocus,
+} from "./elements.js";
 
 const css = `
 :host {
@@ -251,16 +257,30 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     this.isOpen = false;
     this.currentTab = "diff"; // "diff" | "info" | "upload"
     this.diffData = null;
+    this._diffDeviceId = null;
+    this._diffRequest = 0;
+    this._deviceRequest = 0;
     this.uploading = false;
     this.statusMessage = "";
   }
 
   async open(device, hass, tab = "diff") {
+    if (!this.isOpen) rememberModalFocus(this);
+    const changedDevice = this.device?.device_id !== device?.device_id;
+    if (changedDevice) {
+      this._deviceRequest++;
+      this.uploading = false;
+    }
     this.device = device;
     this.hass = hass;
     this.isOpen = true;
     this.currentTab = tab;
     this.statusMessage = "";
+    if (changedDevice || tab === "diff") {
+      this.diffData = null;
+      this._diffDeviceId = null;
+      this._diffRequest++;
+    }
     this.render();
 
     if (tab === "diff") {
@@ -270,47 +290,92 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
 
   close() {
     this.isOpen = false;
+    this.uploading = false;
+    this._diffRequest++;
+    this._deviceRequest++;
     this.render();
+    restoreModalFocus(this);
   }
 
   async loadDiff() {
+    const deviceId = this.device?.device_id;
+    if (!deviceId || !this.hass) return;
+    const request = ++this._diffRequest;
+    this.diffData = null;
+    this._diffDeviceId = null;
+    this.statusMessage = "";
+    this.render();
     try {
       const res = await this.hass.callWS({
         type: "esphome_ota/prepare_ota",
-        device_id: this.device.device_id,
+        device_id: deviceId,
       });
+      if (
+        !this.isOpen ||
+        request !== this._diffRequest ||
+        this.device?.device_id !== deviceId
+      ) return;
       this.diffData = res;
+      this._diffDeviceId = deviceId;
       this.render();
     } catch (err) {
+      if (
+        !this.isOpen ||
+        request !== this._diffRequest ||
+        this.device?.device_id !== deviceId
+      ) return;
       this.statusMessage = `Failed preparing diff: ${err.message || err}`;
       this.render();
     }
   }
 
   async applyDiff(andBuild = false) {
-    if (!this.diffData) return;
+    if (!this.diffData || this._diffDeviceId !== this.device?.device_id) return;
+    const targetDevice = this.device;
+    const targetDeviceId = targetDevice.device_id;
+    const request = this._diffRequest;
     try {
       await this.hass.callWS({
         type: "esphome_ota/apply_ota",
-        device_id: this.device.device_id,
+        device_id: targetDeviceId,
         content: this.diffData.modified,
         expected: this.diffData.expected || this.diffData.original,
       });
-      this.statusMessage = "Successfully applied OTA configuration to YAML!";
-      if (andBuild) {
-        this.dispatchEvent(new CustomEvent("start-build", { detail: { device: this.device } }));
+      const stillShowingTarget =
+        this.isOpen &&
+        this.device?.device_id === targetDeviceId &&
+        this._diffRequest === request;
+      if (andBuild && stillShowingTarget) {
+        const returnFocus = this._modalReturnFocus;
         this.close();
-      } else {
+        this.dispatchEvent(
+          new CustomEvent("start-build", {
+            detail: { device: targetDevice, returnFocus },
+          }),
+        );
+      } else if (stillShowingTarget) {
+        this.statusMessage = "Successfully applied OTA configuration to YAML!";
         this.render();
       }
     } catch (err) {
-      this.statusMessage = `Apply error: ${err.message || err}`;
-      this.render();
+      if (
+        this.isOpen &&
+        this.device?.device_id === targetDeviceId &&
+        this._diffRequest === request
+      ) {
+        this.statusMessage = `Apply error: ${err.message || err}`;
+        this.render();
+      }
     }
   }
 
   async uploadFirmware(file) {
-    if (!file) return;
+    if (!file || !this.device) return;
+    const targetDeviceId = this.device.device_id;
+    const request = this._deviceRequest;
+    const stillShowingTarget = () => this.isOpen
+      && this.device?.device_id === targetDeviceId
+      && this._deviceRequest === request;
     this.uploading = true;
     this.statusMessage = "Uploading and validating binary...";
     this.render();
@@ -320,7 +385,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
 
     try {
       const token = this.hass.auth?.accessToken || "";
-      const resp = await fetch(`/api/esphome_ota/upload/${this.device.device_id}`, {
+      const resp = await fetch(`/api/esphome_ota/upload/${targetDeviceId}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -328,6 +393,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         body: formData,
       });
       const data = await resp.json();
+      if (!stillShowingTarget()) return;
       if (resp.ok) {
         this.statusMessage = `Success! Published version ${data.version} (${data.size} bytes).`;
         this.dispatchEvent(new CustomEvent("device-updated"));
@@ -335,59 +401,92 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         this.statusMessage = `Upload error: ${data.error || "Unknown error"}`;
       }
     } catch (err) {
-      this.statusMessage = `Upload failed: ${err.message || err}`;
+      if (stillShowingTarget()) this.statusMessage = `Upload failed: ${err.message || err}`;
     } finally {
-      this.uploading = false;
-      this.render();
+      if (stillShowingTarget()) {
+        this.uploading = false;
+        this.render();
+      }
     }
   }
 
   async removeOta() {
     if (!this.device?.is_managed) return;
+    const targetDeviceId = this.device.device_id;
+    const request = this._deviceRequest;
+    const stillShowingTarget = () => this.isOpen
+      && this.device?.device_id === targetDeviceId
+      && this._deviceRequest === request;
     const confirmMsg = t(this.hass, "remove_ota_confirm");
     if (!window.confirm(confirmMsg)) return;
     try {
       await this.hass.callWS({
         type: "esphome_ota/remove_ota",
-        device_id: this.device.device_id,
+        device_id: targetDeviceId,
       });
-      this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
-      this.close();
+      if (stillShowingTarget()) {
+        this.dispatchEvent(
+          new CustomEvent("device-updated", { bubbles: true, composed: true }),
+        );
+        this.close();
+      }
     } catch (err) {
-      this.statusMessage = `Remove OTA error: ${err.message || err}`;
-      this.render();
+      if (stillShowingTarget()) {
+        this.statusMessage = `Remove OTA error: ${err.message || err}`;
+        this.render();
+      }
     }
   }
 
   async hideBinary() {
+    if (!this.device) return;
+    const targetDevice = this.device;
+    const targetDeviceId = targetDevice.device_id;
+    const request = this._deviceRequest;
+    const stillShowingTarget = () => this.isOpen
+      && this.device?.device_id === targetDeviceId
+      && this._deviceRequest === request;
     try {
       await this.hass.callWS({
         type: "esphome_ota/deactivate",
-        device_id: this.device.device_id,
+        device_id: targetDeviceId,
       });
-      this.device.has_public_binary = false;
+      if (!stillShowingTarget()) return;
+      targetDevice.has_public_binary = false;
       this.statusMessage = t(this.hass, "hide_success");
       this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
       this.render();
     } catch (err) {
-      this.statusMessage = `Hide error: ${err.message || err}`;
-      this.render();
+      if (stillShowingTarget()) {
+        this.statusMessage = `Hide error: ${err.message || err}`;
+        this.render();
+      }
     }
   }
 
   async republishBinary() {
+    if (!this.device) return;
+    const targetDevice = this.device;
+    const targetDeviceId = targetDevice.device_id;
+    const request = this._deviceRequest;
+    const stillShowingTarget = () => this.isOpen
+      && this.device?.device_id === targetDeviceId
+      && this._deviceRequest === request;
     try {
       await this.hass.callWS({
         type: "esphome_ota/republish",
-        device_id: this.device.device_id,
+        device_id: targetDeviceId,
       });
-      this.device.has_public_binary = true;
+      if (!stillShowingTarget()) return;
+      targetDevice.has_public_binary = true;
       this.statusMessage = t(this.hass, "republish_success");
       this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
       this.render();
     } catch (err) {
-      this.statusMessage = `Republish error: ${err.message || err}`;
-      this.render();
+      if (stillShowingTarget()) {
+        this.statusMessage = `Republish error: ${err.message || err}`;
+        this.render();
+      }
     }
   }
 
@@ -474,6 +573,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       `;
     }
 
+    captureModalFocus(this);
     this.shadowRoot.innerHTML = `
       <style>${css}</style>
       <div class="backdrop" id="backdrop">
@@ -506,8 +606,8 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
           </div>
           <div class="footer">
             ${this.currentTab === "diff" ? `
-              <button id="btn-apply">${escapeHtml(t(this.hass, "apply_changes"))}</button>
-              <button class="primary" id="btn-apply-build">${escapeHtml(t(this.hass, "apply_and_build"))}</button>
+              <button id="btn-apply" ${!this.diffData || this._diffDeviceId !== this.device.device_id ? "disabled" : ""}>${escapeHtml(t(this.hass, "apply_changes"))}</button>
+              <button class="primary" id="btn-apply-build" ${!this.diffData || this._diffDeviceId !== this.device.device_id ? "disabled" : ""}>${escapeHtml(t(this.hass, "apply_and_build"))}</button>
             ` : ""}
             ${this.currentTab === "upload" ? `
               <button class="primary" id="btn-upload" ${this.uploading ? "disabled" : ""}>${escapeHtml(t(this.hass, "upload_btn"))}</button>
@@ -520,6 +620,8 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         </div>
       </div>
     `;
+
+    bindModalAccessibility(this, () => this.close());
 
     this.shadowRoot.getElementById("close-x")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
@@ -564,18 +666,25 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
   async saveToken() {
     const input = this.shadowRoot.getElementById("token-input");
     if (!input || !this.device) return;
+    const targetDevice = this.device;
+    const targetDeviceId = targetDevice.device_id;
+    const request = this._deviceRequest;
     const newToken = input.value.trim();
     const btn = this.shadowRoot.getElementById("btn-save-token");
     if (btn) btn.disabled = true;
     try {
       const res = await this.hass.callWS({
         type: "esphome_ota/set_token",
-        device_id: this.device.device_id,
+        device_id: targetDeviceId,
         token: newToken,
       });
       if (res?.success) {
-        this.device.token = res.token;
-        this.device.slug = res.slug;
+        const stillShowingTarget = this.isOpen
+          && this.device?.device_id === targetDeviceId
+          && this._deviceRequest === request;
+        if (!stillShowingTarget) return;
+        targetDevice.token = res.token;
+        targetDevice.slug = res.slug;
         const slugEl = this.shadowRoot.getElementById("token-slug-val");
         if (slugEl) slugEl.innerHTML = `<code>${escapeHtml(res.slug)}</code>`;
         this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
@@ -588,13 +697,19 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         );
       }
     } catch (err) {
-      this.dispatchEvent(
-        new CustomEvent("hass-notification", {
-          detail: { message: `Token update failed: ${err.message || err}` },
-          bubbles: true,
-          composed: true,
-        })
-      );
+      if (
+        this.isOpen &&
+        this.device?.device_id === targetDeviceId &&
+        this._deviceRequest === request
+      ) {
+        this.dispatchEvent(
+          new CustomEvent("hass-notification", {
+            detail: { message: `Token update failed: ${err.message || err}` },
+            bubbles: true,
+            composed: true,
+          })
+        );
+      }
     } finally {
       if (btn) btn.disabled = false;
     }

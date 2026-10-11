@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.esphome_ota.builder.client import BuilderClient
 from custom_components.esphome_ota.builder.connection import BuilderConnection
 from custom_components.esphome_ota.const import (
+    DOMAIN,
     STAGE_CANCELLED,
     STAGE_PUBLISHED,
 )
@@ -98,6 +99,15 @@ async def test_issue1_manual_upload_rejects_zero_filled_file(
     ):
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
+
+        manager = hass.data[DOMAIN]["manager"]
+        await manager.device_manager.async_register_or_update(
+            device_id="livingroom",
+            configuration="livingroom.yaml",
+            name="livingroom",
+            friendly_name="Living Room",
+            target_platform="esp32",
+        )
 
         client = await hass_client()
         form = FormData()
@@ -241,6 +251,14 @@ async def test_issue3_own_project_version_preserves_version_and_updates_ota_conf
     device_manager = DeviceManager(hass, storage)
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_own_ver_test")
     runner = JobRunner(hass, storage, device_manager, publisher)
+
+    # This build's declared project version is 2.1.0, so make the mock compile
+    # output authoritative for that same version rather than testing mismatch
+    # publication (which the pipeline intentionally blocks).
+    mock_builder.binary_blob = mock_builder.binary_blob.replace(
+        b"Project local.livingroom version 1.0.0\x00",
+        b"Project my.bedroom version 2.1.0\x00",
+    )
 
     # bedroom.yaml in mock_builder has:
     # esphome:
