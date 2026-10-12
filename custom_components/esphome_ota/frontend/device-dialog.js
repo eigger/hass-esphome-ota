@@ -278,6 +278,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     this._diffRequest = 0;
     this._applyGeneration = 0;
     this._deviceRequest = 0;
+    this._artifactRequest = 0;
     this.uploading = false;
     this.applying = false;
     this.selectedFirmwareFile = null;
@@ -335,12 +336,13 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     const deviceId = this.device?.device_id;
     if (!deviceId || !this.hass || !this.device?.last_published_version) return;
     const request = this._deviceRequest;
+    const artifactRequest = ++this._artifactRequest;
     try {
       const detail = await this.hass.callWS({
         type: "esphome_ota/device_detail",
         device_id: deviceId,
       });
-      if (!this.isOpen || request !== this._deviceRequest || this.device?.device_id !== deviceId) return;
+      if (!this.isOpen || request !== this._deviceRequest || artifactRequest !== this._artifactRequest || this.device?.device_id !== deviceId) return;
       this.artifact = detail?.artifact || null;
       this.defaultCleanupHours = Number(detail?.default_cleanup_hours ?? 12);
       this.device.expires_at = this.device.has_public_binary
@@ -493,6 +495,13 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       if (!stillShowingTarget()) return;
       if (resp.ok) {
         this.device.has_public_binary = true;
+        this.device.last_published_version = data.version;
+        this.device.expires_at = data.expires_at || null;
+        this.artifact = {
+          cleanup_hours: data.cleanup_hours,
+          expires_at: data.expires_at || null,
+          auto_hide: data.auto_hide !== false,
+        };
         this.statusMessage = `${t(this.hass, "upload_success")} ${data.version} (${data.size} bytes).`;
         this.statusType = "success";
         this.dispatchEvent(new CustomEvent("device-updated"));
@@ -612,6 +621,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       this.render();
       this.loadPublicationDetails();
     } catch (err) {
+      if (!this.isOpen || request !== this._deviceRequest || this.device?.device_id !== targetDeviceId) return;
       this.statusMessage = `${t(this.hass, "publication_policy_error")}: ${err.message || err}`;
       this.statusType = "error";
       this.render();
@@ -641,16 +651,24 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       && this.device?.device_id === targetDeviceId
       && this._deviceRequest === request;
     try {
-      await this.hass.callWS({
+      const result = await this.hass.callWS({
         type: "esphome_ota/republish",
         device_id: targetDeviceId,
       });
       if (!stillShowingTarget()) return;
       targetDevice.has_public_binary = true;
+      targetDevice.expires_at = result?.expires_at || null;
+      this.artifact = {
+        ...(this.artifact || {}),
+        cleanup_hours: result?.cleanup_hours ?? null,
+        expires_at: result?.expires_at || null,
+        auto_hide: result?.auto_hide !== false,
+      };
       this.statusMessage = t(this.hass, "republish_success");
       this.statusType = "success";
       this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
       this.render();
+      this.loadPublicationDetails();
     } catch (err) {
       if (stillShowingTarget()) {
         this.statusMessage = `${t(this.hass, "binary_action_error")}: ${err.message || err}`;

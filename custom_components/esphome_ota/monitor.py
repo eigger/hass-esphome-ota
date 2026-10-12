@@ -412,7 +412,12 @@ class InstallationMonitor:
                             device_id, installed_version
                         )
                         if art.is_public and art.auto_hide and publication_id:
-                            if await self._async_deactivate_artifact(device_id, current_dev.slug, publication_id):
+                            if await self._async_deactivate_artifact(
+                                device_id,
+                                current_dev.slug,
+                                publication_id,
+                                lock_held=True,
+                            ):
                                 timer = self._cleanup_timers.pop(device_id, None)
                                 if timer:
                                     timer.cancel()
@@ -503,9 +508,19 @@ class InstallationMonitor:
         self._cleanup_timers[device_id] = timer
 
     async def _async_deactivate_artifact(
-        self, device_id: str, slug: str, artifact_id: str | None
+        self,
+        device_id: str,
+        slug: str,
+        artifact_id: str | None,
+        *,
+        lock_held: bool = False,
     ) -> bool:
         """Hide only the publication that still matches the requested artifact ID."""
+        if not lock_held:
+            async with self.device_manager.get_lock(device_id):
+                return await self._async_deactivate_artifact(
+                    device_id, slug, artifact_id, lock_held=True
+                )
         artifacts = await self.device_manager.storage.async_load_artifacts()
         art = artifacts.get(device_id)
         if not art or (artifact_id and art.published_at != artifact_id):

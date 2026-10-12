@@ -504,7 +504,14 @@ async def ws_republish(
     try:
         published = await manager.job_runner.async_republish(dev, art)
         connection.send_result(
-            msg["id"], {"success": True, "version": published.version}
+            msg["id"],
+            {
+                "success": True,
+                "version": published.version,
+                "expires_at": published.expires_at,
+                "cleanup_hours": published.cleanup_hours,
+                "auto_hide": published.auto_hide,
+            },
         )
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "republish_failed", str(err))
@@ -526,31 +533,35 @@ async def ws_deactivate(
     """Hide/remove public binary from /local."""
     manager = _get_manager(hass)
     device_id = msg["device_id"]
-    dev = manager.device_manager.get_device(device_id)
-    if not dev:
-        connection.send_error(msg["id"], "device_not_found", "Device not found")
-        return
+    async with manager.device_manager.get_lock(device_id):
+        dev = manager.device_manager.get_device(device_id)
+        if not dev:
+            connection.send_error(msg["id"], "device_not_found", "Device not found")
+            return
 
-    removed = await manager.publisher.async_deactivate(dev.slug)
-    artifacts = await manager.storage.async_load_artifacts()
-    art = artifacts.get(device_id)
-    public_bin = (
-        Path(art.public_bin_path)
-        if art and art.public_bin_path
-        else manager.publisher.www_dir / f"{dev.slug}.ota.bin"
-    )
-    if not public_bin.exists():
-        public_bin = manager.publisher.www_dir / f"{dev.slug}.ota.bin"
-    is_private = removed or not public_bin.exists()
-    if is_private and manager.monitor:
-        manager.monitor.cancel_cleanup(device_id)
-    if art and is_private:
-        art.is_public = False
-        art.public_bin_path = None
-        await manager.storage.async_save_artifact(device_id, art)
-    if is_private:
-        dev.expires_at = None
-        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+        artifacts = await manager.storage.async_load_artifacts()
+        art = artifacts.get(device_id)
+        removed = await manager.publisher.async_deactivate(
+            dev.slug,
+            expected_artifact_id=art.published_at if art else None,
+        )
+        public_bin = (
+            Path(art.public_bin_path)
+            if art and art.public_bin_path
+            else manager.publisher.www_dir / f"{dev.slug}.ota.bin"
+        )
+        if not public_bin.exists():
+            public_bin = manager.publisher.www_dir / f"{dev.slug}.ota.bin"
+        is_private = removed or not public_bin.exists()
+        if is_private and manager.monitor:
+            manager.monitor.cancel_cleanup(device_id)
+        if art and is_private:
+            art.is_public = False
+            art.public_bin_path = None
+            await manager.storage.async_save_artifact(device_id, art)
+        if is_private:
+            dev.expires_at = None
+            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
     connection.send_result(msg["id"], {"success": True, "removed": removed})
     manager._dispatch_event(
         "devices_updated",

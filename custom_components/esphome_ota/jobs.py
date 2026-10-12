@@ -906,6 +906,19 @@ class JobRunner:
         artifact: PublishedArtifact,
     ) -> PublishedArtifact:
         """Republish an existing private artifact without re-compiling."""
+        async with self.device_manager.get_lock(device.device_id):
+            artifacts = await self.storage.async_load_artifacts()
+            current = artifacts.get(device.device_id)
+            if not current:
+                raise EsphomeOtaError("No private artifact exists for this device")
+            return await self._async_republish_locked(device, current)
+
+    async def _async_republish_locked(
+        self,
+        device: ManagedDevice,
+        artifact: PublishedArtifact,
+    ) -> PublishedArtifact:
+        """Republish while holding the device mutation lock."""
         blob = await self.publisher.async_load_private_artifact(artifact.private_path)
         info = inspect_binary(
             blob=blob,

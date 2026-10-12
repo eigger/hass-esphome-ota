@@ -229,6 +229,9 @@ class FirmwareUploadView(HomeAssistantView):
                         "size": published.size,
                         "chip_family": published.chip_family,
                         "md5": published.md5,
+                        "expires_at": published.expires_at,
+                        "cleanup_hours": published.cleanup_hours,
+                        "auto_hide": published.auto_hide,
                     }
                 )
             except BinaryValidationError as err:
