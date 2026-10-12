@@ -10,13 +10,13 @@ import shutil
 import threading
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .const import DEFAULT_PUBLISH_DIR
+from .const import DEFAULT_AUTO_CLEANUP_HOURS, DEFAULT_PUBLISH_DIR
 from .firmware import BinaryInfo
 from .models import EsphomeOtaError, PublishedArtifact
 
@@ -105,6 +105,8 @@ class ArtifactPublisher:
         loop: asyncio.AbstractEventLoop | None = None,
         done_event: asyncio.Event | None = None,
         started_event: asyncio.Event | None = None,
+        cleanup_hours: int = DEFAULT_AUTO_CLEANUP_HOURS,
+        auto_hide: bool = True,
     ) -> PublishedArtifact:
         """Synchronous publish implementation executing in executor."""
         with self._get_sync_slug_lock(slug):
@@ -265,6 +267,13 @@ class ArtifactPublisher:
             is_public=True,
             build_time=info.build_time,
             version_source=info.version_source,
+            cleanup_hours=cleanup_hours,
+            expires_at=(
+                (datetime.fromisoformat(published_at) + timedelta(hours=cleanup_hours)).isoformat()
+                if cleanup_hours > 0
+                else None
+            ),
+            auto_hide=auto_hide,
         )
 
     async def async_publish(
@@ -277,6 +286,8 @@ class ArtifactPublisher:
         title: str = "",
         summary: str = "",
         check_cancelled: Callable[[], bool] | None = None,
+        cleanup_hours: int = DEFAULT_AUTO_CLEANUP_HOURS,
+        auto_hide: bool = True,
     ) -> PublishedArtifact:
         """Asynchronously publish firmware binary and manifest."""
         lock = self._get_slug_lock(slug)
@@ -297,6 +308,8 @@ class ArtifactPublisher:
                 loop,
                 done_event,
                 started_event,
+                cleanup_hours,
+                auto_hide,
             )
             try:
                 return await fut

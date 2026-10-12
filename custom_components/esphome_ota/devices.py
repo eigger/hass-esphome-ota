@@ -223,6 +223,9 @@ class DeviceManager:
                         "has_public_binary": _has_public_bin(managed.slug),
                         "status": status,
                         "update_entity_id": managed.update_entity_id,
+                        "auto_hide": managed.auto_hide,
+                        "publication_cleanup_hours": managed.publication_cleanup_hours,
+                        "expires_at": managed.expires_at,
                         "builder_present": True,
                     }
                 )
@@ -283,6 +286,9 @@ class DeviceManager:
                         "has_public_binary": _has_public_bin(managed.slug),
                         "status": status,
                         "update_entity_id": managed.update_entity_id,
+                        "auto_hide": managed.auto_hide,
+                        "publication_cleanup_hours": managed.publication_cleanup_hours,
+                        "expires_at": managed.expires_at,
                         "builder_present": False,
                     }
                 )
@@ -397,12 +403,14 @@ class DeviceManager:
         self,
         device_id: str,
         version: str,
+        expires_at: str | None = None,
     ) -> None:
         """Record successful firmware publication for device and advance next version."""
         dev = self._managed_devices.get(device_id)
         if not dev:
             return
         dev.last_published_version = version
+        dev.expires_at = expires_at
         # Advance managed version for next build (legacy advance_registered_version behavior)
         nxt = bump_patch_version(version)
         dev.managed_version = nxt

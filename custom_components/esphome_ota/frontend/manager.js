@@ -1323,6 +1323,9 @@ class EsphomeOtaManager extends HTMLElement {
     const needsInitialInstall = dev.status === "needs_initial_install"
       || (!dev.has_http_ota && !dev.last_installed_version);
     const canChangeBinaryVisibility = !!dev.last_published_version && !activeJob;
+    const expiryLabel = dev.has_public_binary
+      ? (dev.expires_at ? `${new Date(dev.expires_at).toLocaleString()} · ${this._remainingTime(dev.expires_at)}` : t(this.hass, "expiry_disabled"))
+      : "";
 
     let actionButton = "";
     if (activeJob) {
@@ -1350,6 +1353,8 @@ class EsphomeOtaManager extends HTMLElement {
           </div>
           <span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>
         </div>
+
+        ${expiryLabel ? `<div class="card-sub" style="padding: 0 16px 10px;">${escapeHtml(t(this.hass, "publication_expiry"))}: ${escapeHtml(expiryLabel)}</div>` : ""}
 
         <div class="card-stats">
           <div class="stat-item">
@@ -1384,6 +1389,14 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
       </div>
     `;
+  }
+
+  _remainingTime(expiresAt) {
+    const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+    if (!seconds) return t(this.hass, "expiry_pending");
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours ? `${hours}h ${minutes}m ${t(this.hass, "time_remaining")}` : `${minutes}m ${t(this.hass, "time_remaining")}`;
   }
 }
 

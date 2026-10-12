@@ -149,6 +149,12 @@ class JobRunner:
         if self.event_callback:
             self.event_callback("job_updated", job.to_dict())
 
+    def _publication_cleanup_hours(self, device: ManagedDevice) -> int:
+        """Resolve a per-device override against the integration default."""
+        if device.publication_cleanup_hours is not None:
+            return device.publication_cleanup_hours
+        return self.monitor.cleanup_hours if self.monitor else 12
+
     async def _update_stage(
         self,
         job: PipelineJob,
@@ -458,6 +464,8 @@ class JobRunner:
                         or job.job_id in self._cancelled_jobs
                         or job.stage == STAGE_CANCELLED
                     ),
+                    cleanup_hours=self._publication_cleanup_hours(device),
+                    auto_hide=device.auto_hide,
                 )
 
                 if (
@@ -470,7 +478,7 @@ class JobRunner:
                 # Record successful publish in storage and devices
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version
+                    device.device_id, published.version, published.expires_at
                 )
 
                 # Schedule automatic cleanup and trigger immediate update entity check
@@ -479,6 +487,8 @@ class JobRunner:
                         device.device_id,
                         device.slug,
                         artifact_id=published.published_at,
+                        expires_at=published.expires_at,
+                        cleanup_hours=published.cleanup_hours,
                     )
                     await self.monitor.async_refresh_entity(device.device_id)
 
@@ -789,6 +799,8 @@ class JobRunner:
                         or job.job_id in self._cancelled_jobs
                         or job.stage == STAGE_CANCELLED
                     ),
+                    cleanup_hours=self._publication_cleanup_hours(device),
+                    auto_hide=device.auto_hide,
                 )
 
                 if (
@@ -800,7 +812,7 @@ class JobRunner:
 
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version
+                    device.device_id, published.version, published.expires_at
                 )
 
                 if self.monitor:
@@ -808,6 +820,8 @@ class JobRunner:
                         device.device_id,
                         device.slug,
                         artifact_id=published.published_at,
+                        expires_at=published.expires_at,
+                        cleanup_hours=published.cleanup_hours,
                     )
                     await self.monitor.async_refresh_entity(device.device_id)
 
@@ -890,15 +904,21 @@ class JobRunner:
             info=info,
             title=device.friendly_name,
             check_cancelled=lambda: self._unloaded,
+            cleanup_hours=(artifact.cleanup_hours if artifact.cleanup_hours is not None else self._publication_cleanup_hours(device)),
+            auto_hide=artifact.auto_hide,
         )
         await self.storage.async_save_artifact(device.device_id, published)
         await self.device_manager.async_mark_published(
-            device.device_id, published.version
+            device.device_id, published.version, published.expires_at
         )
 
         if self.monitor:
             self.monitor.schedule_cleanup(
-                device.device_id, device.slug, artifact_id=published.published_at
+                device.device_id,
+                device.slug,
+                artifact_id=published.published_at,
+                expires_at=published.expires_at,
+                cleanup_hours=published.cleanup_hours,
             )
             await self.monitor.async_refresh_entity(device.device_id)
 

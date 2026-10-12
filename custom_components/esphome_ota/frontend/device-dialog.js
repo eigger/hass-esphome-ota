@@ -268,6 +268,8 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this.device = null;
+    this.artifact = null;
+    this.defaultCleanupHours = 12;
     this.hass = null;
     this.isOpen = false;
     this.currentTab = "diff"; // "diff" | "info" | "upload"
@@ -288,6 +290,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     const changedDevice = this.device?.device_id !== device?.device_id;
     if (changedDevice) {
       this._deviceRequest++;
+      this.artifact = null;
       this._applyGeneration++;
       this.uploading = false;
       this.applying = false;
@@ -305,6 +308,18 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       this._diffRequest++;
     }
     this.render();
+
+    if (tab === "info" && device?.last_published_version) {
+      const request = this._deviceRequest;
+      this.hass.callWS({ type: "esphome_ota/device_detail", device_id: device.device_id })
+        .then((detail) => {
+          if (!this.isOpen || request !== this._deviceRequest || this.device?.device_id !== device.device_id) return;
+          this.artifact = detail?.artifact || null;
+          this.defaultCleanupHours = Number(detail?.default_cleanup_hours ?? 12);
+          this.render();
+        })
+        .catch(() => {});
+    }
 
     if (tab === "diff") {
       await this.loadDiff();
@@ -516,6 +531,55 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     }
   }
 
+  async savePublicationPolicy() {
+    if (!this.device) return;
+    const hours = Number(this.shadowRoot.getElementById("cleanup-hours")?.value);
+    if (!Number.isInteger(hours) || hours < 0 || hours > 168) {
+      this.statusMessage = t(this.hass, "cleanup_hours_invalid");
+      this.statusType = "error";
+      this.render();
+      return;
+    }
+    try {
+      const autoHide = !!this.shadowRoot.getElementById("auto-hide-installed")?.checked;
+      const saveDefault = !!this.shadowRoot.getElementById("save-policy-default")?.checked;
+      const res = await this.hass.callWS({
+        type: "esphome_ota/set_publication_policy",
+        device_id: this.device.device_id,
+        cleanup_hours: hours,
+        auto_hide: autoHide,
+        save_as_default: saveDefault,
+      });
+      this.device.expires_at = res.expires_at;
+      if (this.artifact) {
+        this.artifact.cleanup_hours = hours;
+        this.artifact.expires_at = res.expires_at;
+        this.artifact.auto_hide = autoHide;
+      }
+      if (saveDefault) {
+        this.device.publication_cleanup_hours = hours;
+        this.device.auto_hide = autoHide;
+        this.defaultCleanupHours = hours;
+      }
+      this.statusMessage = t(this.hass, "publication_policy_saved");
+      this.statusType = "success";
+      this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));
+      this.render();
+    } catch (err) {
+      this.statusMessage = `${t(this.hass, "publication_policy_error")}: ${err.message || err}`;
+      this.statusType = "error";
+      this.render();
+    }
+  }
+
+  _remainingTime(expiresAt) {
+    const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+    if (!seconds) return t(this.hass, "expiry_pending");
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+  }
+
   async republishBinary() {
     if (!this.device) return;
     const targetDevice = this.device;
@@ -616,6 +680,29 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
             </tr>
           ` : ""}
           ${this.device.update_entity_id ? `<tr><td>Update Entity</td><td><code>${escapeHtml(this.device.update_entity_id)}</code></td></tr>` : ""}
+          ${this.device.last_published_version ? `
+            <tr><td>${escapeHtml(t(this.hass, "publication_expiry"))}</td><td>${this.device.has_public_binary
+              ? (this.device.expires_at
+                ? `${escapeHtml(new Date(this.device.expires_at).toLocaleString())} · ${escapeHtml(t(this.hass, "time_remaining"))} ${escapeHtml(this._remainingTime(this.device.expires_at))}`
+                : escapeHtml(t(this.hass, "expiry_disabled")))
+              : escapeHtml(t(this.hass, "status_hidden"))}</td></tr>
+            <tr><td>${escapeHtml(t(this.hass, "publication_policy"))}</td><td>
+              <label style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+                <span>${escapeHtml(t(this.hass, "auto_cleanup_hours"))}</span>
+                <input id="cleanup-hours" type="number" min="0" max="168" step="1" value="${escapeHtml(String(this.artifact?.cleanup_hours ?? this.device.publication_cleanup_hours ?? this.defaultCleanupHours))}" style="width:76px;">
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+                <input id="auto-hide-installed" type="checkbox" ${(this.artifact?.auto_hide ?? this.device.auto_hide) !== false ? "checked" : ""}>
+                ${escapeHtml(t(this.hass, "hide_after_install"))}
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;margin:4px 0;">
+                <input id="save-policy-default" type="checkbox">
+                ${escapeHtml(t(this.hass, "save_policy_default"))}
+              </label>
+              <div style="font-size:.72rem;color:var(--secondary-text-color,#64748b);margin:4px 0;">${escapeHtml(t(this.hass, "policy_restart_note"))}</div>
+              <button id="btn-save-publication-policy" style="padding:4px 10px;font-size:.8rem;">${escapeHtml(t(this.hass, "apply_publication_policy"))}</button>
+            </td></tr>
+          ` : ""}
         </table>
       `;
     } else if (this.currentTab === "upload") {
@@ -726,6 +813,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-apply-build")?.addEventListener("click", () => this.applyDiff(true));
     this.shadowRoot.getElementById("btn-remove-ota")?.addEventListener("click", () => this.removeOta());
     this.shadowRoot.getElementById("btn-save-token")?.addEventListener("click", () => this.saveToken());
+    this.shadowRoot.getElementById("btn-save-publication-policy")?.addEventListener("click", () => this.savePublicationPolicy());
     this.shadowRoot.querySelector(".btn-hide")?.addEventListener("click", () => this.hideBinary());
     this.shadowRoot.querySelector(".btn-republish")?.addEventListener("click", () => this.republishBinary());
     this.shadowRoot.getElementById("btn-upload")?.addEventListener("click", () => {

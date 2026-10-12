@@ -218,7 +218,7 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required(CONF_BASE_URL, default=current_base_url): str,
             vol.Required(
                 CONF_AUTO_CLEANUP_HOURS, default=current_hours
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=168)),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
             vol.Optional(CONF_BUILDER_SLUG, default=current_slug): vol.In(builder_choices),
         }
 

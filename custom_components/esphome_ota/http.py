@@ -178,14 +178,20 @@ class FirmwareUploadView(HomeAssistantView):
                     blob=blob,
                     info=info,
                     title=dev.friendly_name,
+                    cleanup_hours=(dev.publication_cleanup_hours if dev.publication_cleanup_hours is not None else self.manager.cleanup_hours),
+                    auto_hide=dev.auto_hide,
                 )
                 await self.manager.storage.async_save_artifact(dev.device_id, published)
                 await self.manager.device_manager.async_mark_published(
-                    dev.device_id, published.version
+                    dev.device_id, published.version, published.expires_at
                 )
                 if self.manager.monitor:
                     self.manager.monitor.schedule_cleanup(
-                        dev.device_id, dev.slug, artifact_id=published.published_at
+                        dev.device_id,
+                        dev.slug,
+                        artifact_id=published.published_at,
+                        expires_at=published.expires_at,
+                        cleanup_hours=published.cleanup_hours,
                     )
                     await self.manager.monitor.async_refresh_entity(dev.device_id)
                 self.manager._dispatch_event(
@@ -225,8 +231,18 @@ class FirmwareUploadView(HomeAssistantView):
                                     blob=previous_public_blob,
                                     info=previous_public_info,
                                     title=dev.friendly_name,
+                                    cleanup_hours=(
+                                        previous_artifact.cleanup_hours
+                                        if previous_artifact and previous_artifact.cleanup_hours is not None
+                                        else self.manager.cleanup_hours
+                                    ),
+                                    auto_hide=previous_artifact.auto_hide if previous_artifact else dev.auto_hide,
                                 )
                             )
+                            if previous_artifact:
+                                restored_publication.cleanup_hours = previous_artifact.cleanup_hours
+                                restored_publication.expires_at = previous_artifact.expires_at
+                                restored_publication.auto_hide = previous_artifact.auto_hide
                         except Exception:  # noqa: BLE001
                             _LOGGER.exception(
                                 "Could not restore previous firmware for %s",
@@ -304,8 +320,9 @@ class FirmwareUploadView(HomeAssistantView):
                                 self.manager.monitor.schedule_cleanup(
                                     dev.device_id,
                                     dev.slug,
-                                    delay_seconds=previous_cleanup_delay,
                                     artifact_id=restored_publication.published_at,
+                                    expires_at=restored_publication.expires_at,
+                                    cleanup_hours=restored_publication.cleanup_hours,
                                 )
                             elif previous_public_exists and published:
                                 self.manager.monitor.schedule_cleanup(

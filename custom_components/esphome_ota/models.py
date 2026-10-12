@@ -127,6 +127,7 @@ class ManagedDevice:
     status: str = DEVICE_STATUS_UNMANAGED
     update_entity_id: str | None = None
     auto_hide: bool = True
+    publication_cleanup_hours: int | None = None
     hidden_at: str | None = None
     expires_at: str | None = None
     created_at: str = field(
@@ -159,6 +160,7 @@ class ManagedDevice:
             status=data.get("status", DEVICE_STATUS_UNMANAGED),
             update_entity_id=data.get("update_entity_id"),
             auto_hide=data.get("auto_hide", True),
+            publication_cleanup_hours=data.get("publication_cleanup_hours"),
             hidden_at=data.get("hidden_at"),
             expires_at=data.get("expires_at"),
             created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
@@ -249,6 +251,9 @@ class PublishedArtifact:
     is_public: bool = True
     build_time: str | None = None
     version_source: str | None = None
+    cleanup_hours: int | None = None
+    expires_at: str | None = None
+    auto_hide: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -270,6 +275,9 @@ class PublishedArtifact:
             is_public=data.get("is_public", True),
             build_time=data.get("build_time"),
             version_source=data.get("version_source"),
+            cleanup_hours=data.get("cleanup_hours"),
+            expires_at=data.get("expires_at"),
+            auto_hide=data.get("auto_hide", True),
         )
 
 

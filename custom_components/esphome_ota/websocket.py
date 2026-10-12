@@ -6,6 +6,7 @@ import asyncio
 import logging
 from pathlib import Path
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import voluptuous as vol
@@ -40,6 +41,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_batch_build)
     websocket_api.async_register_command(hass, ws_republish)
     websocket_api.async_register_command(hass, ws_deactivate)
+    websocket_api.async_register_command(hass, ws_set_publication_policy)
     websocket_api.async_register_command(hass, ws_set_token)
     websocket_api.async_register_command(hass, ws_remove_ota)
     websocket_api.async_register_command(hass, ws_cancel_job)
@@ -117,6 +119,65 @@ async def ws_status(
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
+        vol.Required("type"): "esphome_ota/set_publication_policy",
+        vol.Required("device_id"): str,
+        vol.Required("cleanup_hours"): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+        vol.Required("auto_hide"): bool,
+        vol.Optional("save_as_default", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_set_publication_policy(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Apply visibility policy to the active publication and optionally save its default."""
+    manager = _get_manager(hass)
+    device_id = msg["device_id"]
+    dev = manager.device_manager.get_device(device_id)
+    if not dev:
+        connection.send_error(msg["id"], "device_not_found", "Device not found")
+        return
+    cleanup_hours = msg["cleanup_hours"]
+    expires_at = (
+        (datetime.now(timezone.utc) + timedelta(hours=cleanup_hours)).isoformat()
+        if cleanup_hours > 0
+        else None
+    )
+    artifacts = await manager.storage.async_load_artifacts()
+    art = artifacts.get(device_id)
+    if msg.get("save_as_default"):
+        dev.publication_cleanup_hours = cleanup_hours
+        dev.auto_hide = msg["auto_hide"]
+        dev.updated_at = datetime.now(timezone.utc).isoformat()
+        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+    if art:
+        art.cleanup_hours = cleanup_hours
+        art.expires_at = expires_at
+        art.auto_hide = msg["auto_hide"]
+        await manager.storage.async_save_artifact(device_id, art)
+        if manager.monitor:
+            if art.is_public:
+                manager.monitor.schedule_cleanup(
+                    device_id,
+                    dev.slug,
+                    artifact_id=art.published_at,
+                    expires_at=expires_at,
+                    cleanup_hours=cleanup_hours,
+                )
+            else:
+                manager.monitor.cancel_cleanup(device_id)
+    if msg.get("save_as_default") or art:
+        dev.expires_at = expires_at
+        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+    connection.send_result(msg["id"], {"success": True, "expires_at": expires_at})
+    manager._dispatch_event("devices_updated", {"devices": manager.device_manager.list_all()})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
         vol.Required("type"): "esphome_ota/devices",
     }
 )
@@ -167,6 +228,7 @@ async def ws_device_detail(
             "device": managed.to_dict() if managed else None,
             "yaml": yaml_content,
             "artifact": art.to_dict() if art else None,
+            "default_cleanup_hours": manager.cleanup_hours,
         },
     )
 
@@ -456,7 +518,25 @@ async def ws_deactivate(
         return
 
     removed = await manager.publisher.async_deactivate(dev.slug)
-    manager.monitor.cancel_cleanup(device_id)
+    artifacts = await manager.storage.async_load_artifacts()
+    art = artifacts.get(device_id)
+    public_bin = (
+        Path(art.public_bin_path)
+        if art and art.public_bin_path
+        else manager.publisher.www_dir / f"{dev.slug}.ota.bin"
+    )
+    if not public_bin.exists():
+        public_bin = manager.publisher.www_dir / f"{dev.slug}.ota.bin"
+    is_private = removed or not public_bin.exists()
+    if is_private and manager.monitor:
+        manager.monitor.cancel_cleanup(device_id)
+    if art and is_private:
+        art.is_public = False
+        art.public_bin_path = None
+        await manager.storage.async_save_artifact(device_id, art)
+    if is_private:
+        dev.expires_at = None
+        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
     connection.send_result(msg["id"], {"success": True, "removed": removed})
     manager._dispatch_event(
         "devices_updated",
@@ -518,12 +598,7 @@ async def ws_set_token(
         firmware_blob = None
         binary_info = None
         old_binary_path = manager.publisher.www_dir / f"{old_slug}.ota.bin"
-        old_cleanup_delay = None
         old_cleanup_artifact_id = manager.publisher.get_current_artifact_id(old_slug)
-        if manager.monitor:
-            timer = manager.monitor._cleanup_timers.get(clean_dev_id)
-            if timer:
-                old_cleanup_delay = max(0.0, timer.when() - hass.loop.time())
 
         try:
             artifacts = await manager.storage.async_load_artifacts()
@@ -608,6 +683,11 @@ async def ws_set_token(
                     )
 
             if old_slug != new_slug and artifact and old_binary_path.is_file():
+                cleanup_hours = (
+                    artifact.cleanup_hours
+                    if artifact.cleanup_hours is not None
+                    else manager.cleanup_hours
+                )
                 new_artifact = await manager.publisher.async_publish(
                     device_id=clean_dev_id,
                     configuration=configuration,
@@ -615,7 +695,14 @@ async def ws_set_token(
                     blob=firmware_blob,
                     info=binary_info,
                     title=friendly_name,
+                    cleanup_hours=cleanup_hours,
+                    auto_hide=artifact.auto_hide,
                 )
+                # A token rotation changes the URL only; preserve the current
+                # publication's original deadline instead of extending it.
+                new_artifact.cleanup_hours = cleanup_hours
+                new_artifact.expires_at = artifact.expires_at
+                new_artifact.auto_hide = artifact.auto_hide
                 new_binary_published = True
                 await manager.storage.async_save_artifact(clean_dev_id, new_artifact)
 
@@ -630,6 +717,8 @@ async def ws_set_token(
             if dev:
                 dev.token = new_token
                 dev.slug = new_slug
+                if new_artifact:
+                    dev.expires_at = new_artifact.expires_at
                 await manager.storage.async_save_devices(
                     manager.device_manager._managed_devices
                 )
@@ -648,8 +737,9 @@ async def ws_set_token(
                     manager.monitor.schedule_cleanup(
                         clean_dev_id,
                         new_slug,
-                        delay_seconds=old_cleanup_delay,
                         artifact_id=new_artifact.published_at,
+                        expires_at=new_artifact.expires_at,
+                        cleanup_hours=new_artifact.cleanup_hours,
                     )
                 else:
                     manager.monitor.cancel_cleanup(clean_dev_id)
@@ -698,7 +788,16 @@ async def ws_set_token(
                         blob=firmware_blob,
                         info=binary_info,
                         title=friendly_name,
+                        cleanup_hours=(
+                            artifact.cleanup_hours
+                            if artifact.cleanup_hours is not None
+                            else manager.cleanup_hours
+                        ),
+                        auto_hide=artifact.auto_hide,
                     )
+                    restored_old_artifact.cleanup_hours = artifact.cleanup_hours
+                    restored_old_artifact.expires_at = artifact.expires_at
+                    restored_old_artifact.auto_hide = artifact.auto_hide
                     await manager.storage.async_save_artifact(
                         clean_dev_id, restored_old_artifact
                     )
@@ -719,8 +818,9 @@ async def ws_set_token(
                         manager.monitor.schedule_cleanup(
                             clean_dev_id,
                             old_slug,
-                            delay_seconds=old_cleanup_delay,
                             artifact_id=restored_artifact_id,
+                            expires_at=(restored_old_artifact.expires_at if restored_old_artifact else artifact.expires_at if artifact else None),
+                            cleanup_hours=(restored_old_artifact.cleanup_hours if restored_old_artifact else artifact.cleanup_hours if artifact else None),
                         )
                     else:
                         manager.monitor.cancel_cleanup(clean_dev_id)

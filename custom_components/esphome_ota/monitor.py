@@ -6,7 +6,8 @@ import asyncio
 import logging
 import re
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from homeassistant.core import Event, HomeAssistant, callback
@@ -63,16 +64,30 @@ class InstallationMonitor:
             if art.is_public and art.public_bin_path and art.published_at:
                 try:
                     pub_dt = datetime.fromisoformat(art.published_at)
-                    elapsed = (now - pub_dt).total_seconds()
-                    remaining = (self.cleanup_hours * 3600) - elapsed
+                    if pub_dt.tzinfo is None:
+                        pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+                    if art.cleanup_hours is None:
+                        art.cleanup_hours = self.cleanup_hours
+                    if art.expires_at is None and art.cleanup_hours > 0:
+                        art.expires_at = (pub_dt + timedelta(hours=art.cleanup_hours)).isoformat()
+                    await self.device_manager.storage.async_save_artifact(art.device_id, art)
                     dev = self.device_manager.get_device(art.device_id)
+                    if dev and dev.expires_at != art.expires_at:
+                        dev.expires_at = art.expires_at
+                        await self.device_manager.storage.async_save_devices(
+                            self.device_manager._managed_devices
+                        )
                     slug = dev.slug if dev else art.device_id
                     self.publisher._active_artifacts[slug] = art.published_at
+                    if not art.expires_at:
+                        continue
+                    expiry_dt = datetime.fromisoformat(art.expires_at)
+                    if expiry_dt.tzinfo is None:
+                        expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
+                    remaining = (expiry_dt - now).total_seconds()
                     if remaining <= 0:
                         self.hass.async_create_task(
-                            self.publisher.async_deactivate(
-                                slug, expected_artifact_id=art.published_at
-                            )
+                            self._async_deactivate_artifact(art.device_id, slug, art.published_at)
                         )
                     else:
                         self.schedule_cleanup(
@@ -368,6 +383,7 @@ class InstallationMonitor:
                 dev.last_published_version
                 and installed_version == dev.last_published_version
                 and not in_progress
+                and dev.last_installed_version != installed_version
             ):
                 _LOGGER.info(
                     "Installation verified for %s at version %s",
@@ -376,11 +392,17 @@ class InstallationMonitor:
                 )
 
                 async def _mark_and_notify_verified() -> None:
+                    artifacts = await self.device_manager.storage.async_load_artifacts()
+                    art = artifacts.get(device_id)
+                    publication_id = art.published_at if art else None
                     await self.device_manager.async_mark_installed(
                         device_id, installed_version
                     )
-                    self.cancel_cleanup(device_id)
-                    await self.publisher.async_deactivate(dev.slug)
+                    if art and art.is_public and art.auto_hide and publication_id:
+                        if await self._async_deactivate_artifact(device_id, dev.slug, publication_id):
+                            timer = self._cleanup_timers.pop(device_id, None)
+                            if timer:
+                                timer.cancel()
                     if self.event_callback:
                         self.event_callback(
                             "devices_updated",
@@ -424,6 +446,8 @@ class InstallationMonitor:
         slug: str,
         delay_seconds: float | None = None,
         artifact_id: str | None = None,
+        cleanup_hours: int | None = None,
+        expires_at: str | None = None,
     ) -> None:
         """Schedule automatic public binary deactivation after expiry period."""
         self.cancel_cleanup(device_id)
@@ -432,8 +456,16 @@ class InstallationMonitor:
         if target_artifact_id is None:
             target_artifact_id = self.publisher.get_current_artifact_id(slug)
 
+        if delay_seconds is None and expires_at:
+            expiry_dt = datetime.fromisoformat(expires_at)
+            if expiry_dt.tzinfo is None:
+                expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
+            delay_seconds = (expiry_dt - datetime.now(timezone.utc)).total_seconds()
         if delay_seconds is None:
-            delay = max(0.0, float(self.cleanup_hours * 3600))
+            resolved_hours = self.cleanup_hours if cleanup_hours is None else cleanup_hours
+            if resolved_hours <= 0:
+                return
+            delay = max(0.0, float(resolved_hours * 3600))
         else:
             delay = max(0.0, float(delay_seconds))
 
@@ -461,6 +493,37 @@ class InstallationMonitor:
 
         timer = self.hass.loop.call_later(delay, _run_cleanup)
         self._cleanup_timers[device_id] = timer
+
+    async def _async_deactivate_artifact(
+        self, device_id: str, slug: str, artifact_id: str | None
+    ) -> bool:
+        """Hide only the publication that still matches the requested artifact ID."""
+        artifacts = await self.device_manager.storage.async_load_artifacts()
+        art = artifacts.get(device_id)
+        if not art or (artifact_id and art.published_at != artifact_id):
+            return False
+        removed = await self.publisher.async_deactivate(slug, expected_artifact_id=artifact_id)
+        public_bin = (
+            Path(art.public_bin_path)
+            if art.public_bin_path
+            else self.publisher.www_dir / f"{slug}.ota.bin"
+        )
+        if not public_bin.exists():
+            public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
+        is_private = removed or not public_bin.exists()
+        if is_private and art.is_public:
+            art.is_public = False
+            art.public_bin_path = None
+            await self.device_manager.storage.async_save_artifact(device_id, art)
+            dev = self.device_manager.get_device(device_id)
+            if dev:
+                dev.expires_at = None
+                await self.device_manager.storage.async_save_devices(
+                    self.device_manager._managed_devices
+                )
+            if self.event_callback:
+                self.event_callback("devices_updated", {"devices": self.device_manager.list_all()})
+        return is_private
 
     def cancel_cleanup(self, device_id: str) -> None:
         """Cancel any scheduled cleanup timer for a device."""
