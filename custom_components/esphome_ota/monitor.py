@@ -415,13 +415,26 @@ class InstallationMonitor:
                         await self.device_manager.async_mark_installed(
                             device_id, installed_version
                         )
-                        if art and art.is_public and art.auto_hide and publication_id:
-                            if await self._async_deactivate_artifact(
+                        if current_dev.auto_hide and art and art.is_public and publication_id:
+                            did_deactivate = await self._async_deactivate_artifact(
                                 device_id,
                                 current_dev.slug,
                                 publication_id,
                                 lock_held=True,
-                            ):
+                            )
+                            if did_deactivate:
+                                timer = self._cleanup_timers.pop(device_id, None)
+                                if timer:
+                                    timer.cancel()
+                        elif current_dev.auto_hide:
+                            # Older installs can have a public file but no
+                            # persisted artifact record. The device lock and
+                            # matching last_published_version above keep this
+                            # fallback scoped to the firmware just installed.
+                            did_deactivate = await self.publisher.async_deactivate(
+                                current_dev.slug
+                            )
+                            if did_deactivate:
                                 timer = self._cleanup_timers.pop(device_id, None)
                                 if timer:
                                     timer.cancel()
@@ -547,7 +560,14 @@ class InstallationMonitor:
         artifacts = await self.device_manager.storage.async_load_artifacts()
         art = artifacts.get(device_id)
         if not art or (artifact_id and art.published_at != artifact_id):
-            return False
+            # Storage can lag a publication or contain an older record. The
+            # manifest ID check still protects the file while leaving unrelated
+            # artifact metadata untouched.
+            async with self.publisher._get_slug_lock(slug):
+                is_private = await self._deactivate_if_file_matches(slug, artifact_id)
+            if is_private and self.event_callback:
+                self.event_callback("devices_updated", {"devices": self.device_manager.list_all()})
+            return is_private
         public_bin = (
             Path(art.public_bin_path)
             if art.public_bin_path
@@ -609,6 +629,16 @@ class InstallationMonitor:
                 async with self.device_manager.get_lock(device_id):
                     await _clear_expiry_if_still_current()
         return is_private
+
+    async def _deactivate_if_file_matches(
+        self, slug: str, artifact_id: str | None
+    ) -> bool:
+        """Deactivate a file without changing metadata for a different artifact."""
+        removed = await self.publisher.async_deactivate_with_slug_lock_held(
+            slug, expected_artifact_id=artifact_id
+        )
+        public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
+        return removed or not public_bin.exists()
 
     def cancel_cleanup(self, device_id: str) -> None:
         """Cancel any scheduled cleanup timer for a device."""
