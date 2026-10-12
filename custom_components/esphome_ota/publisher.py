@@ -409,6 +409,17 @@ class ArtifactPublisher:
                 self._deactivate_sync, slug, expected_artifact_id
             )
 
+    async def async_deactivate_with_slug_lock_held(
+        self, slug: str, expected_artifact_id: str | None = None
+    ) -> bool:
+        """Deactivate while the caller holds this slug's async lock."""
+        if self._unloaded:
+            _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+            return False
+        return await self.hass.async_add_executor_job(
+            self._deactivate_sync, slug, expected_artifact_id
+        )
+
     def _load_private_artifact_sync(self, private_path: str) -> bytes:
         """Load private binary bytes."""
         path = Path(private_path)

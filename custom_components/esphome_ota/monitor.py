@@ -407,16 +407,15 @@ class InstallationMonitor:
                         if (
                             not current_dev
                             or current_dev.last_published_version != installed_version
-                            or not art
-                            or art.version != installed_version
+                            or (art and art.version != installed_version)
                             or current_dev.last_installed_version == installed_version
                         ):
                             return
-                        publication_id = art.published_at
+                        publication_id = art.published_at if art else None
                         await self.device_manager.async_mark_installed(
                             device_id, installed_version
                         )
-                        if art.is_public and art.auto_hide and publication_id:
+                        if art and art.is_public and art.auto_hide and publication_id:
                             if await self._async_deactivate_artifact(
                                 device_id,
                                 current_dev.slug,
@@ -558,22 +557,26 @@ class InstallationMonitor:
             public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
 
         async def _deactivate_if_still_current() -> bool:
-            removed = await self.publisher.async_deactivate(
+            removed = await self.publisher.async_deactivate_with_slug_lock_held(
                 slug, expected_artifact_id=artifact_id
             )
             return removed or not public_bin.exists()
 
         if art.is_public:
-            is_private = await self.device_manager.storage.async_deactivate_artifact_if_current(
-                device_id,
-                art.published_at,
-                _deactivate_if_still_current,
-                expected_expires_at=expected_expires_at,
-            )
+            # Lock order matches publication: slug first, then artifact store.
+            # The latter remains held only for the state check and file removal.
+            async with self.publisher._get_slug_lock(slug):
+                is_private = await self.device_manager.storage.async_deactivate_artifact_if_current(
+                    device_id,
+                    art.published_at,
+                    _deactivate_if_still_current,
+                    expected_expires_at=expected_expires_at,
+                )
             if not is_private:
                 return False
         else:
-            is_private = await _deactivate_if_still_current()
+            async with self.publisher._get_slug_lock(slug):
+                is_private = await _deactivate_if_still_current()
         if is_private and art.is_public:
             if self.event_callback:
                 # Notify immediately after removing the public file; metadata

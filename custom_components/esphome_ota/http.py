@@ -10,7 +10,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView, require_admin
 from homeassistant.core import HomeAssistant
 
-from .const import MAX_UPLOAD_SIZE
+from .const import DEFAULT_AUTO_CLEANUP_HOURS, MAX_UPLOAD_SIZE
 from .firmware import BinaryValidationError, inspect_binary
 
 _LOGGER = logging.getLogger(__name__)
@@ -201,7 +201,11 @@ class FirmwareUploadView(HomeAssistantView):
                         if cleanup_hours_override is not None
                         else dev.publication_cleanup_hours
                         if dev.publication_cleanup_hours is not None
-                        else self.manager.cleanup_hours
+                        else getattr(
+                            self.manager,
+                            "cleanup_hours",
+                            DEFAULT_AUTO_CLEANUP_HOURS,
+                        )
                     ),
                     auto_hide=dev.auto_hide if auto_hide_override is None else auto_hide_override,
                 )
