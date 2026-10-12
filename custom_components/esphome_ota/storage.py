@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -103,14 +104,15 @@ class StorageManager:
             current[device_id] = artifact.to_dict()
             await self._artifact_store.async_save(current)
 
-    async def async_mark_artifact_private_if_current(
+    async def async_deactivate_artifact_if_current(
         self,
         device_id: str,
         expected_published_at: str,
+        deactivate: Callable[[], Awaitable[bool]],
         *,
         expected_expires_at: str | None = None,
     ) -> bool:
-        """Mark a publication private only if it is still the current artifact."""
+        """Deactivate and mark private atomically against policy changes."""
         async with self._artifact_lock:
             data = await self._artifact_store.async_load()
             if not isinstance(data, dict):
@@ -135,6 +137,10 @@ class StorageManager:
                     expiry = expiry.replace(tzinfo=timezone.utc)
                 if expiry > datetime.now(timezone.utc):
                     return False
+            # Keep policy updates from extending or disabling this publication
+            # between deadline validation and its file removal.
+            if not await deactivate():
+                return False
             raw_artifact["is_public"] = False
             raw_artifact["public_bin_path"] = None
             await self._artifact_store.async_save(data)

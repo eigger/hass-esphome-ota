@@ -86,8 +86,12 @@ class InstallationMonitor:
                         expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
                     remaining = (expiry_dt - now).total_seconds()
                     if remaining <= 0:
-                        self.hass.async_create_task(
-                            self._async_deactivate_artifact(art.device_id, slug, art.published_at)
+                        self.schedule_cleanup(
+                            art.device_id,
+                            slug,
+                            delay_seconds=0,
+                            artifact_id=art.published_at,
+                            expires_at=art.expires_at,
                         )
                     else:
                         self.schedule_cleanup(
@@ -95,6 +99,7 @@ class InstallationMonitor:
                             slug,
                             delay_seconds=remaining,
                             artifact_id=art.published_at,
+                            expires_at=art.expires_at,
                         )
                 except Exception as ex:  # noqa: BLE001
                     _LOGGER.debug(
@@ -497,12 +502,32 @@ class InstallationMonitor:
             )
 
             async def _deactivate_and_notify() -> None:
-                await self._async_deactivate_artifact(
-                    device_id,
-                    slug,
-                    target_artifact_id,
-                    expected_expires_at=expires_at,
-                )
+                try:
+                    await self._async_deactivate_artifact(
+                        device_id,
+                        slug,
+                        target_artifact_id,
+                        expected_expires_at=expires_at,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.exception(
+                        "Could not expire public firmware for %s; retrying shortly",
+                        device_id,
+                    )
+
+                    @callback
+                    def _retry_cleanup() -> None:
+                        self.schedule_cleanup(
+                            device_id,
+                            slug,
+                            delay_seconds=30,
+                            artifact_id=target_artifact_id,
+                            expires_at=expires_at,
+                        )
+
+                    self._cleanup_timers[device_id] = self.hass.loop.call_later(
+                        30, _retry_cleanup
+                    )
 
             task = self.hass.async_create_task(_deactivate_and_notify())
             self._cleanup_tasks[device_id] = task
@@ -524,15 +549,6 @@ class InstallationMonitor:
         art = artifacts.get(device_id)
         if not art or (artifact_id and art.published_at != artifact_id):
             return False
-        if art.is_public:
-            marked_private = await self.device_manager.storage.async_mark_artifact_private_if_current(
-                device_id,
-                art.published_at,
-                expected_expires_at=expected_expires_at,
-            )
-            if not marked_private:
-                return False
-        removed = await self.publisher.async_deactivate(slug, expected_artifact_id=artifact_id)
         public_bin = (
             Path(art.public_bin_path)
             if art.public_bin_path
@@ -540,7 +556,24 @@ class InstallationMonitor:
         )
         if not public_bin.exists():
             public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
-        is_private = removed or not public_bin.exists()
+
+        async def _deactivate_if_still_current() -> bool:
+            removed = await self.publisher.async_deactivate(
+                slug, expected_artifact_id=artifact_id
+            )
+            return removed or not public_bin.exists()
+
+        if art.is_public:
+            is_private = await self.device_manager.storage.async_deactivate_artifact_if_current(
+                device_id,
+                art.published_at,
+                _deactivate_if_still_current,
+                expected_expires_at=expected_expires_at,
+            )
+            if not is_private:
+                return False
+        else:
+            is_private = await _deactivate_if_still_current()
         if is_private and art.is_public:
             if self.event_callback:
                 # Notify immediately after removing the public file; metadata
