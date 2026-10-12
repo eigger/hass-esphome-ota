@@ -149,6 +149,19 @@ class JobRunner:
         if self.event_callback:
             self.event_callback("job_updated", job.to_dict())
 
+    def _publication_cleanup_hours(self, device: ManagedDevice) -> int:
+        """Resolve a per-device override against the integration default."""
+        if device.publication_cleanup_hours is not None:
+            return device.publication_cleanup_hours
+        return self.monitor.cleanup_hours if self.monitor else 12
+
+    def _job_cleanup_hours(self, job: PipelineJob, device: ManagedDevice) -> int:
+        return int(job.checkpoint.get("cleanup_hours", self._publication_cleanup_hours(device)))
+
+    @staticmethod
+    def _job_auto_hide(job: PipelineJob, device: ManagedDevice) -> bool:
+        return bool(job.checkpoint.get("auto_hide", device.auto_hide))
+
     async def _update_stage(
         self,
         job: PipelineJob,
@@ -173,6 +186,8 @@ class JobRunner:
         base_url: str,
         request_id: str | None = None,
         target_version: str | None = None,
+        cleanup_hours: int | None = None,
+        auto_hide: bool | None = None,
     ) -> str:
         """Start an asynchronous compile-download-verify-publish pipeline.
 
@@ -220,6 +235,14 @@ class JobRunner:
             reserved_version=provisional_version,
             checkpoint={"version_override": override} if override else {},
         )
+        # Snapshot the effective publication policy with the job so defaults
+        # changing while a long build is running cannot change its outcome.
+        job.checkpoint["cleanup_hours"] = (
+            self._publication_cleanup_hours(device)
+            if cleanup_hours is None
+            else cleanup_hours
+        )
+        job.checkpoint["auto_hide"] = device.auto_hide if auto_hide is None else auto_hide
         self._active_jobs[job_id] = job
         await self.storage.async_save_jobs(self._active_jobs)
         self._notify_job_update(job)
@@ -458,6 +481,8 @@ class JobRunner:
                         or job.job_id in self._cancelled_jobs
                         or job.stage == STAGE_CANCELLED
                     ),
+                    cleanup_hours=self._job_cleanup_hours(job, device),
+                    auto_hide=self._job_auto_hide(job, device),
                 )
 
                 if (
@@ -470,7 +495,7 @@ class JobRunner:
                 # Record successful publish in storage and devices
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version
+                    device.device_id, published.version, published.expires_at
                 )
 
                 # Schedule automatic cleanup and trigger immediate update entity check
@@ -479,6 +504,8 @@ class JobRunner:
                         device.device_id,
                         device.slug,
                         artifact_id=published.published_at,
+                        expires_at=published.expires_at,
+                        cleanup_hours=published.cleanup_hours,
                     )
                     await self.monitor.async_refresh_entity(device.device_id)
 
@@ -789,6 +816,8 @@ class JobRunner:
                         or job.job_id in self._cancelled_jobs
                         or job.stage == STAGE_CANCELLED
                     ),
+                    cleanup_hours=self._job_cleanup_hours(job, device),
+                    auto_hide=self._job_auto_hide(job, device),
                 )
 
                 if (
@@ -800,7 +829,7 @@ class JobRunner:
 
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version
+                    device.device_id, published.version, published.expires_at
                 )
 
                 if self.monitor:
@@ -808,6 +837,8 @@ class JobRunner:
                         device.device_id,
                         device.slug,
                         artifact_id=published.published_at,
+                        expires_at=published.expires_at,
+                        cleanup_hours=published.cleanup_hours,
                     )
                     await self.monitor.async_refresh_entity(device.device_id)
 
@@ -875,6 +906,19 @@ class JobRunner:
         artifact: PublishedArtifact,
     ) -> PublishedArtifact:
         """Republish an existing private artifact without re-compiling."""
+        async with self.device_manager.get_lock(device.device_id):
+            artifacts = await self.storage.async_load_artifacts()
+            current = artifacts.get(device.device_id)
+            if not current:
+                raise EsphomeOtaError("No private artifact exists for this device")
+            return await self._async_republish_locked(device, current)
+
+    async def _async_republish_locked(
+        self,
+        device: ManagedDevice,
+        artifact: PublishedArtifact,
+    ) -> PublishedArtifact:
+        """Republish while holding the device mutation lock."""
         blob = await self.publisher.async_load_private_artifact(artifact.private_path)
         info = inspect_binary(
             blob=blob,
@@ -890,15 +934,21 @@ class JobRunner:
             info=info,
             title=device.friendly_name,
             check_cancelled=lambda: self._unloaded,
+            cleanup_hours=self._publication_cleanup_hours(device),
+            auto_hide=device.auto_hide,
         )
         await self.storage.async_save_artifact(device.device_id, published)
         await self.device_manager.async_mark_published(
-            device.device_id, published.version
+            device.device_id, published.version, published.expires_at
         )
 
         if self.monitor:
             self.monitor.schedule_cleanup(
-                device.device_id, device.slug, artifact_id=published.published_at
+                device.device_id,
+                device.slug,
+                artifact_id=published.published_at,
+                expires_at=published.expires_at,
+                cleanup_hours=published.cleanup_hours,
             )
             await self.monitor.async_refresh_entity(device.device_id)
 

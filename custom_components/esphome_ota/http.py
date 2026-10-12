@@ -10,7 +10,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView, require_admin
 from homeassistant.core import HomeAssistant
 
-from .const import MAX_UPLOAD_SIZE
+from .const import DEFAULT_AUTO_CLEANUP_HOURS, MAX_UPLOAD_SIZE
 from .firmware import BinaryValidationError, inspect_binary
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,6 +58,24 @@ class FirmwareUploadView(HomeAssistantView):
             chunks.append(chunk)
 
         blob = b"".join(chunks)
+        cleanup_hours_override = None
+        auto_hide_override = None
+        while True:
+            metadata = await reader.next()
+            if metadata is None:
+                break
+            value = await metadata.text()
+            if metadata.name == "cleanup_hours":
+                try:
+                    cleanup_hours_override = int(value)
+                except ValueError:
+                    return web.json_response({"error": "Invalid cleanup period"}, status=400)
+                if not 0 <= cleanup_hours_override <= 168:
+                    return web.json_response({"error": "Cleanup period must be from 0 to 168 hours"}, status=400)
+            elif metadata.name == "auto_hide":
+                if value.lower() not in ("true", "false"):
+                    return web.json_response({"error": "Invalid hide-after-install setting"}, status=400)
+                auto_hide_override = value.lower() == "true"
         clean_device_id = device_id.removesuffix(".yaml")
 
         # Reject obviously non-firmware payloads before resolving the device. The
@@ -178,14 +196,30 @@ class FirmwareUploadView(HomeAssistantView):
                     blob=blob,
                     info=info,
                     title=dev.friendly_name,
+                    cleanup_hours=(
+                        cleanup_hours_override
+                        if cleanup_hours_override is not None
+                        else dev.publication_cleanup_hours
+                        if dev.publication_cleanup_hours is not None
+                        else getattr(
+                            self.manager,
+                            "cleanup_hours",
+                            DEFAULT_AUTO_CLEANUP_HOURS,
+                        )
+                    ),
+                    auto_hide=dev.auto_hide if auto_hide_override is None else auto_hide_override,
                 )
                 await self.manager.storage.async_save_artifact(dev.device_id, published)
                 await self.manager.device_manager.async_mark_published(
-                    dev.device_id, published.version
+                    dev.device_id, published.version, published.expires_at
                 )
                 if self.manager.monitor:
                     self.manager.monitor.schedule_cleanup(
-                        dev.device_id, dev.slug, artifact_id=published.published_at
+                        dev.device_id,
+                        dev.slug,
+                        artifact_id=published.published_at,
+                        expires_at=published.expires_at,
+                        cleanup_hours=published.cleanup_hours,
                     )
                     await self.manager.monitor.async_refresh_entity(dev.device_id)
                 self.manager._dispatch_event(
@@ -199,6 +233,9 @@ class FirmwareUploadView(HomeAssistantView):
                         "size": published.size,
                         "chip_family": published.chip_family,
                         "md5": published.md5,
+                        "expires_at": published.expires_at,
+                        "cleanup_hours": published.cleanup_hours,
+                        "auto_hide": published.auto_hide,
                     }
                 )
             except BinaryValidationError as err:
@@ -225,8 +262,18 @@ class FirmwareUploadView(HomeAssistantView):
                                     blob=previous_public_blob,
                                     info=previous_public_info,
                                     title=dev.friendly_name,
+                                    cleanup_hours=(
+                                        previous_artifact.cleanup_hours
+                                        if previous_artifact and previous_artifact.cleanup_hours is not None
+                                        else self.manager.cleanup_hours
+                                    ),
+                                    auto_hide=previous_artifact.auto_hide if previous_artifact else dev.auto_hide,
                                 )
                             )
+                            if previous_artifact:
+                                restored_publication.cleanup_hours = previous_artifact.cleanup_hours
+                                restored_publication.expires_at = previous_artifact.expires_at
+                                restored_publication.auto_hide = previous_artifact.auto_hide
                         except Exception:  # noqa: BLE001
                             _LOGGER.exception(
                                 "Could not restore previous firmware for %s",
@@ -304,8 +351,9 @@ class FirmwareUploadView(HomeAssistantView):
                                 self.manager.monitor.schedule_cleanup(
                                     dev.device_id,
                                     dev.slug,
-                                    delay_seconds=previous_cleanup_delay,
                                     artifact_id=restored_publication.published_at,
+                                    expires_at=restored_publication.expires_at,
+                                    cleanup_hours=restored_publication.cleanup_hours,
                                 )
                             elif previous_public_exists and published:
                                 self.manager.monitor.schedule_cleanup(

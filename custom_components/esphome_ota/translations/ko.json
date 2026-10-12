@@ -33,7 +33,7 @@
         "title": "ESPHome OTA 옵션",
         "data": {
           "base_url": "외부 접속 URL (Base URL)",
-          "auto_cleanup_hours": "자동 정리 보관 시간 (시간 단위)"
+          "auto_cleanup_hours": "기본 자동 비공개 시간 (시간, 0 = 사용 안 함)"
         }
       }
     }

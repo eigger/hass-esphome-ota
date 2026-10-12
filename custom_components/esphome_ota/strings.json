@@ -33,7 +33,7 @@
         "title": "ESPHome OTA Options",
         "data": {
           "base_url": "Public Base URL",
-          "auto_cleanup_hours": "Auto Cleanup Period (hours)"
+          "auto_cleanup_hours": "Default auto-hide period (hours, 0 = never)"
         }
       }
     }

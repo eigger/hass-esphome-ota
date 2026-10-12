@@ -335,6 +335,9 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.manualVersion = "";
     this.versionTemplate = "date";
     this.versionIncrement = "patch";
+    this.cleanupMode = "default";
+    this.cleanupHours = 12;
+    this.autoHideAfterInstall = true;
     this.submitting = false;
     this.error = "";
     this._sessionId = 0;
@@ -351,6 +354,9 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.error = "";
     this.versionTemplate = "date";
     this.versionIncrement = "patch";
+    this.cleanupMode = "default";
+    this.cleanupHours = 12;
+    this.autoHideAfterInstall = device?.auto_hide !== false;
     this.manualVersion = currentYamlVersion(device);
     this.targetVersion = suggestDateVersion(device, currentDateKey(hass?.config?.time_zone));
     this.render();
@@ -382,6 +388,14 @@ class EsphomeOtaBuildDialog extends HTMLElement {
       this.render();
       return;
     }
+    if (this.cleanupMode === "custom") {
+      const hours = Number(this.cleanupHours);
+      if (!Number.isInteger(hours) || hours < 1 || hours > 168) {
+        this.error = t(this.hass, "cleanup_hours_invalid");
+        this.render();
+        return;
+      }
+    }
 
     this.submitting = true;
     this.error = "";
@@ -392,7 +406,10 @@ class EsphomeOtaBuildDialog extends HTMLElement {
         type: "esphome_ota/build",
         device_id: targetDevice.device_id,
         target_version: version,
+        auto_hide: !!this.autoHideAfterInstall,
       };
+      if (this.cleanupMode === "none") payload.cleanup_hours = 0;
+      else if (this.cleanupMode === "custom") payload.cleanup_hours = Number(this.cleanupHours);
       const res = await this.hass.callWS(payload);
       const stillShowingTarget = this.isOpen
         && this._sessionId === sessionId
@@ -509,6 +526,16 @@ class EsphomeOtaBuildDialog extends HTMLElement {
               <span class="hint-title">${escapeHtml(t(this.hass, "build_version_hint"))}</span>
               <p>${escapeHtml(t(this.hass, "build_version_hint_details"))}</p>
             </div>
+            <div class="field">
+              <label for="cleanup-mode">${escapeHtml(t(this.hass, "publication_expiry"))}</label>
+              <select id="cleanup-mode" ${this.submitting ? "disabled" : ""}>
+                <option value="default" ${this.cleanupMode === "default" ? "selected" : ""}>${escapeHtml(t(this.hass, "use_device_default"))}</option>
+                <option value="none" ${this.cleanupMode === "none" ? "selected" : ""}>${escapeHtml(t(this.hass, "expiry_disabled"))}</option>
+                <option value="custom" ${this.cleanupMode === "custom" ? "selected" : ""}>${escapeHtml(t(this.hass, "custom_expiry"))}</option>
+              </select>
+              ${this.cleanupMode === "custom" ? `<input id="cleanup-hours" type="number" min="1" max="168" step="1" value="${escapeHtml(String(this.cleanupHours))}" ${this.submitting ? "disabled" : ""}>` : ""}
+              <label style="display:flex;align-items:center;gap:8px;margin-top:8px;"><input id="auto-hide-installed" type="checkbox" ${this.autoHideAfterInstall ? "checked" : ""} ${this.submitting ? "disabled" : ""}>${escapeHtml(t(this.hass, "hide_after_install"))}</label>
+            </div>
             ${this.error ? `<div class="error">${escapeHtml(this.error)}</div>` : ""}
           </div>
           <div class="footer">
@@ -537,6 +564,17 @@ class EsphomeOtaBuildDialog extends HTMLElement {
     this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.close());
     this.shadowRoot.getElementById("btn-start")?.addEventListener("click", () => this.confirmBuild());
+    this.shadowRoot.getElementById("cleanup-mode")?.addEventListener("change", (event) => {
+      this.cleanupMode = event.target.value;
+      this.render();
+      this.shadowRoot.getElementById("cleanup-mode")?.focus();
+    });
+    this.shadowRoot.getElementById("cleanup-hours")?.addEventListener("input", (event) => {
+      this.cleanupHours = event.target.value;
+    });
+    this.shadowRoot.getElementById("auto-hide-installed")?.addEventListener("change", (event) => {
+      this.autoHideAfterInstall = event.target.checked;
+    });
 
     this.shadowRoot.querySelectorAll('input[name="version-template"]').forEach((radio) => radio.addEventListener("change", (event) => {
       this.versionTemplate = event.target.value;
