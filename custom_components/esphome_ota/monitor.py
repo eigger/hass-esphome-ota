@@ -516,11 +516,6 @@ class InstallationMonitor:
         lock_held: bool = False,
     ) -> bool:
         """Hide only the publication that still matches the requested artifact ID."""
-        if not lock_held:
-            async with self.device_manager.get_lock(device_id):
-                return await self._async_deactivate_artifact(
-                    device_id, slug, artifact_id, lock_held=True
-                )
         artifacts = await self.device_manager.storage.async_load_artifacts()
         art = artifacts.get(device_id)
         if not art or (artifact_id and art.published_at != artifact_id):
@@ -535,15 +530,37 @@ class InstallationMonitor:
             public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
         is_private = removed or not public_bin.exists()
         if is_private and art.is_public:
-            art.is_public = False
-            art.public_bin_path = None
-            await self.device_manager.storage.async_save_artifact(device_id, art)
-            dev = self.device_manager.get_device(device_id)
-            if dev:
-                dev.expires_at = None
-                await self.device_manager.storage.async_save_devices(
-                    self.device_manager._managed_devices
-                )
+            marked_private = await self.device_manager.storage.async_mark_artifact_private_if_current(
+                device_id, art.published_at
+            )
+            if not marked_private:
+                return False
+
+            async def _clear_expiry_if_still_current() -> None:
+                current_artifacts = await self.device_manager.storage.async_load_artifacts()
+                current_art = current_artifacts.get(device_id)
+                dev = self.device_manager.get_device(device_id)
+                if (
+                    current_art
+                    and current_art.published_at == art.published_at
+                    and not current_art.is_public
+                    and dev
+                    and dev.last_published_version == art.version
+                    and dev.expires_at == art.expires_at
+                ):
+                    dev.expires_at = None
+                    await self.device_manager.storage.async_save_devices(
+                        self.device_manager._managed_devices
+                    )
+
+            if lock_held:
+                await _clear_expiry_if_still_current()
+            else:
+                # File deactivation and the conditional artifact update happen
+                # before this lock, so a long-running build cannot extend the
+                # public lifetime past its deadline.
+                async with self.device_manager.get_lock(device_id):
+                    await _clear_expiry_if_still_current()
             if self.event_callback:
                 self.event_callback("devices_updated", {"devices": self.device_manager.list_all()})
         return is_private

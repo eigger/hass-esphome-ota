@@ -102,6 +102,26 @@ class StorageManager:
             current[device_id] = artifact.to_dict()
             await self._artifact_store.async_save(current)
 
+    async def async_mark_artifact_private_if_current(
+        self, device_id: str, expected_published_at: str
+    ) -> bool:
+        """Mark a publication private only if it is still the current artifact."""
+        async with self._artifact_lock:
+            data = await self._artifact_store.async_load()
+            if not isinstance(data, dict):
+                return False
+            raw_artifact = data.get(device_id)
+            if (
+                not isinstance(raw_artifact, dict)
+                or raw_artifact.get("published_at") != expected_published_at
+                or not raw_artifact.get("is_public")
+            ):
+                return False
+            raw_artifact["is_public"] = False
+            raw_artifact["public_bin_path"] = None
+            await self._artifact_store.async_save(data)
+            return True
+
     async def async_restore_artifact(
         self, device_id: str, artifact: PublishedArtifact | None
     ) -> None:
