@@ -498,7 +498,10 @@ class InstallationMonitor:
 
             async def _deactivate_and_notify() -> None:
                 await self._async_deactivate_artifact(
-                    device_id, slug, target_artifact_id
+                    device_id,
+                    slug,
+                    target_artifact_id,
+                    expected_expires_at=expires_at,
                 )
 
             task = self.hass.async_create_task(_deactivate_and_notify())
@@ -514,12 +517,21 @@ class InstallationMonitor:
         artifact_id: str | None,
         *,
         lock_held: bool = False,
+        expected_expires_at: str | None = None,
     ) -> bool:
         """Hide only the publication that still matches the requested artifact ID."""
         artifacts = await self.device_manager.storage.async_load_artifacts()
         art = artifacts.get(device_id)
         if not art or (artifact_id and art.published_at != artifact_id):
             return False
+        if art.is_public:
+            marked_private = await self.device_manager.storage.async_mark_artifact_private_if_current(
+                device_id,
+                art.published_at,
+                expected_expires_at=expected_expires_at,
+            )
+            if not marked_private:
+                return False
         removed = await self.publisher.async_deactivate(slug, expected_artifact_id=artifact_id)
         public_bin = (
             Path(art.public_bin_path)
@@ -530,11 +542,10 @@ class InstallationMonitor:
             public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
         is_private = removed or not public_bin.exists()
         if is_private and art.is_public:
-            marked_private = await self.device_manager.storage.async_mark_artifact_private_if_current(
-                device_id, art.published_at
-            )
-            if not marked_private:
-                return False
+            if self.event_callback:
+                # Notify immediately after removing the public file; metadata
+                # cleanup below can wait for a build's device lock.
+                self.event_callback("devices_updated", {"devices": self.device_manager.list_all()})
 
             async def _clear_expiry_if_still_current() -> None:
                 current_artifacts = await self.device_manager.storage.async_load_artifacts()
@@ -561,8 +572,6 @@ class InstallationMonitor:
                 # public lifetime past its deadline.
                 async with self.device_manager.get_lock(device_id):
                     await _clear_expiry_if_still_current()
-            if self.event_callback:
-                self.event_callback("devices_updated", {"devices": self.device_manager.list_all()})
         return is_private
 
     def cancel_cleanup(self, device_id: str) -> None:

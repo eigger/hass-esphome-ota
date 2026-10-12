@@ -154,25 +154,26 @@ async def ws_set_publication_policy(
             dev.updated_at = datetime.now(timezone.utc).isoformat()
             await manager.storage.async_save_devices(manager.device_manager._managed_devices)
         if art:
-            # Save only while holding the same per-device lock used by build,
-            # upload, and token-rotation publication paths.
-            latest_artifacts = await manager.storage.async_load_artifacts()
-            latest = latest_artifacts.get(device_id)
-            if not latest or latest.published_at != art.published_at:
+            # The artifact-store lock serializes this policy update with expiry
+            # transitions while preserving whichever visibility state won.
+            latest = await manager.storage.async_update_artifact_policy_if_current(
+                device_id,
+                art.published_at,
+                cleanup_hours=cleanup_hours,
+                expires_at=expires_at,
+                auto_hide=msg["auto_hide"],
+            )
+            if not latest:
                 connection.send_error(
                     msg["id"], "publication_changed", "The publication changed; reload and try again."
                 )
                 return
-            art.cleanup_hours = cleanup_hours
-            art.expires_at = expires_at
-            art.auto_hide = msg["auto_hide"]
-            await manager.storage.async_save_artifact(device_id, art)
             if manager.monitor:
-                if art.is_public:
+                if latest.is_public:
                     manager.monitor.schedule_cleanup(
                         device_id,
                         dev.slug,
-                        artifact_id=art.published_at,
+                        artifact_id=latest.published_at,
                         expires_at=expires_at,
                         cleanup_hours=cleanup_hours,
                     )

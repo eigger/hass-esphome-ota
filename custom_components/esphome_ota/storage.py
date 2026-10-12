@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -103,7 +104,11 @@ class StorageManager:
             await self._artifact_store.async_save(current)
 
     async def async_mark_artifact_private_if_current(
-        self, device_id: str, expected_published_at: str
+        self,
+        device_id: str,
+        expected_published_at: str,
+        *,
+        expected_expires_at: str | None = None,
     ) -> bool:
         """Mark a publication private only if it is still the current artifact."""
         async with self._artifact_lock:
@@ -115,12 +120,51 @@ class StorageManager:
                 not isinstance(raw_artifact, dict)
                 or raw_artifact.get("published_at") != expected_published_at
                 or not raw_artifact.get("is_public")
+                or (
+                    expected_expires_at is not None
+                    and raw_artifact.get("expires_at") != expected_expires_at
+                )
             ):
                 return False
+            if expected_expires_at is not None:
+                try:
+                    expiry = datetime.fromisoformat(expected_expires_at)
+                except ValueError:
+                    return False
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                if expiry > datetime.now(timezone.utc):
+                    return False
             raw_artifact["is_public"] = False
             raw_artifact["public_bin_path"] = None
             await self._artifact_store.async_save(data)
             return True
+
+    async def async_update_artifact_policy_if_current(
+        self,
+        device_id: str,
+        expected_published_at: str,
+        *,
+        cleanup_hours: int,
+        expires_at: str | None,
+        auto_hide: bool,
+    ) -> PublishedArtifact | None:
+        """Update policy without overwriting concurrent visibility changes."""
+        async with self._artifact_lock:
+            data = await self._artifact_store.async_load()
+            if not isinstance(data, dict):
+                return None
+            raw_artifact = data.get(device_id)
+            if (
+                not isinstance(raw_artifact, dict)
+                or raw_artifact.get("published_at") != expected_published_at
+            ):
+                return None
+            raw_artifact["cleanup_hours"] = cleanup_hours
+            raw_artifact["expires_at"] = expires_at
+            raw_artifact["auto_hide"] = auto_hide
+            await self._artifact_store.async_save(data)
+            return PublishedArtifact.from_dict(raw_artifact)
 
     async def async_restore_artifact(
         self, device_id: str, artifact: PublishedArtifact | None
