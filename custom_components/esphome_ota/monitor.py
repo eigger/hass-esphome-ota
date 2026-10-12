@@ -392,17 +392,30 @@ class InstallationMonitor:
                 )
 
                 async def _mark_and_notify_verified() -> None:
-                    artifacts = await self.device_manager.storage.async_load_artifacts()
-                    art = artifacts.get(device_id)
-                    publication_id = art.published_at if art else None
-                    await self.device_manager.async_mark_installed(
-                        device_id, installed_version
-                    )
-                    if art and art.is_public and art.auto_hide and publication_id:
-                        if await self._async_deactivate_artifact(device_id, dev.slug, publication_id):
-                            timer = self._cleanup_timers.pop(device_id, None)
-                            if timer:
-                                timer.cancel()
+                    async with self.device_manager.get_lock(device_id):
+                        current_dev = self.device_manager.get_device(device_id)
+                        artifacts = await self.device_manager.storage.async_load_artifacts()
+                        art = artifacts.get(device_id)
+                        # The state event may have been queued just before a new
+                        # publication completed. Only act on the artifact that
+                        # actually matches the installed version now.
+                        if (
+                            not current_dev
+                            or current_dev.last_published_version != installed_version
+                            or not art
+                            or art.version != installed_version
+                            or current_dev.last_installed_version == installed_version
+                        ):
+                            return
+                        publication_id = art.published_at
+                        await self.device_manager.async_mark_installed(
+                            device_id, installed_version
+                        )
+                        if art.is_public and art.auto_hide and publication_id:
+                            if await self._async_deactivate_artifact(device_id, current_dev.slug, publication_id):
+                                timer = self._cleanup_timers.pop(device_id, None)
+                                if timer:
+                                    timer.cancel()
                     if self.event_callback:
                         self.event_callback(
                             "devices_updated",
@@ -479,14 +492,9 @@ class InstallationMonitor:
             )
 
             async def _deactivate_and_notify() -> None:
-                await self.publisher.async_deactivate(
-                    slug, expected_artifact_id=target_artifact_id
+                await self._async_deactivate_artifact(
+                    device_id, slug, target_artifact_id
                 )
-                if self.event_callback:
-                    self.event_callback(
-                        "devices_updated",
-                        {"devices": self.device_manager.list_all()},
-                    )
 
             task = self.hass.async_create_task(_deactivate_and_notify())
             self._cleanup_tasks[device_id] = task

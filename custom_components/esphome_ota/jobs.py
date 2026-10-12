@@ -155,6 +155,13 @@ class JobRunner:
             return device.publication_cleanup_hours
         return self.monitor.cleanup_hours if self.monitor else 12
 
+    def _job_cleanup_hours(self, job: PipelineJob, device: ManagedDevice) -> int:
+        return int(job.checkpoint.get("cleanup_hours", self._publication_cleanup_hours(device)))
+
+    @staticmethod
+    def _job_auto_hide(job: PipelineJob, device: ManagedDevice) -> bool:
+        return bool(job.checkpoint.get("auto_hide", device.auto_hide))
+
     async def _update_stage(
         self,
         job: PipelineJob,
@@ -179,6 +186,8 @@ class JobRunner:
         base_url: str,
         request_id: str | None = None,
         target_version: str | None = None,
+        cleanup_hours: int | None = None,
+        auto_hide: bool | None = None,
     ) -> str:
         """Start an asynchronous compile-download-verify-publish pipeline.
 
@@ -226,6 +235,14 @@ class JobRunner:
             reserved_version=provisional_version,
             checkpoint={"version_override": override} if override else {},
         )
+        # Snapshot the effective publication policy with the job so defaults
+        # changing while a long build is running cannot change its outcome.
+        job.checkpoint["cleanup_hours"] = (
+            self._publication_cleanup_hours(device)
+            if cleanup_hours is None
+            else cleanup_hours
+        )
+        job.checkpoint["auto_hide"] = device.auto_hide if auto_hide is None else auto_hide
         self._active_jobs[job_id] = job
         await self.storage.async_save_jobs(self._active_jobs)
         self._notify_job_update(job)
@@ -464,8 +481,8 @@ class JobRunner:
                         or job.job_id in self._cancelled_jobs
                         or job.stage == STAGE_CANCELLED
                     ),
-                    cleanup_hours=self._publication_cleanup_hours(device),
-                    auto_hide=device.auto_hide,
+                    cleanup_hours=self._job_cleanup_hours(job, device),
+                    auto_hide=self._job_auto_hide(job, device),
                 )
 
                 if (
@@ -799,8 +816,8 @@ class JobRunner:
                         or job.job_id in self._cancelled_jobs
                         or job.stage == STAGE_CANCELLED
                     ),
-                    cleanup_hours=self._publication_cleanup_hours(device),
-                    auto_hide=device.auto_hide,
+                    cleanup_hours=self._job_cleanup_hours(job, device),
+                    auto_hide=self._job_auto_hide(job, device),
                 )
 
                 if (
@@ -904,8 +921,8 @@ class JobRunner:
             info=info,
             title=device.friendly_name,
             check_cancelled=lambda: self._unloaded,
-            cleanup_hours=(artifact.cleanup_hours if artifact.cleanup_hours is not None else self._publication_cleanup_hours(device)),
-            auto_hide=artifact.auto_hide,
+            cleanup_hours=self._publication_cleanup_hours(device),
+            auto_hide=device.auto_hide,
         )
         await self.storage.async_save_artifact(device.device_id, published)
         await self.device_manager.async_mark_published(

@@ -563,6 +563,7 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   connectedCallback() {
+    this.expiryInterval = setInterval(() => this._updateExpiryCountdowns(), 60_000);
     // HA's custom-panel wrapper may have an automatic height. Bound our own
     // panel to the available viewport so that only the content can overflow.
     this.resizePanel = () => {
@@ -587,6 +588,8 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   disconnectedCallback() {
+    clearInterval(this.expiryInterval);
+    this.expiryInterval = null;
     this.panelObserver?.disconnect();
     this.panelObserver = null;
     window.removeEventListener("resize", this.resizePanel);
@@ -1324,7 +1327,9 @@ class EsphomeOtaManager extends HTMLElement {
       || (!dev.has_http_ota && !dev.last_installed_version);
     const canChangeBinaryVisibility = !!dev.last_published_version && !activeJob;
     const expiryLabel = dev.has_public_binary
-      ? (dev.expires_at ? `${new Date(dev.expires_at).toLocaleString()} · ${this._remainingTime(dev.expires_at)}` : t(this.hass, "expiry_disabled"))
+      ? (dev.expires_at
+        ? `${new Date(dev.expires_at).toLocaleString()} · <span class="expiry-remaining" data-expiry="${escapeHtml(dev.expires_at)}">${escapeHtml(this._remainingTime(dev.expires_at))}</span>`
+        : escapeHtml(t(this.hass, "expiry_disabled")))
       : "";
 
     let actionButton = "";
@@ -1354,7 +1359,7 @@ class EsphomeOtaManager extends HTMLElement {
           <span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>
         </div>
 
-        ${expiryLabel ? `<div class="card-sub" style="padding: 0 16px 10px;">${escapeHtml(t(this.hass, "publication_expiry"))}: ${escapeHtml(expiryLabel)}</div>` : ""}
+        ${expiryLabel ? `<div class="card-sub" style="padding: 0 16px 10px;">${escapeHtml(t(this.hass, "publication_expiry"))}: ${expiryLabel}</div>` : ""}
 
         <div class="card-stats">
           <div class="stat-item">
@@ -1397,6 +1402,12 @@ class EsphomeOtaManager extends HTMLElement {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours ? `${hours}h ${minutes}m ${t(this.hass, "time_remaining")}` : `${minutes}m ${t(this.hass, "time_remaining")}`;
+  }
+
+  _updateExpiryCountdowns() {
+    this.shadowRoot?.querySelectorAll(".expiry-remaining[data-expiry]").forEach((el) => {
+      el.textContent = this._remainingTime(el.dataset.expiry);
+    });
   }
 }
 

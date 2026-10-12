@@ -135,42 +135,52 @@ async def ws_set_publication_policy(
     """Apply visibility policy to the active publication and optionally save its default."""
     manager = _get_manager(hass)
     device_id = msg["device_id"]
-    dev = manager.device_manager.get_device(device_id)
-    if not dev:
-        connection.send_error(msg["id"], "device_not_found", "Device not found")
-        return
-    cleanup_hours = msg["cleanup_hours"]
-    expires_at = (
-        (datetime.now(timezone.utc) + timedelta(hours=cleanup_hours)).isoformat()
-        if cleanup_hours > 0
-        else None
-    )
-    artifacts = await manager.storage.async_load_artifacts()
-    art = artifacts.get(device_id)
-    if msg.get("save_as_default"):
-        dev.publication_cleanup_hours = cleanup_hours
-        dev.auto_hide = msg["auto_hide"]
-        dev.updated_at = datetime.now(timezone.utc).isoformat()
-        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
-    if art:
-        art.cleanup_hours = cleanup_hours
-        art.expires_at = expires_at
-        art.auto_hide = msg["auto_hide"]
-        await manager.storage.async_save_artifact(device_id, art)
-        if manager.monitor:
-            if art.is_public:
-                manager.monitor.schedule_cleanup(
-                    device_id,
-                    dev.slug,
-                    artifact_id=art.published_at,
-                    expires_at=expires_at,
-                    cleanup_hours=cleanup_hours,
+    async with manager.device_manager.get_lock(device_id):
+        dev = manager.device_manager.get_device(device_id)
+        if not dev:
+            connection.send_error(msg["id"], "device_not_found", "Device not found")
+            return
+        cleanup_hours = msg["cleanup_hours"]
+        expires_at = (
+            (datetime.now(timezone.utc) + timedelta(hours=cleanup_hours)).isoformat()
+            if cleanup_hours > 0
+            else None
+        )
+        artifacts = await manager.storage.async_load_artifacts()
+        art = artifacts.get(device_id)
+        if msg.get("save_as_default"):
+            dev.publication_cleanup_hours = cleanup_hours
+            dev.auto_hide = msg["auto_hide"]
+            dev.updated_at = datetime.now(timezone.utc).isoformat()
+            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+        if art:
+            # Save only while holding the same per-device lock used by build,
+            # upload, and token-rotation publication paths.
+            latest_artifacts = await manager.storage.async_load_artifacts()
+            latest = latest_artifacts.get(device_id)
+            if not latest or latest.published_at != art.published_at:
+                connection.send_error(
+                    msg["id"], "publication_changed", "The publication changed; reload and try again."
                 )
-            else:
-                manager.monitor.cancel_cleanup(device_id)
-    if msg.get("save_as_default") or art:
-        dev.expires_at = expires_at
-        await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+                return
+            art.cleanup_hours = cleanup_hours
+            art.expires_at = expires_at
+            art.auto_hide = msg["auto_hide"]
+            await manager.storage.async_save_artifact(device_id, art)
+            if manager.monitor:
+                if art.is_public:
+                    manager.monitor.schedule_cleanup(
+                        device_id,
+                        dev.slug,
+                        artifact_id=art.published_at,
+                        expires_at=expires_at,
+                        cleanup_hours=cleanup_hours,
+                    )
+                else:
+                    manager.monitor.cancel_cleanup(device_id)
+        if msg.get("save_as_default") or art:
+            dev.expires_at = expires_at
+            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
     connection.send_result(msg["id"], {"success": True, "expires_at": expires_at})
     manager._dispatch_event("devices_updated", {"devices": manager.device_manager.list_all()})
 
@@ -343,6 +353,8 @@ async def ws_apply_ota(
         vol.Required("device_id"): str,
         vol.Optional("request_id"): str,
         vol.Optional("target_version"): str,
+        vol.Optional("cleanup_hours"): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+        vol.Optional("auto_hide"): bool,
     }
 )
 @websocket_api.async_response
@@ -398,6 +410,8 @@ async def ws_build(
             base_url=manager.base_url,
             request_id=req_id,
             target_version=target_version,
+            cleanup_hours=msg.get("cleanup_hours"),
+            auto_hide=msg.get("auto_hide"),
         )
         connection.send_result(msg["id"], {"job_id": job_id})
     except Exception as err:  # noqa: BLE001

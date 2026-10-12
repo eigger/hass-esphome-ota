@@ -58,6 +58,24 @@ class FirmwareUploadView(HomeAssistantView):
             chunks.append(chunk)
 
         blob = b"".join(chunks)
+        cleanup_hours_override = None
+        auto_hide_override = None
+        while True:
+            metadata = await reader.next()
+            if metadata is None:
+                break
+            value = await metadata.text()
+            if metadata.name == "cleanup_hours":
+                try:
+                    cleanup_hours_override = int(value)
+                except ValueError:
+                    return web.json_response({"error": "Invalid cleanup period"}, status=400)
+                if not 0 <= cleanup_hours_override <= 168:
+                    return web.json_response({"error": "Cleanup period must be from 0 to 168 hours"}, status=400)
+            elif metadata.name == "auto_hide":
+                if value.lower() not in ("true", "false"):
+                    return web.json_response({"error": "Invalid hide-after-install setting"}, status=400)
+                auto_hide_override = value.lower() == "true"
         clean_device_id = device_id.removesuffix(".yaml")
 
         # Reject obviously non-firmware payloads before resolving the device. The
@@ -178,8 +196,14 @@ class FirmwareUploadView(HomeAssistantView):
                     blob=blob,
                     info=info,
                     title=dev.friendly_name,
-                    cleanup_hours=(dev.publication_cleanup_hours if dev.publication_cleanup_hours is not None else self.manager.cleanup_hours),
-                    auto_hide=dev.auto_hide,
+                    cleanup_hours=(
+                        cleanup_hours_override
+                        if cleanup_hours_override is not None
+                        else dev.publication_cleanup_hours
+                        if dev.publication_cleanup_hours is not None
+                        else self.manager.cleanup_hours
+                    ),
+                    auto_hide=dev.auto_hide if auto_hide_override is None else auto_hide_override,
                 )
                 await self.manager.storage.async_save_artifact(dev.device_id, published)
                 await self.manager.device_manager.async_mark_published(
