@@ -52,6 +52,19 @@ class DeviceManager:
     async def async_load(self) -> None:
         """Load stored devices from storage."""
         self._managed_devices = await self.storage.async_load_devices()
+        artifacts = await self.storage.async_load_artifacts()
+        repaired = False
+        for device_id, dev in self._managed_devices.items():
+            artifact = artifacts.get(device_id)
+            if (
+                not dev.last_published_at
+                and artifact
+                and artifact.version == dev.last_published_version
+            ):
+                dev.last_published_at = artifact.published_at
+                repaired = True
+        if repaired:
+            await self.storage.async_save_devices(self._managed_devices)
 
     def update_builder_devices(self, devices: list[dict[str, Any]]) -> None:
         """Update cached raw devices from Builder."""
@@ -219,6 +232,8 @@ class DeviceManager:
                         "managed_version": managed.managed_version,
                         "last_published_version": managed.last_published_version,
                         "last_installed_version": live_installed,
+                        "last_published_at": managed.last_published_at,
+                        "last_installed_at": managed.last_installed_at,
                         "has_http_ota": managed.has_http_ota,
                         "has_public_binary": _has_public_bin(managed.slug),
                         "status": status,
@@ -282,6 +297,8 @@ class DeviceManager:
                         "managed_version": managed.managed_version,
                         "last_published_version": managed.last_published_version,
                         "last_installed_version": live_installed,
+                        "last_published_at": managed.last_published_at,
+                        "last_installed_at": managed.last_installed_at,
                         "has_http_ota": managed.has_http_ota,
                         "has_public_binary": _has_public_bin(managed.slug),
                         "status": status,
@@ -404,12 +421,14 @@ class DeviceManager:
         device_id: str,
         version: str,
         expires_at: str | None = None,
+        published_at: str | None = None,
     ) -> None:
         """Record successful firmware publication for device and advance next version."""
         dev = self._managed_devices.get(device_id)
         if not dev:
             return
         dev.last_published_version = version
+        dev.last_published_at = published_at or datetime.now(timezone.utc).isoformat()
         dev.expires_at = expires_at
         # Advance managed version for next build (legacy advance_registered_version behavior)
         nxt = bump_patch_version(version)
@@ -422,11 +441,18 @@ class DeviceManager:
         self,
         device_id: str,
         version: str,
+        installed_at: str | None = None,
     ) -> None:
         """Record verified device installation."""
         dev = self._managed_devices.get(device_id)
         if not dev:
             return
+        if dev.last_installed_version != version:
+            # A version discovered after HA was offline has no reliable
+            # installation timestamp; do not keep the previous version's date.
+            dev.last_installed_at = installed_at
+        elif installed_at:
+            dev.last_installed_at = installed_at
         dev.last_installed_version = version
         dev.has_http_ota = True
         dev.status = self._calculate_status(dev)

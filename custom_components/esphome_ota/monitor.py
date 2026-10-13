@@ -413,7 +413,8 @@ class InstallationMonitor:
                             return
                         publication_id = art.published_at if art else None
                         await self.device_manager.async_mark_installed(
-                            device_id, installed_version
+                            device_id, installed_version,
+                            datetime.now(timezone.utc).isoformat(),
                         )
                         if current_dev.auto_hide and art and art.is_public and publication_id:
                             did_deactivate = await self._async_deactivate_artifact(
@@ -462,7 +463,8 @@ class InstallationMonitor:
 
                 async def _mark_and_notify_updated() -> None:
                     await self.device_manager.async_mark_installed(
-                        device_id, installed_version
+                        device_id, installed_version,
+                        datetime.now(timezone.utc).isoformat(),
                     )
                     if self.event_callback:
                         self.event_callback(
