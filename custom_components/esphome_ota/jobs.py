@@ -495,7 +495,8 @@ class JobRunner:
                 # Record successful publish in storage and devices
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version, published.expires_at
+                    device.device_id, published.version, published.expires_at,
+                    published.published_at,
                 )
 
                 # Schedule automatic cleanup and trigger immediate update entity check
@@ -829,7 +830,8 @@ class JobRunner:
 
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version, published.expires_at
+                    device.device_id, published.version, published.expires_at,
+                    published.published_at,
                 )
 
                 if self.monitor:
@@ -939,7 +941,8 @@ class JobRunner:
         )
         await self.storage.async_save_artifact(device.device_id, published)
         await self.device_manager.async_mark_published(
-            device.device_id, published.version, published.expires_at
+            device.device_id, published.version, published.expires_at,
+            published.published_at,
         )
 
         if self.monitor:

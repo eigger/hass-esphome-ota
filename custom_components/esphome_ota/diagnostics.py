@@ -35,6 +35,8 @@ async def async_get_config_entry_diagnostics(
                 "has_token": bool(dev.get("token")),
                 "last_published_version": dev.get("last_published_version"),
                 "last_installed_version": dev.get("last_installed_version"),
+                "last_published_at": dev.get("last_published_at"),
+                "last_installed_at": dev.get("last_installed_at"),
             }
         )
 

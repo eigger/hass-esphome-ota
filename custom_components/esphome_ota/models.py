@@ -123,6 +123,8 @@ class ManagedDevice:
     managed_version: str = "1.0.0"
     last_published_version: str | None = None
     last_installed_version: str | None = None
+    last_published_at: str | None = None
+    last_installed_at: str | None = None
     has_http_ota: bool = False
     status: str = DEVICE_STATUS_UNMANAGED
     update_entity_id: str | None = None
@@ -156,6 +158,8 @@ class ManagedDevice:
             managed_version=data.get("managed_version", "1.0.0"),
             last_published_version=data.get("last_published_version"),
             last_installed_version=data.get("last_installed_version"),
+            last_published_at=data.get("last_published_at"),
+            last_installed_at=data.get("last_installed_at"),
             has_http_ota=data.get("has_http_ota", False),
             status=data.get("status", DEVICE_STATUS_UNMANAGED),
             update_entity_id=data.get("update_entity_id"),

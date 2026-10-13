@@ -211,7 +211,8 @@ class FirmwareUploadView(HomeAssistantView):
                 )
                 await self.manager.storage.async_save_artifact(dev.device_id, published)
                 await self.manager.device_manager.async_mark_published(
-                    dev.device_id, published.version, published.expires_at
+                    dev.device_id, published.version, published.expires_at,
+                    published.published_at,
                 )
                 if self.manager.monitor:
                     self.manager.monitor.schedule_cleanup(

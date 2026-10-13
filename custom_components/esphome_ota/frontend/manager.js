@@ -352,6 +352,11 @@ button.danger:hover {
 .stat-val {
   font-weight: 600;
 }
+.stat-date {
+  color: var(--secondary-text-color, #64748b);
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
 .initial-install-guidance {
   padding: 9px 11px;
   border: 1px solid var(--warning-color, #fcd34d);
@@ -1365,6 +1370,7 @@ class EsphomeOtaManager extends HTMLElement {
           <div class="stat-item">
             <span class="stat-label">${escapeHtml(t(this.hass, "installed_version"))}</span>
             <span class="stat-val">${escapeHtml(dev.last_installed_version || "—")}</span>
+            ${dev.last_installed_at ? `<span class="stat-date">${escapeHtml(t(this.hass, "installed_date"))}: ${escapeHtml(this._formatDeviceDate(dev.last_installed_at))}</span>` : ""}
           </div>
           <div class="stat-item">
             <span class="stat-label">${escapeHtml(t(this.hass, "published_version"))}</span>
@@ -1376,6 +1382,7 @@ class EsphomeOtaManager extends HTMLElement {
                   : `<span class="binary-status binary-hidden" title="${escapeHtml(t(this.hass, "status_hidden"))}"><span class="status-dot-sm neutral"></span> ${escapeHtml(t(this.hass, "status_hidden"))}</span>`
               ) : ""}
             </div>
+            ${dev.last_published_at ? `<span class="stat-date">${escapeHtml(t(this.hass, "published_date"))}: ${escapeHtml(this._formatDeviceDate(dev.last_published_at))}</span>` : ""}
           </div>
         </div>
 
@@ -1402,6 +1409,19 @@ class EsphomeOtaManager extends HTMLElement {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     return hours ? `${hours}h ${minutes}m ${t(this.hass, "time_remaining")}` : `${minutes}m ${t(this.hass, "time_remaining")}`;
+  }
+
+  _formatDeviceDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    const options = { year: "numeric", month: "short", day: "numeric" };
+    const timeZone = this.hass?.config?.time_zone;
+    if (timeZone) options.timeZone = timeZone;
+    try {
+      return new Intl.DateTimeFormat(this.hass?.locale?.language || "en", options).format(date);
+    } catch (_err) {
+      return date.toLocaleDateString();
+    }
   }
 
   _updateExpiryCountdowns() {
