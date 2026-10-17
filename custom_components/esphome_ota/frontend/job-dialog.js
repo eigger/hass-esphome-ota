@@ -161,22 +161,31 @@ button.secondary:hover {
   background: #e2e8f0;
 }
 button.danger {
-  background: #dc2626;
-  color: #ffffff;
-  border-color: #dc2626;
+  background: color-mix(in srgb, var(--error-color, #dc2626) 70%, #000);
+  color: var(--text-primary-color, #ffffff);
+  border-color: color-mix(in srgb, var(--error-color, #dc2626) 70%, #000);
 }
 button.danger:hover {
-  background: #b91c1c;
-  border-color: #b91c1c;
+  background: color-mix(in srgb, var(--error-color, #dc2626) 55%, #000);
+  border-color: color-mix(in srgb, var(--error-color, #dc2626) 55%, #000);
+}
+/* Fixed dark red only for browsers without color-mix(). */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  button.danger { background: #b91c1c; border-color: #b91c1c; }
+  button.danger:hover { background: #991b1b; border-color: #991b1b; }
 }
 button.primary {
-  background: var(--primary-color, #0284c7);
-  color: #ffffff;
-  border-color: var(--primary-color, #0284c7);
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: var(--text-primary-color, #ffffff);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
 }
 button.primary:hover {
   opacity: 0.92;
-  border-color: var(--primary-color, #0284c7);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+}
+/* Fixed dark primary only for browsers without color-mix(). */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  button.primary, button.primary:hover { background: #0369a1; border-color: #0369a1; }
 }
 `;
 

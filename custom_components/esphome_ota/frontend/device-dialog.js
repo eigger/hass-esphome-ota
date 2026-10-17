@@ -176,12 +176,17 @@ const css = `
   line-height: 1.2;
 }
 .binary-active {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--success-background-color, color-mix(in srgb, var(--success-color, #16a34a) 10%, transparent));
+  color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b));
+}
+/* Fixed rgba tint only for browsers without color-mix(); text uses the theme colour. */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  .binary-active { background: rgba(22, 163, 74, 0.16); color: var(--primary-text-color, #1e293b); }
+  .binary-hidden { color: var(--primary-text-color, #1e293b); }
 }
 .binary-hidden {
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--secondary-background-color, #f1f5f9);
+  color: color-mix(in srgb, var(--secondary-text-color, #475569) 50%, var(--primary-text-color, #1e293b));
 }
 .status-dot-sm {
   width: 6px;
@@ -189,7 +194,7 @@ const css = `
   border-radius: 50%;
   display: inline-block;
 }
-.status-dot-sm.ok { background: #16a34a; }
+.status-dot-sm.ok { background: var(--success-color, #16a34a); }
 .status-dot-sm.neutral { background: #94a3b8; }
 .footer {
   padding: 14px 20px;
@@ -229,22 +234,31 @@ button:hover {
   border-color: var(--divider-color, #9ca3af);
 }
 button.primary {
-  background: var(--primary-color, #0284c7);
-  color: #ffffff;
-  border-color: var(--primary-color, #0284c7);
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: var(--text-primary-color, #ffffff);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
 }
 button.primary:hover {
   opacity: 0.92;
-  border-color: var(--primary-color, #0284c7);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+}
+/* Fixed dark primary only for browsers without color-mix(). */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  button.primary, button.primary:hover { background: #0369a1; border-color: #0369a1; }
 }
 button.danger {
-  background: #ffffff;
-  color: #b91c1c;
-  border-color: #fca5a5;
+  background: var(--card-background-color, #ffffff);
+  color: color-mix(in srgb, var(--error-color, #dc2626) 45%, var(--primary-text-color, #1e293b));
+  border-color: color-mix(in srgb, var(--error-color, #dc2626) 45%, transparent);
 }
 button.danger:hover {
-  background: #fef2f2;
-  border-color: #f87171;
+  background: color-mix(in srgb, var(--error-color, #dc2626) 10%, var(--card-background-color, #ffffff));
+  border-color: var(--error-color, #dc2626);
+}
+/* Fixed colours only for browsers without color-mix(). */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  button.danger { color: var(--primary-text-color, #1e293b); border-color: var(--error-color, #dc2626); }
+  button.danger:hover { background: var(--secondary-background-color, #f1f5f9); }
 }
 button:disabled {
   opacity: 0.55;
