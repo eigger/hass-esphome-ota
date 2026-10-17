@@ -28,14 +28,15 @@ const css = `
 }
 header {
   flex: none;
-  height: var(--header-height, 56px);
-  min-height: 56px;
+  min-height: var(--header-height, 56px);
   position: sticky;
   top: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 0 20px;
+  gap: 8px 12px;
+  padding: 6px 20px;
+  box-sizing: border-box;
   background: var(--card-background-color, #ffffff);
   border-bottom: 1px solid var(--divider-color, #e2e8f0);
   z-index: 10;
@@ -44,11 +45,12 @@ header {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: max-content;
 }
 h1 {
   margin: 0;
+  flex: none;
   font-size: 1.25rem;
   font-weight: 600;
   white-space: nowrap;
@@ -406,7 +408,8 @@ label.card-select-wrap {
   border: 0;
   padding: 4px 2px;
   margin: -4px -2px;
-  min-height: 0;
+  min-height: 24px;
+  box-sizing: border-box;
   height: auto;
   font: inherit;
   color: var(--error-color, #b91c1c);
@@ -425,11 +428,11 @@ label.card-select-wrap {
   white-space: nowrap;
 }
 .badge-unmanaged { background: var(--secondary-background-color, #f1f5f9); color: var(--secondary-text-color, #475569); }
-.badge-initial { background: var(--warning-background-color, #fef3c7); color: var(--warning-color, #92400e); }
-.badge-update { background: var(--success-background-color, #dcfce7); color: var(--success-color, #166534); }
-.badge-installed { background: var(--info-background-color, #e0f2fe); color: var(--info-color, #0369a1); }
-.badge-building { background: var(--info-background-color, #e0f2fe); color: var(--info-color, #075985); }
-.badge-failed { background: var(--error-background-color, #fee2e2); color: var(--error-color, #991b1b); }
+.badge-initial { background: var(--warning-background-color, color-mix(in srgb, var(--warning-color, #d97706) 10%, transparent)); color: var(--warning-color, #92400e); }
+.badge-update { background: var(--success-background-color, color-mix(in srgb, var(--success-color, #16a34a) 10%, transparent)); color: var(--success-color, #166534); }
+.badge-installed { background: var(--info-background-color, color-mix(in srgb, var(--info-color, #0284c7) 10%, transparent)); color: var(--info-color, #0369a1); }
+.badge-building { background: var(--info-background-color, color-mix(in srgb, var(--info-color, #0284c7) 10%, transparent)); color: var(--info-color, #075985); }
+.badge-failed { background: var(--error-background-color, color-mix(in srgb, var(--error-color, #dc2626) 10%, transparent)); color: var(--error-color, #991b1b); }
 
 .card-versions {
   flex: 0 1 auto;
@@ -482,7 +485,7 @@ label.card-select-wrap {
   white-space: nowrap;
 }
 .binary-active {
-  background: var(--success-background-color, #dcfce7);
+  background: var(--success-background-color, color-mix(in srgb, var(--success-color, #16a34a) 10%, transparent));
   color: var(--success-color, #166534);
 }
 .binary-hidden {
@@ -540,8 +543,8 @@ label.card-select-wrap {
 /* Only rows that really need action get a tinted outline; never a filled button. */
 .card.row-update .card-actions .btn-build,
 .card.row-initial .card-actions .btn-build {
-  color: var(--primary-color, #0284c7);
-  border-color: var(--primary-color, #0284c7);
+  color: var(--primary-color, #0369a1);
+  border-color: var(--primary-color, #0369a1);
 }
 .empty-state {
   text-align: center;
@@ -556,7 +559,7 @@ label.card-select-wrap {
     gap: 8px;
     flex-wrap: wrap;
   }
-  .header-title-wrap { flex: 1 1 calc(100% - 52px); }
+  .header-title-wrap { flex: 1 1 calc(100% - 52px); min-width: 0; }
   .header-title-wrap h1 {
     font-size: 1.1rem;
   }
@@ -603,9 +606,8 @@ label.card-select-wrap {
     column-gap: 10px;
     padding: 10px 12px 12px 10px;
   }
-  .card-select-wrap { min-width: 40px; min-height: 40px; }
+  .card-select-wrap { min-width: 40px; min-height: 40px; align-self: start; }
   .card-versions { margin-left: 0; justify-content: flex-start; }
-  .card-select-wrap { align-self: start; }
   .card-actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
@@ -823,13 +825,17 @@ class EsphomeOtaManager extends HTMLElement {
     } else if (event === "devices_updated" && data) {
       this.devices = data.devices || [];
       this.devicesLoaded = true;
+      this._pruneSelection();
       this._renderDeviceList();
+      this._renderSelectionSummary();
     } else if (event === "installation_verified" && data) {
       if (data.devices) {
         this.devices = data.devices;
         this.devicesLoaded = true;
+        this._pruneSelection();
       }
       this._renderDeviceList();
+      this._renderSelectionSummary();
     } else if (event === "job_updated" && data) {
       const idx = this.jobs.findIndex((j) => j.job_id === data.job_id);
       if (idx >= 0) this.jobs[idx] = data;
@@ -923,6 +929,13 @@ class EsphomeOtaManager extends HTMLElement {
       (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
       t(this.hass, key),
     );
+  }
+
+  _pruneSelection() {
+    const known = new Set((this.devices || []).map((dev) => dev.device_id));
+    for (const id of [...this.selectedDevices]) {
+      if (!known.has(id)) this.selectedDevices.delete(id);
+    }
   }
 
   _renderSelectionSummary() {
@@ -1157,6 +1170,7 @@ class EsphomeOtaManager extends HTMLElement {
 
   render() {
     this._initDom();
+    this._pruneSelection();
     this._updateVersionTag();
     this._updateStatusBadge();
     this._renderSelectionBanner();
