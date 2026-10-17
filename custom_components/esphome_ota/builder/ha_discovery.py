@@ -199,7 +199,9 @@ class HaDiscoveryAdapter:
                         detailed = await client.addons.addon_info(slug)
                         ingress_port = detailed.ingress_port
                     except Exception as err:  # noqa: BLE001
-                        _LOGGER.debug("Failed querying addon_info for %s: %s", slug, err)
+                        _LOGGER.debug(
+                            "Failed querying addon_info for %s: %s", slug, err
+                        )
 
                 if ingress_port and isinstance(ingress_port, int) and ingress_port > 0:
                     candidates.append(

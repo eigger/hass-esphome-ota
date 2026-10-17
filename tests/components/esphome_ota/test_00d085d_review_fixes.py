@@ -386,14 +386,20 @@ async def test_issue6_publish_and_install_dispatch_devices_updated(
         # Verify devices_updated was emitted on publish
         dev_updates = [e for e in events if e[0] == "devices_updated"]
         assert len(dev_updates) >= 1
-        published_dev = next(d for d in dev_updates[-1][1]["devices"] if d["device_id"] == "livingroom")
+        published_dev = next(
+            d for d in dev_updates[-1][1]["devices"] if d["device_id"] == "livingroom"
+        )
         assert published_dev["last_published_version"] == "1.0.0"
 
         # Now simulate install completed
         hass.states.async_set(
             "update.livingroom_firmware",
             "on",
-            {"installed_version": "1.0.0", "latest_version": "1.0.0", "in_progress": False},
+            {
+                "installed_version": "1.0.0",
+                "latest_version": "1.0.0",
+                "in_progress": False,
+            },
         )
         await hass.async_block_till_done()
 
@@ -440,6 +446,7 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
             self.publisher = publisher
             self.storage = storage
             self.monitor = monitor
+
         def _dispatch_event(self, name: str, payload: dict) -> None:
             events.append((name, payload))
 
@@ -451,8 +458,10 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
     class MockField:
         name = "file"
         filename = "firmware.bin"
+
         def __init__(self, data: bytes) -> None:
             self._stream = io.BytesIO(data)
+
         async def read_chunk(self, size: int = 65536) -> bytes:
             return self._stream.read(size)
 
@@ -460,6 +469,7 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
         def __init__(self, data: bytes) -> None:
             self._field = MockField(data)
             self._done = False
+
         async def next(self) -> MockField | None:
             if not self._done:
                 self._done = True
@@ -469,12 +479,14 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
     class MockRequest(dict):
         match_info = {"device_id": "livingroom"}
         can_read_body = True
+
         def __init__(self, data: bytes) -> None:
             super().__init__()
             mock_user = MagicMock()
             mock_user.is_admin = True
             self["hass_user"] = mock_user
             self._data = data
+
         async def multipart(self) -> MockMultipartReader:
             return MockMultipartReader(self._data)
 
@@ -488,5 +500,7 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
     # Verify devices_updated was dispatched
     dev_events = [e for e in events if e[0] == "devices_updated"]
     assert len(dev_events) >= 1
-    uploaded_dev = next(d for d in dev_events[-1][1]["devices"] if d["device_id"] == "livingroom")
+    uploaded_dev = next(
+        d for d in dev_events[-1][1]["devices"] if d["device_id"] == "livingroom"
+    )
     assert uploaded_dev["last_published_version"] == "1.0.0"

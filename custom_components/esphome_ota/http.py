@@ -69,12 +69,19 @@ class FirmwareUploadView(HomeAssistantView):
                 try:
                     cleanup_hours_override = int(value)
                 except ValueError:
-                    return web.json_response({"error": "Invalid cleanup period"}, status=400)
+                    return web.json_response(
+                        {"error": "Invalid cleanup period"}, status=400
+                    )
                 if not 0 <= cleanup_hours_override <= 168:
-                    return web.json_response({"error": "Cleanup period must be from 0 to 168 hours"}, status=400)
+                    return web.json_response(
+                        {"error": "Cleanup period must be from 0 to 168 hours"},
+                        status=400,
+                    )
             elif metadata.name == "auto_hide":
                 if value.lower() not in ("true", "false"):
-                    return web.json_response({"error": "Invalid hide-after-install setting"}, status=400)
+                    return web.json_response(
+                        {"error": "Invalid hide-after-install setting"}, status=400
+                    )
                 auto_hide_override = value.lower() == "true"
         clean_device_id = device_id.removesuffix(".yaml")
 
@@ -207,11 +214,15 @@ class FirmwareUploadView(HomeAssistantView):
                             DEFAULT_AUTO_CLEANUP_HOURS,
                         )
                     ),
-                    auto_hide=dev.auto_hide if auto_hide_override is None else auto_hide_override,
+                    auto_hide=dev.auto_hide
+                    if auto_hide_override is None
+                    else auto_hide_override,
                 )
                 await self.manager.storage.async_save_artifact(dev.device_id, published)
                 await self.manager.device_manager.async_mark_published(
-                    dev.device_id, published.version, published.expires_at,
+                    dev.device_id,
+                    published.version,
+                    published.expires_at,
                     published.published_at,
                 )
                 if self.manager.monitor:
@@ -265,16 +276,25 @@ class FirmwareUploadView(HomeAssistantView):
                                     title=dev.friendly_name,
                                     cleanup_hours=(
                                         previous_artifact.cleanup_hours
-                                        if previous_artifact and previous_artifact.cleanup_hours is not None
+                                        if previous_artifact
+                                        and previous_artifact.cleanup_hours is not None
                                         else self.manager.cleanup_hours
                                     ),
-                                    auto_hide=previous_artifact.auto_hide if previous_artifact else dev.auto_hide,
+                                    auto_hide=previous_artifact.auto_hide
+                                    if previous_artifact
+                                    else dev.auto_hide,
                                 )
                             )
                             if previous_artifact:
-                                restored_publication.cleanup_hours = previous_artifact.cleanup_hours
-                                restored_publication.expires_at = previous_artifact.expires_at
-                                restored_publication.auto_hide = previous_artifact.auto_hide
+                                restored_publication.cleanup_hours = (
+                                    previous_artifact.cleanup_hours
+                                )
+                                restored_publication.expires_at = (
+                                    previous_artifact.expires_at
+                                )
+                                restored_publication.auto_hide = (
+                                    previous_artifact.auto_hide
+                                )
                         except Exception:  # noqa: BLE001
                             _LOGGER.exception(
                                 "Could not restore previous firmware for %s",

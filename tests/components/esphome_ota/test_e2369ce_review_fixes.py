@@ -205,7 +205,9 @@ async def test_issue2_cancel_recovery_required_job_unblocks_build(
 
         # While in recovery_required, a new build is blocked
         with pytest.raises(EsphomeOtaError, match="A build job is already active"):
-            await runner.async_start_build_pipeline(device, client, "http://ha.local:8123")
+            await runner.async_start_build_pipeline(
+                device, client, "http://ha.local:8123"
+            )
 
         # Cancel the stuck job (as triggered by UI Cancel button)
         await runner.async_cancel_job(stuck_job.job_id, client=client)
@@ -320,7 +322,9 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
 
     # 2. Indentation of esphome_ota key must be exactly 4 spaces
     assert "    esphome_ota:\n" in patched
-    assert not any(re.match(r"^ {2}esphome_ota:", line) for line in patched.splitlines())
+    assert not any(
+        re.match(r"^ {2}esphome_ota:", line) for line in patched.splitlines()
+    )
 
     # 3. Old substitutions must be replaced with new base_url and slug
     assert "http://new-ha.local:8123" in patched
@@ -338,7 +342,10 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
     assert "esphome_ota" in parsed["packages"]
     assert "other_pkg" in parsed["packages"]
     assert "my_custom_sensor" in parsed["packages"]
-    assert parsed["packages"]["esphome_ota"]["substitutions"]["ota_slug"] == "bedroom_token123"
+    assert (
+        parsed["packages"]["esphome_ota"]["substitutions"]["ota_slug"]
+        == "bedroom_token123"
+    )
 
 
 def test_issue4_reindent_yaml_snippet_helper() -> None:

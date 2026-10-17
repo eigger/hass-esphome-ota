@@ -186,7 +186,9 @@ class ArtifactPublisher:
                 if info.version_source:
                     manifest["version_source"] = info.version_source
 
-                manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+                manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode(
+                    "utf-8"
+                )
 
                 # 1. Stage files first
                 stage_bin.write_bytes(blob)
@@ -226,7 +228,11 @@ class ArtifactPublisher:
                 elif not prior_md5_exists and "public_md5" in locals():
                     public_md5.unlink(missing_ok=True)
 
-                if prior_manifest_exists and backup_manifest is not None and backup_manifest.exists():
+                if (
+                    prior_manifest_exists
+                    and backup_manifest is not None
+                    and backup_manifest.exists()
+                ):
                     os.replace(backup_manifest, public_manifest)
                 elif not prior_manifest_exists and "public_manifest" in locals():
                     public_manifest.unlink(missing_ok=True)
@@ -269,7 +275,10 @@ class ArtifactPublisher:
             version_source=info.version_source,
             cleanup_hours=cleanup_hours,
             expires_at=(
-                (datetime.fromisoformat(published_at) + timedelta(hours=cleanup_hours)).isoformat()
+                (
+                    datetime.fromisoformat(published_at)
+                    + timedelta(hours=cleanup_hours)
+                ).isoformat()
                 if cleanup_hours > 0
                 else None
             ),
@@ -332,7 +341,9 @@ class ArtifactPublisher:
         """Hide/remove public binary from /local while keeping manifest."""
         with self._get_sync_slug_lock(slug):
             if self._unloaded:
-                _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+                _LOGGER.info(
+                    "Skipping deactivation for %s: publisher is unloaded", slug
+                )
                 return False
 
             manifest_path = self.www_dir / f"{slug}.json"
@@ -351,9 +362,7 @@ class ArtifactPublisher:
                         m_pub_at = manifest_data.get("published_at")
                         m_version = manifest_data.get("version")
                         builds = manifest_data.get("builds", [])
-                        m_md5 = (
-                            builds[0].get("ota", {}).get("md5") if builds else None
-                        )
+                        m_md5 = builds[0].get("ota", {}).get("md5") if builds else None
                         if (
                             (m_pub_at and m_pub_at == expected_artifact_id)
                             or (m_version and m_version == expected_artifact_id)
@@ -403,7 +412,9 @@ class ArtifactPublisher:
             return False
         async with self._get_slug_lock(slug):
             if self._unloaded:
-                _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+                _LOGGER.info(
+                    "Skipping deactivation for %s: publisher is unloaded", slug
+                )
                 return False
             return await self.hass.async_add_executor_job(
                 self._deactivate_sync, slug, expected_artifact_id

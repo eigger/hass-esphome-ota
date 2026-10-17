@@ -254,7 +254,9 @@ class MockBuilderServer:
                         "status": jdata.get("status"),
                         "type": jdata.get("type", "compile"),
                         "job_type": jdata.get("job_type", jdata.get("type", "compile")),
-                        "created_at": jdata.get("created_at", datetime.now(timezone.utc).isoformat()),
+                        "created_at": jdata.get(
+                            "created_at", datetime.now(timezone.utc).isoformat()
+                        ),
                     }
                     for jid, jdata in self.jobs.items()
                 ]

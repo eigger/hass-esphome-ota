@@ -27,9 +27,18 @@ class TestBuildTimeRegressions(unittest.TestCase):
 
     def test_all_months(self) -> None:
         months = [
-            ("Jan", "01"), ("Feb", "02"), ("Mar", "03"), ("Apr", "04"),
-            ("May", "05"), ("Jun", "06"), ("Jul", "07"), ("Aug", "08"),
-            ("Sep", "09"), ("Oct", "10"), ("Nov", "11"), ("Dec", "12"),
+            ("Jan", "01"),
+            ("Feb", "02"),
+            ("Mar", "03"),
+            ("Apr", "04"),
+            ("May", "05"),
+            ("Jun", "06"),
+            ("Jul", "07"),
+            ("Aug", "08"),
+            ("Sep", "09"),
+            ("Oct", "10"),
+            ("Nov", "11"),
+            ("Dec", "12"),
         ]
         for name, num in months:
             with self.subTest(month=name):

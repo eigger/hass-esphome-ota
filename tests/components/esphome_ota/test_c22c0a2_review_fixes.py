@@ -83,7 +83,9 @@ async def test_cancelling_build_preserves_existing_firmware_files(
 
     # 1. Publish initial v1 firmware
     old_blob = _make_valid_esp32_bin("1.0.0")
-    old_info = inspect_binary(old_blob, target_platform="esp32", reserved_version="1.0.0")
+    old_info = inspect_binary(
+        old_blob, target_platform="esp32", reserved_version="1.0.0"
+    )
     artifact = await publisher.async_publish(
         device_id=dev.device_id,
         configuration=dev.configuration,
@@ -126,7 +128,9 @@ async def test_cancelling_build_preserves_existing_firmware_files(
     assert pub_bin.is_file(), "Existing firmware binary must NOT be deleted on cancel"
     assert pub_bin.read_bytes() == old_blob
     assert pub_md5.is_file(), "Existing firmware MD5 must NOT be deleted on cancel"
-    assert pub_manifest.is_file(), "Existing firmware manifest must NOT be deleted on cancel"
+    assert pub_manifest.is_file(), (
+        "Existing firmware manifest must NOT be deleted on cancel"
+    )
 
 
 async def test_job_runner_unload_preserves_existing_firmware(
@@ -145,7 +149,9 @@ async def test_job_runner_unload_preserves_existing_firmware(
     )
 
     old_blob = _make_valid_esp32_bin("1.0.0")
-    old_info = inspect_binary(old_blob, target_platform="esp32", reserved_version="1.0.0")
+    old_info = inspect_binary(
+        old_blob, target_platform="esp32", reserved_version="1.0.0"
+    )
     artifact = await publisher.async_publish(
         device_id=dev.device_id,
         configuration=dev.configuration,
@@ -190,7 +196,9 @@ async def test_publisher_abort_during_publish_preserves_prior_files(
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_abort_test")
 
     old_blob = _make_valid_esp32_bin("1.0.0")
-    old_info = inspect_binary(old_blob, target_platform="esp32", reserved_version="1.0.0")
+    old_info = inspect_binary(
+        old_blob, target_platform="esp32", reserved_version="1.0.0"
+    )
     artifact = await publisher.async_publish(
         device_id="dev1",
         configuration="dev1.yaml",
@@ -204,7 +212,9 @@ async def test_publisher_abort_during_publish_preserves_prior_files(
     pub_manifest = Path(artifact.public_manifest_path)
 
     new_blob = _make_valid_esp32_bin("2.0.0")
-    new_info = inspect_binary(new_blob, target_platform="esp32", reserved_version="2.0.0")
+    new_info = inspect_binary(
+        new_blob, target_platform="esp32", reserved_version="2.0.0"
+    )
 
     # Try publishing new version but abort via check_cancelled
     with pytest.raises(EsphomeOtaError, match="Publish aborted"):

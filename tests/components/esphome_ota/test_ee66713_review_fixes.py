@@ -219,13 +219,13 @@ async def test_issue3_rejects_factory_only_images(
         client = BuilderClient(conn)
 
         # 1. Builder response only has firmware.factory.bin
-        mock_builder.binaries = [
-            {"file": "firmware.factory.bin", "size": 1048576}
-        ]
+        mock_builder.binaries = [{"file": "firmware.factory.bin", "size": 1048576}]
 
         # resolve_ota_binary_file must raise BuilderError, NOT return firmware.factory.bin
         with pytest.raises(BuilderError, match="No OTA binary found"):
-            await client.resolve_ota_binary_file("esp32_dev.yaml", platform_hint="esp32")
+            await client.resolve_ota_binary_file(
+                "esp32_dev.yaml", platform_hint="esp32"
+            )
 
         # has_ota_binary must return False
         has_ota = await client.has_ota_binary("esp32_dev.yaml", platform_hint="esp32")
@@ -240,25 +240,29 @@ async def test_issue3_rejects_factory_only_images(
             {"file": "custom_image.bin", "type": "factory", "size": 1048576}
         ]
         with pytest.raises(BuilderError, match="No OTA binary found"):
-            await client.resolve_ota_binary_file("esp32_dev.yaml", platform_hint="esp32")
+            await client.resolve_ota_binary_file(
+                "esp32_dev.yaml", platform_hint="esp32"
+            )
 
         # 3. When both factory and OTA images are present, OTA image is selected
         mock_builder.binaries = [
             {"file": "firmware.factory.bin", "size": 1048576},
             {"file": FIRMWARE_OTA_BIN, "size": 950000},
         ]
-        resolved = await client.resolve_ota_binary_file("esp32_dev.yaml", platform_hint="esp32")
+        resolved = await client.resolve_ota_binary_file(
+            "esp32_dev.yaml", platform_hint="esp32"
+        )
         assert resolved == FIRMWARE_OTA_BIN
-        assert await client.has_ota_binary("esp32_dev.yaml", platform_hint="esp32") is True
+        assert (
+            await client.has_ota_binary("esp32_dev.yaml", platform_hint="esp32") is True
+        )
 
 
 async def test_issue3_pipeline_fails_when_only_factory_binary_produced(
     hass: HomeAssistant, mock_builder: MockBuilderServer
 ) -> None:
     """[P2] Test that entire pipeline fails when Builder only outputs a factory image."""
-    mock_builder.binaries = [
-        {"file": "firmware.factory.bin", "size": 1048576}
-    ]
+    mock_builder.binaries = [{"file": "firmware.factory.bin", "size": 1048576}]
 
     async with aiohttp.ClientSession() as session:
         conn = BuilderConnection("127.0.0.1", mock_builder.port, session)

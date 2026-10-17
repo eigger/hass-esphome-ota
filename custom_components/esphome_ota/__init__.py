@@ -54,4 +54,3 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     if manager and manager.should_suppress_reload():
         return
     await hass.config_entries.async_reload(entry.entry_id)
-

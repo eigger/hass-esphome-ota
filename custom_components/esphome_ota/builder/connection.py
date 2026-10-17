@@ -133,7 +133,9 @@ class BuilderConnection:
 
         # Flush any waiting queues with error
         for queue in self._queues.values():
-            queue.put_nowait({"error_code": "DISCONNECTED", "details": "Connection closed"})
+            queue.put_nowait(
+                {"error_code": "DISCONNECTED", "details": "Connection closed"}
+            )
         self._queues.clear()
 
     async def _await_server_info(self) -> dict[str, Any]:
@@ -143,7 +145,9 @@ class BuilderConnection:
             return await asyncio.wait_for(queue.get(), timeout=20.0)
         except asyncio.TimeoutError as err:
             await self.disconnect()
-            raise BuilderConnectionError("Timed out waiting for Builder server info") from err
+            raise BuilderConnectionError(
+                "Timed out waiting for Builder server info"
+            ) from err
 
     async def _read_loop(self) -> None:
         """Background loop reading incoming frames and routing to message queues."""
@@ -174,7 +178,12 @@ class BuilderConnection:
         finally:
             self._connected = False
             for q in list(self._queues.values()):
-                q.put_nowait({"error_code": "CONNECTION_LOST", "details": "Builder connection closed"})
+                q.put_nowait(
+                    {
+                        "error_code": "CONNECTION_LOST",
+                        "details": "Builder connection closed",
+                    }
+                )
             if not self._closing and self.on_disconnect:
                 try:
                     self.on_disconnect()
@@ -240,8 +249,12 @@ class BuilderConnection:
                     error_code = payload.get("error_code")
                     details = payload.get("details", "")
                     if error_code in ("CONNECTION_LOST", "DISCONNECTED"):
-                        raise BuilderConnectionError(f"{command_name} failed: Builder connection lost ({details})")
-                    raise BuilderError(f"{command_name} failed: {error_code} {details}".strip())
+                        raise BuilderConnectionError(
+                            f"{command_name} failed: Builder connection lost ({details})"
+                        )
+                    raise BuilderError(
+                        f"{command_name} failed: {error_code} {details}".strip()
+                    )
 
                 yield payload
                 if payload.get("event") == "result" or "result" in payload:
@@ -287,15 +300,15 @@ class BuilderConnection:
             error_code = payload.get("error_code")
             details = payload.get("details", "")
             if error_code in ("CONNECTION_LOST", "DISCONNECTED"):
-                raise BuilderConnectionError(f"{command_name} failed: Builder connection lost ({details})")
+                raise BuilderConnectionError(
+                    f"{command_name} failed: Builder connection lost ({details})"
+                )
             raise BuilderError(f"{command_name} failed: {error_code} {details}".strip())
         return payload.get("result")
 
     def next_backoff_delay(self) -> float:
         """Compute the next reconnection backoff delay with random jitter."""
-        step = BACKOFF_STEPS[
-            min(self._reconnect_backoff_index, len(BACKOFF_STEPS) - 1)
-        ]
+        step = BACKOFF_STEPS[min(self._reconnect_backoff_index, len(BACKOFF_STEPS) - 1)]
         self._reconnect_backoff_index += 1
         jitter = random.uniform(0.8, 1.2)  # noqa: S311
         return step * jitter

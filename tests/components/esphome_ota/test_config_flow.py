@@ -49,8 +49,20 @@ async def test_flow_single_candidate_auto_select(hass: HomeAssistant) -> None:
 
 async def test_flow_multiple_candidates_selection(hass: HomeAssistant) -> None:
     """Test selecting from multiple discovered candidates."""
-    cand1 = BuilderCandidate(slug="esphome_stable", name="ESPHome Stable", host="127.0.0.1", port=6052, source="addon")
-    cand2 = BuilderCandidate(slug="esphome_dev", name="ESPHome Dev", host="127.0.0.1", port=6053, source="addon")
+    cand1 = BuilderCandidate(
+        slug="esphome_stable",
+        name="ESPHome Stable",
+        host="127.0.0.1",
+        port=6052,
+        source="addon",
+    )
+    cand2 = BuilderCandidate(
+        slug="esphome_dev",
+        name="ESPHome Dev",
+        host="127.0.0.1",
+        port=6053,
+        source="addon",
+    )
 
     with patch(
         "custom_components.esphome_ota.config_flow.HaDiscoveryAdapter.async_discover_all",

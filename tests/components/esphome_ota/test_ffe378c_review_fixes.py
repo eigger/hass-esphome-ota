@@ -77,7 +77,9 @@ async def test_issue1_get_jobs_api_and_error_preserves_recovery_required(
 
         # 2. Simulate builder error / command failure during recovery check
         # Instead of falsely marking job as STAGE_FAILED, it must maintain STAGE_RECOVERY_REQUIRED
-        client.get_jobs = AsyncMock(side_effect=BuilderError("Builder temporarily down"))  # type: ignore[method-assign]
+        client.get_jobs = AsyncMock(
+            side_effect=BuilderError("Builder temporarily down")
+        )  # type: ignore[method-assign]
 
         await runner.async_resume_jobs(client, "https://ha.local")
 
@@ -253,14 +255,18 @@ def test_issue3_project_ownership_remote_and_top_level_precedence() -> None:
 
     # When user does not own project version, apply_ota_patch injects managed project
     # inside packages.esphome_ota rather than altering top-level esphome.
-    diff_github = apply_ota_patch(github_pkg_yaml, "https://ha.local", "shelly_plug", "1.0.0")
+    diff_github = apply_ota_patch(
+        github_pkg_yaml, "https://ha.local", "shelly_plug", "1.0.0"
+    )
     assert "project:" in diff_github.modified
     assert 'name: "local.shelly_plug"' in diff_github.modified
     assert 'version: "1.0.0"' in diff_github.modified
     # Once patched with managed packages.esphome_ota, ownership is clarified
     assert has_unclear_project_ownership(diff_github.modified) is False
 
-    diff_url = apply_ota_patch(url_files_pkg_yaml, "https://ha.local", "m5stack_core", "1.0.0")
+    diff_url = apply_ota_patch(
+        url_files_pkg_yaml, "https://ha.local", "m5stack_core", "1.0.0"
+    )
     assert "project:" in diff_url.modified
     assert 'name: "local.m5stack_core"' in diff_url.modified
     assert 'version: "1.0.0"' in diff_url.modified

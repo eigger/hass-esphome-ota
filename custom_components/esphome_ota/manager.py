@@ -48,9 +48,7 @@ class OtaManager:
 
         # Config entry values
         self.base_url = (
-            entry.options.get(CONF_BASE_URL)
-            or entry.data.get(CONF_BASE_URL)
-            or ""
+            entry.options.get(CONF_BASE_URL) or entry.data.get(CONF_BASE_URL) or ""
         )
         self.cleanup_hours = entry.options.get(
             CONF_AUTO_CLEANUP_HOURS, DEFAULT_AUTO_CLEANUP_HOURS
@@ -71,13 +69,11 @@ class OtaManager:
                 or entry.data.get(CONF_BUILDER_NAME)
                 or slug
             )
-            host_hint = (
-                entry.options.get("builder_host")
-                or entry.data.get("builder_host", "")
+            host_hint = entry.options.get("builder_host") or entry.data.get(
+                "builder_host", ""
             )
-            port_hint = (
-                entry.options.get("builder_port")
-                or entry.data.get("builder_port", 0)
+            port_hint = entry.options.get("builder_port") or entry.data.get(
+                "builder_port", 0
             )
             saved_selection = BuilderSelection(
                 slug=slug,
@@ -132,7 +128,6 @@ class OtaManager:
             return True
         return False
 
-
     def add_subscriber(
         self, callback: Callable[[str, dict[str, Any]], None]
     ) -> Callable[[], None]:
@@ -161,7 +156,9 @@ class OtaManager:
         """Handle unexpected disconnect from Builder."""
         if self._unloaded:
             return
-        _LOGGER.warning("ESPHome Builder connection lost. Initiating automatic reconnect.")
+        _LOGGER.warning(
+            "ESPHome Builder connection lost. Initiating automatic reconnect."
+        )
         self.resolver.status = STATUS_RECONNECTING
         self._dispatch_event(
             "status_changed",
@@ -180,14 +177,19 @@ class OtaManager:
     async def _reconnect_loop(self) -> None:
         """Repeatedly attempt re-discovery and re-connection with backoff and jitter."""
         while not self._unloaded:
-            if self.resolver.active_client and self.resolver.active_client.conn.is_connected:
+            if (
+                self.resolver.active_client
+                and self.resolver.active_client.conn.is_connected
+            ):
                 return
 
             delay = BACKOFF_STEPS[
                 min(self._reconnect_backoff_index, len(BACKOFF_STEPS) - 1)
             ] * random.uniform(0.8, 1.2)
             self._reconnect_backoff_index += 1
-            _LOGGER.debug("Waiting %.1fs before retrying ESPHome Builder connection...", delay)
+            _LOGGER.debug(
+                "Waiting %.1fs before retrying ESPHome Builder connection...", delay
+            )
 
             try:
                 await asyncio.sleep(delay)
@@ -211,7 +213,9 @@ class OtaManager:
                 self._reconnect_backoff_index = 0
                 _LOGGER.info(
                     "Successfully reconnected to ESPHome Builder (%s)",
-                    self.resolver.active_candidate.slug if self.resolver.active_candidate else "",
+                    self.resolver.active_candidate.slug
+                    if self.resolver.active_candidate
+                    else "",
                 )
                 self._dispatch_event(
                     "status_changed",
@@ -279,7 +283,9 @@ class OtaManager:
             try:
                 self.hass.http.register_view(self.upload_view)
             except (RuntimeError, ValueError) as err:
-                _LOGGER.debug("HTTP upload view already registered or router frozen: %s", err)
+                _LOGGER.debug(
+                    "HTTP upload view already registered or router frozen: %s", err
+                )
         await self.panel_manager.async_register()
 
         # 3. Attempt Builder resolution & initial device refresh
@@ -419,7 +425,9 @@ class OtaManager:
                     ],
                 },
             )
-            self._dispatch_event("devices_updated", {"devices": self.device_manager.list_all()})
+            self._dispatch_event(
+                "devices_updated", {"devices": self.device_manager.list_all()}
+            )
             if self._unloaded:
                 await self.resolver.async_disconnect()
                 return

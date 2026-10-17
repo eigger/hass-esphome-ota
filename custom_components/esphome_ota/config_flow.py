@@ -68,8 +68,7 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "builder_not_found"
 
         choices = {
-            c.slug: f"{c.name} ({c.host}:{c.port})"
-            for c in self._discovered_candidates
+            c.slug: f"{c.name} ({c.host}:{c.port})" for c in self._discovered_candidates
         }
 
         return self.async_show_form(
@@ -134,7 +133,9 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             errors=errors,
             description_placeholders={
-                "builder_name": self._selected_candidate.name if self._selected_candidate else "Auto-detect",
+                "builder_name": self._selected_candidate.name
+                if self._selected_candidate
+                else "Auto-detect",
             },
         )
 
@@ -149,7 +150,6 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for ESPHome OTA."""
-
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -189,13 +189,14 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
                     clean_options.pop(CONF_BUILDER_NAME, None)
                     clean_options.pop("builder_host", None)
                     clean_options.pop("builder_port", None)
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=new_data
+                )
             return self.async_create_entry(title="", data=clean_options)
 
-        current_base_url = (
-            self.config_entry.options.get(CONF_BASE_URL)
-            or self.config_entry.data.get(CONF_BASE_URL, "")
-        )
+        current_base_url = self.config_entry.options.get(
+            CONF_BASE_URL
+        ) or self.config_entry.data.get(CONF_BASE_URL, "")
         current_hours = self.config_entry.options.get(
             CONF_AUTO_CLEANUP_HOURS, DEFAULT_AUTO_CLEANUP_HOURS
         )
@@ -216,10 +217,12 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
 
         schema_dict: dict[Any, Any] = {
             vol.Required(CONF_BASE_URL, default=current_base_url): str,
-            vol.Required(
-                CONF_AUTO_CLEANUP_HOURS, default=current_hours
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
-            vol.Optional(CONF_BUILDER_SLUG, default=current_slug): vol.In(builder_choices),
+            vol.Required(CONF_AUTO_CLEANUP_HOURS, default=current_hours): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=168)
+            ),
+            vol.Optional(CONF_BUILDER_SLUG, default=current_slug): vol.In(
+                builder_choices
+            ),
         }
 
         return self.async_show_form(step_id="init", data_schema=vol.Schema(schema_dict))

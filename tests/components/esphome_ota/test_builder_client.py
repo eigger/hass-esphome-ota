@@ -134,7 +134,9 @@ async def test_get_jobs_operations(mock_builder: MockBuilderServer) -> None:
         assert jobs[0]["type"] == "compile"
 
         # 2. Dict payload with 'jobs' key fallback
-        conn.command = AsyncMock(return_value={"jobs": [{"job_id": "job_2", "status": "completed"}]})  # type: ignore[method-assign]
+        conn.command = AsyncMock(
+            return_value={"jobs": [{"job_id": "job_2", "status": "completed"}]}
+        )  # type: ignore[method-assign]
         jobs_dict = await client.get_jobs()
         assert len(jobs_dict) == 1
         assert jobs_dict[0]["job_id"] == "job_2"
@@ -163,5 +165,3 @@ async def test_compile_succeeds_when_log_reports_successful_compilation(
         assert status == "completed"
 
         await conn.disconnect()
-
-

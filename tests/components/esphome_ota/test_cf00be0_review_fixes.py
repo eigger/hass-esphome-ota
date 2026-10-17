@@ -71,6 +71,7 @@ def _make_valid_esp32_bin(version: str = "1.0.0") -> bytes:
 # Issue 1: Cancelled job's firmware published belatedly by executor thread
 # ---------------------------------------------------------------------------
 
+
 async def test_issue1_publisher_cleans_up_on_cancellation(hass: HomeAssistant) -> None:
     """[P1] ArtifactPublisher._publish_sync aborts and cleans up public files when check_cancelled is True."""
     publisher = ArtifactPublisher(hass, publish_dir="test_pub_cancel")
@@ -194,6 +195,7 @@ async def test_issue1_delayed_executor_thread_does_not_publish_when_cancelled(
 # Issue 2: Post-installation builder selection when multiple candidates found
 # ---------------------------------------------------------------------------
 
+
 async def test_issue2_options_flow_builder_selection(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -222,13 +224,20 @@ async def test_issue2_options_flow_builder_selection(
         "custom_components.esphome_ota.config_flow.HaDiscoveryAdapter.async_discover_all",
         return_value=candidates,
     ):
-        result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+        result = await hass.config_entries.options.async_init(
+            mock_config_entry.entry_id
+        )
         assert result["type"] is data_entry_flow.FlowResultType.FORM
         assert result["step_id"] == "init"
 
         # Verify builder slug is in schema
         schema = result["data_schema"].schema
-        slug_keys = [k for k in schema if str(k) == CONF_BUILDER_SLUG or getattr(k, "schema", None) == CONF_BUILDER_SLUG]
+        slug_keys = [
+            k
+            for k in schema
+            if str(k) == CONF_BUILDER_SLUG
+            or getattr(k, "schema", None) == CONF_BUILDER_SLUG
+        ]
         assert len(slug_keys) == 1
 
         # Submit selection of "esphome_beta"

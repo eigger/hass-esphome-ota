@@ -29,7 +29,10 @@ class PanelManager:
         version = str(integration.version)
 
         # 1. Register static paths once
-        if not self._static_paths_registered and getattr(self.hass, "http", None) is not None:
+        if (
+            not self._static_paths_registered
+            and getattr(self.hass, "http", None) is not None
+        ):
             frontend_dir = Path(__file__).parent / "frontend"
             try:
                 await self.hass.http.async_register_static_paths(
@@ -43,7 +46,9 @@ class PanelManager:
                 )
                 self._static_paths_registered = True
             except (RuntimeError, ValueError) as err:
-                _LOGGER.debug("Static paths already registered or router frozen: %s", err)
+                _LOGGER.debug(
+                    "Static paths already registered or router frozen: %s", err
+                )
 
         # 2. Register panel
         if not self._panel_registered:
@@ -61,7 +66,9 @@ class PanelManager:
                 self._panel_registered = True
                 _LOGGER.debug("Registered ESPHome OTA sidebar panel")
             except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("Panel already registered or registration failed: %s", err)
+                _LOGGER.debug(
+                    "Panel already registered or registration failed: %s", err
+                )
 
     def async_unregister(self) -> None:
         """Remove the custom sidebar panel."""

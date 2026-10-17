@@ -65,8 +65,8 @@ def _make_valid_esp32_bin(version: str) -> bytes:
     )
 
     data = bytearray(b"\x00" * 0x10000)
-    data[0:len(header)] = header
-    data[0x20:0x20 + len(app_desc)] = app_desc
+    data[0 : len(header)] = header
+    data[0x20 : 0x20 + len(app_desc)] = app_desc
     return bytes(data)
 
 
@@ -78,7 +78,9 @@ async def test_publish_cancellation_waits_for_executor_and_does_not_overwrite_su
 
     # 1. Initially publish v1.0.0
     blob_v100 = _make_valid_esp32_bin("1.0.0")
-    info_v100 = inspect_binary(blob_v100, target_platform="esp32", reserved_version="1.0.0")
+    info_v100 = inspect_binary(
+        blob_v100, target_platform="esp32", reserved_version="1.0.0"
+    )
     artifact_v100 = await publisher.async_publish(
         device_id="dev_race",
         configuration="dev_race.yaml",
@@ -91,7 +93,9 @@ async def test_publish_cancellation_waits_for_executor_and_does_not_overwrite_su
 
     # 2. Start Job 1 (v1.0.1) which delays in executor during cancellation check
     blob_v101 = _make_valid_esp32_bin("1.0.1")
-    info_v101 = inspect_binary(blob_v101, target_platform="esp32", reserved_version="1.0.1")
+    info_v101 = inspect_binary(
+        blob_v101, target_platform="esp32", reserved_version="1.0.1"
+    )
 
     def check_cancel_with_delay() -> bool:
         time.sleep(0.15)
@@ -115,7 +119,9 @@ async def test_publish_cancellation_waits_for_executor_and_does_not_overwrite_su
 
     # 3. Immediately start Job 2 (v1.0.2) for the SAME slug
     blob_v102 = _make_valid_esp32_bin("1.0.2")
-    info_v102 = inspect_binary(blob_v102, target_platform="esp32", reserved_version="1.0.2")
+    info_v102 = inspect_binary(
+        blob_v102, target_platform="esp32", reserved_version="1.0.2"
+    )
 
     async def run_job2():
         return await publisher.async_publish(
@@ -149,7 +155,9 @@ async def test_publish_cancellation_before_executor_start_unblocks_cleanly(
     """[P1] Cancelling publish before executor thread starts unblocks task and releases slug lock."""
     import concurrent.futures
 
-    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_cancel_before_start_test")
+    publisher = ArtifactPublisher(
+        hass, publish_dir="esphome_ota_cancel_before_start_test"
+    )
     blob = _make_valid_esp32_bin("1.0.0")
     info = inspect_binary(blob, target_platform="esp32", reserved_version="1.0.0")
 
@@ -170,7 +178,9 @@ async def test_publish_cancellation_before_executor_start_unblocks_cleanly(
     with patch.object(
         hass,
         "async_add_executor_job",
-        side_effect=lambda target, *args: hass.loop.run_in_executor(pool, target, *args),
+        side_effect=lambda target, *args: hass.loop.run_in_executor(
+            pool, target, *args
+        ),
     ):
         task = asyncio.create_task(
             publisher.async_publish(
@@ -256,10 +266,15 @@ async def test_select_same_builder_restores_suppress_counter_and_allows_subseque
 
         # Now update base_url in options flow / config entry
         # This MUST trigger a reload because suppress_reload_count is 0!
-        with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as mock_reload:
+        with patch.object(
+            hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+        ) as mock_reload:
             hass.config_entries.async_update_entry(
                 entry,
-                options={CONF_BUILDER_SLUG: "c1", CONF_BASE_URL: "https://new-url.local"},
+                options={
+                    CONF_BUILDER_SLUG: "c1",
+                    CONF_BASE_URL: "https://new-url.local",
+                },
             )
             await hass.async_block_till_done()
             assert mock_reload.called
@@ -391,10 +406,16 @@ async def test_cleanup_timer_during_concurrent_publish_does_not_delete_newer_fir
 
     # 1. Publish version 1.0.0
     blob_v100 = _make_valid_esp32_bin("1.0.0")
-    info_v100 = inspect_binary(blob_v100, target_platform="esp32", reserved_version="1.0.0")
-    art1 = await publisher.async_publish("dev1", "dev1.yaml", "dev1_slug", blob_v100, info_v100)
+    info_v100 = inspect_binary(
+        blob_v100, target_platform="esp32", reserved_version="1.0.0"
+    )
+    art1 = await publisher.async_publish(
+        "dev1", "dev1.yaml", "dev1_slug", blob_v100, info_v100
+    )
     await storage.async_save_artifact("dev1", art1)
-    monitor.schedule_cleanup("dev1", "dev1_slug", delay_seconds=0.05, artifact_id=art1.published_at)
+    monitor.schedule_cleanup(
+        "dev1", "dev1_slug", delay_seconds=0.05, artifact_id=art1.published_at
+    )
 
     bin_path = publisher.www_dir / "dev1_slug.ota.bin"
     manifest_path = publisher.www_dir / "dev1_slug.json"
@@ -403,7 +424,9 @@ async def test_cleanup_timer_during_concurrent_publish_does_not_delete_newer_fir
 
     # 2. Simulate 1.0.1 publish holding slug lock while 1.0.0 cleanup timer expires
     blob_v101 = _make_valid_esp32_bin("1.0.1")
-    info_v101 = inspect_binary(blob_v101, target_platform="esp32", reserved_version="1.0.1")
+    info_v101 = inspect_binary(
+        blob_v101, target_platform="esp32", reserved_version="1.0.1"
+    )
 
     slug_lock = publisher._get_slug_lock("dev1_slug")
     async with slug_lock:
@@ -426,7 +449,9 @@ async def test_cleanup_timer_during_concurrent_publish_does_not_delete_newer_fir
         )
         await storage.async_save_artifact("dev1", art2)
         # Reschedule cleanup for 1.0.1
-        monitor.schedule_cleanup("dev1", "dev1_slug", delay_seconds=3600, artifact_id=art2.published_at)
+        monitor.schedule_cleanup(
+            "dev1", "dev1_slug", delay_seconds=3600, artifact_id=art2.published_at
+        )
 
     # Allow any pending tasks to execute
     await asyncio.sleep(0.05)
@@ -436,6 +461,7 @@ async def test_cleanup_timer_during_concurrent_publish_does_not_delete_newer_fir
     assert manifest_path.exists()
 
     import json
+
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest_data["version"] == "1.0.1"
 
@@ -461,9 +487,15 @@ async def test_cleanup_timer_normal_expiry_deactivates_matching_firmware(
     monitor = InstallationMonitor(hass, device_manager, publisher, cleanup_hours=1)
 
     blob_v100 = _make_valid_esp32_bin("1.0.0")
-    info_v100 = inspect_binary(blob_v100, target_platform="esp32", reserved_version="1.0.0")
-    art1 = await publisher.async_publish("dev2", "dev2.yaml", "dev2_slug", blob_v100, info_v100)
-    monitor.schedule_cleanup("dev2", "dev2_slug", delay_seconds=0.05, artifact_id=art1.published_at)
+    info_v100 = inspect_binary(
+        blob_v100, target_platform="esp32", reserved_version="1.0.0"
+    )
+    art1 = await publisher.async_publish(
+        "dev2", "dev2.yaml", "dev2_slug", blob_v100, info_v100
+    )
+    monitor.schedule_cleanup(
+        "dev2", "dev2_slug", delay_seconds=0.05, artifact_id=art1.published_at
+    )
 
     bin_path = publisher.www_dir / "dev2_slug.ota.bin"
     manifest_path = publisher.www_dir / "dev2_slug.json"
@@ -489,8 +521,12 @@ async def test_unloaded_publisher_and_stale_active_artifacts_does_not_delete_new
 
     # 1. Old publisher publishes 1.0.0
     blob_100 = _make_valid_esp32_bin("1.0.0")
-    info_100 = inspect_binary(blob_100, target_platform="esp32", reserved_version="1.0.0")
-    art1 = await pub1.async_publish("dev1", "dev1.yaml", "dev1_slug", blob_100, info_100)
+    info_100 = inspect_binary(
+        blob_100, target_platform="esp32", reserved_version="1.0.0"
+    )
+    art1 = await pub1.async_publish(
+        "dev1", "dev1.yaml", "dev1_slug", blob_100, info_100
+    )
     assert (pub1.www_dir / "dev1_slug.ota.bin").exists()
 
     # 2. Simulate reload: pub1 is unloaded
@@ -499,11 +535,15 @@ async def test_unloaded_publisher_and_stale_active_artifacts_does_not_delete_new
     # 3. New publisher publishes 1.0.1
     pub2 = ArtifactPublisher(hass, publish_dir=pub_dir)
     blob_101 = _make_valid_esp32_bin("1.0.1")
-    info_101 = inspect_binary(blob_101, target_platform="esp32", reserved_version="1.0.1")
+    info_101 = inspect_binary(
+        blob_101, target_platform="esp32", reserved_version="1.0.1"
+    )
     await pub2.async_publish("dev1", "dev1.yaml", "dev1_slug", blob_101, info_101)
 
     # 4. Attempt cleanup from unloaded pub1 with old artifact ID
-    result1 = await pub1.async_deactivate("dev1_slug", expected_artifact_id=art1.published_at)
+    result1 = await pub1.async_deactivate(
+        "dev1_slug", expected_artifact_id=art1.published_at
+    )
     assert result1 is False
     assert (pub2.www_dir / "dev1_slug.ota.bin").exists()
 
@@ -511,6 +551,8 @@ async def test_unloaded_publisher_and_stale_active_artifacts_does_not_delete_new
     # disk manifest must take precedence and reject deactivation of 1.0.1
     pub_stale = ArtifactPublisher(hass, publish_dir=pub_dir)
     pub_stale._active_artifacts["dev1_slug"] = art1.published_at  # stale cache
-    result2 = await pub_stale.async_deactivate("dev1_slug", expected_artifact_id=art1.published_at)
+    result2 = await pub_stale.async_deactivate(
+        "dev1_slug", expected_artifact_id=art1.published_at
+    )
     assert result2 is False
     assert (pub2.www_dir / "dev1_slug.ota.bin").exists()

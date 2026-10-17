@@ -215,4 +215,3 @@ async def test_list_all_has_public_binary(hass: HomeAssistant) -> None:
     devices = manager.list_all()
     dev_entry = next(d for d in devices if d["device_id"] == "office")
     assert dev_entry["has_public_binary"] is False
-

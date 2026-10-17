@@ -121,7 +121,9 @@ async def ws_status(
     {
         vol.Required("type"): "esphome_ota/set_publication_policy",
         vol.Required("device_id"): str,
-        vol.Required("cleanup_hours"): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+        vol.Required("cleanup_hours"): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=168)
+        ),
         vol.Required("auto_hide"): bool,
         vol.Optional("save_as_default", default=False): bool,
     }
@@ -152,7 +154,9 @@ async def ws_set_publication_policy(
             dev.publication_cleanup_hours = cleanup_hours
             dev.auto_hide = msg["auto_hide"]
             dev.updated_at = datetime.now(timezone.utc).isoformat()
-            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+            await manager.storage.async_save_devices(
+                manager.device_manager._managed_devices
+            )
         if art:
             # The artifact-store lock serializes this policy update with expiry
             # transitions while preserving whichever visibility state won.
@@ -165,7 +169,9 @@ async def ws_set_publication_policy(
             )
             if not latest:
                 connection.send_error(
-                    msg["id"], "publication_changed", "The publication changed; reload and try again."
+                    msg["id"],
+                    "publication_changed",
+                    "The publication changed; reload and try again.",
                 )
                 return
             if manager.monitor:
@@ -181,9 +187,13 @@ async def ws_set_publication_policy(
                     manager.monitor.cancel_cleanup(device_id)
         if msg.get("save_as_default") or art:
             dev.expires_at = expires_at
-            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+            await manager.storage.async_save_devices(
+                manager.device_manager._managed_devices
+            )
     connection.send_result(msg["id"], {"success": True, "expires_at": expires_at})
-    manager._dispatch_event("devices_updated", {"devices": manager.device_manager.list_all()})
+    manager._dispatch_event(
+        "devices_updated", {"devices": manager.device_manager.list_all()}
+    )
 
 
 @websocket_api.require_admin
@@ -354,7 +364,9 @@ async def ws_apply_ota(
         vol.Required("device_id"): str,
         vol.Optional("request_id"): str,
         vol.Optional("target_version"): str,
-        vol.Optional("cleanup_hours"): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+        vol.Optional("cleanup_hours"): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=168)
+        ),
         vol.Optional("auto_hide"): bool,
     }
 )
@@ -562,7 +574,9 @@ async def ws_deactivate(
             await manager.storage.async_save_artifact(device_id, art)
         if is_private:
             dev.expires_at = None
-            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+            await manager.storage.async_save_devices(
+                manager.device_manager._managed_devices
+            )
     connection.send_result(msg["id"], {"success": True, "removed": removed})
     manager._dispatch_event(
         "devices_updated",
@@ -845,8 +859,20 @@ async def ws_set_token(
                             clean_dev_id,
                             old_slug,
                             artifact_id=restored_artifact_id,
-                            expires_at=(restored_old_artifact.expires_at if restored_old_artifact else artifact.expires_at if artifact else None),
-                            cleanup_hours=(restored_old_artifact.cleanup_hours if restored_old_artifact else artifact.cleanup_hours if artifact else None),
+                            expires_at=(
+                                restored_old_artifact.expires_at
+                                if restored_old_artifact
+                                else artifact.expires_at
+                                if artifact
+                                else None
+                            ),
+                            cleanup_hours=(
+                                restored_old_artifact.cleanup_hours
+                                if restored_old_artifact
+                                else artifact.cleanup_hours
+                                if artifact
+                                else None
+                            ),
                         )
                     else:
                         manager.monitor.cancel_cleanup(clean_dev_id)
