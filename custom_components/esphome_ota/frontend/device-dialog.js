@@ -539,7 +539,11 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
       });
       if (stillShowingTarget()) {
         this.dispatchEvent(
-          new CustomEvent("device-updated", { bubbles: true, composed: true }),
+          new CustomEvent("device-updated", {
+            bubbles: true,
+            composed: true,
+            detail: { device_id: targetDeviceId },
+          }),
         );
         this.close();
       }

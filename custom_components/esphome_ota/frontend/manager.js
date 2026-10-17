@@ -13,6 +13,9 @@ const css = `
 :host {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  container-type: inline-size;
+  container-name: manager;
   height: var(--esphome-ota-panel-height, 100%);
   min-height: 0;
   overflow: hidden;
@@ -282,47 +285,144 @@ button.danger:hover {
   -webkit-overflow-scrolling: touch;
   padding: 12px 20px 24px;
 }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
-}
-.card {
-  background: var(--card-background-color, #ffffff);
-  border: 1px solid var(--divider-color, #e2e8f0);
-  border-radius: 12px;
-  padding: 18px;
+.device-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  gap: 8px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.card {
+  --row-accent: var(--divider-color, #cbd5e1);
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "select head" "select bottom";
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 8px;
+  background: var(--card-background-color, #ffffff);
+  border: 1px solid var(--divider-color, #e2e8f0);
+  border-left: 3px solid var(--row-accent);
+  border-radius: 10px;
+  padding: 10px 14px 10px 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.15s ease;
 }
 .card:hover {
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
-.card-header {
+.card.row-initial { --row-accent: var(--warning-color, #d97706); }
+.card.row-update { --row-accent: var(--success-color, #16a34a); }
+.card.row-building { --row-accent: var(--info-color, #0284c7); }
+.card.row-failed { --row-accent: var(--error-color, #dc2626); }
+label.card-select-wrap {
+  grid-area: select;
   display: flex;
-  align-items: flex-start;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+.card-select {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+}
+.card-head {
+  grid-area: head;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 4px 16px;
+  min-width: 0;
+}
+.card-bottom {
+  grid-area: bottom;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-width: 0;
+}
+.card-meta {
+  flex: 1 1 16rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.card-main {
+  flex: 1 1 14rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.card-title-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
 }
 .card-title {
-  font-size: 1.05rem;
+  font-size: 0.98rem;
   font-weight: 600;
   margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .card-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
   font-size: 0.78rem;
   color: var(--secondary-text-color, #64748b);
-  margin-top: 2px;
+  min-width: 0;
 }
+.card-sub-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.card-sub .btn-log-link {
+  flex: none;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  height: auto;
+  font: inherit;
+  color: var(--error-color, #b91c1c);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.card-sub .btn-log-link:hover { background: none; }
+.card-sub .btn-log-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .badge {
+  flex: 0 0 auto;
   display: inline-block;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border-radius: 6px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 500;
+  white-space: nowrap;
 }
 .badge-unmanaged { background: var(--secondary-background-color, #f1f5f9); color: var(--secondary-text-color, #475569); }
 .badge-initial { background: var(--warning-background-color, #fef3c7); color: var(--warning-color, #92400e); }
@@ -331,40 +431,44 @@ button.danger:hover {
 .badge-building { background: var(--info-background-color, #e0f2fe); color: var(--info-color, #075985); }
 .badge-failed { background: var(--error-background-color, #fee2e2); color: var(--error-color, #991b1b); }
 
-.card-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  background: var(--secondary-background-color, #f8fafc);
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 0.8rem;
-}
-.stat-item {
+.card-versions {
+  flex: 0 1 auto;
+  margin-left: auto;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.stat-label {
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  min-width: 0;
+  font-size: 0.82rem;
   color: var(--secondary-text-color, #64748b);
-  font-size: 0.72rem;
 }
-.stat-val {
+.ver-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.ver-installed,
+.ver-published {
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
-.stat-date {
+.card-dates {
   color: var(--secondary-text-color, #64748b);
   font-size: 0.68rem;
   overflow-wrap: anywhere;
 }
+.ver-installed { color: var(--secondary-text-color, #64748b); }
+.ver-published { color: var(--primary-text-color, #1e293b); }
+.ver-arrow { opacity: 0.6; }
+.card.row-update .ver-arrow { opacity: 1; color: var(--success-color, #16a34a); }
+.card.row-update .ver-published { color: var(--success-color, #166534); }
 .initial-install-guidance {
-  padding: 9px 11px;
-  border: 1px solid var(--warning-color, #fcd34d);
-  border-radius: 8px;
-  background: var(--secondary-background-color, #fffbeb);
-  color: var(--primary-text-color, #78350f);
-  font-size: 0.78rem;
-  line-height: 1.45;
+  overflow-wrap: anywhere;
+  color: var(--secondary-text-color, #64748b);
+  font-size: 0.76rem;
+  line-height: 1.4;
 }
 .binary-status {
   display: inline-flex;
@@ -375,6 +479,7 @@ button.danger:hover {
   padding: 1px 6px;
   border-radius: 999px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 .binary-active {
   background: var(--success-background-color, #dcfce7);
@@ -394,45 +499,52 @@ button.danger:hover {
 .status-dot-sm.neutral { background: #94a3b8; }
 
 .card-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  margin-top: auto;
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
 }
+/* Fixed slot order: [visibility] [details] [primary]; primary is always rightmost. */
+.card-actions .slot-aux { order: 1; }
+.card-actions .slot-details { order: 2; }
+.card-actions .slot-primary { order: 3; }
 .card-actions button {
-  width: 100%;
-  min-width: 0;
-  height: 36px;
-  padding: 0 6px;
+  flex: none;
+  min-width: 5rem;
+  height: 34px;
+  padding: 0 14px;
   font-size: 0.8rem;
   justify-content: center;
-  text-align: center;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   box-sizing: border-box;
-}
-.card-secondary-actions button:only-child {
-  grid-column: 1 / -1;
-}
-.card-main-actions,
-.card-secondary-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.card-main-actions .primary:only-child { grid-column: 1 / -1; }
-.card-secondary-actions button {
-  color: var(--secondary-text-color, #64748b);
-  border-color: var(--divider-color, #cbd5e1);
   background: transparent;
+  color: var(--primary-text-color, #1e293b);
+  border-color: var(--divider-color, #cbd5e1);
+}
+.card-actions button:hover {
+  background: var(--secondary-background-color, #f1f5f9);
+}
+.card-actions .btn-details,
+.card-actions .btn-hide,
+.card-actions .btn-republish,
+.card-actions .btn-view-logs {
+  color: var(--secondary-text-color, #64748b);
+}
+/* Only rows that really need action get a tinted outline; never a filled button. */
+.card.row-update .card-actions .btn-build,
+.card.row-initial .card-actions .btn-build {
+  color: var(--primary-color, #0284c7);
+  border-color: var(--primary-color, #0284c7);
 }
 .empty-state {
   text-align: center;
   padding: 60px 20px;
   color: var(--secondary-text-color, #64748b);
 }
-@media (max-width: 650px) {
+@container manager (max-width: 650px) {
   header {
     height: auto;
     min-height: 0;
@@ -483,10 +595,21 @@ button.danger:hover {
     padding: 8px 12px 20px;
   }
   .selection-summary { padding: 8px 12px; }
-  .grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
+  .card {
+    column-gap: 10px;
+    padding: 10px 12px 12px 10px;
   }
+  .card-select-wrap { min-width: 40px; min-height: 40px; }
+  .card-versions { margin-left: 0; justify-content: flex-start; }
+  .card-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+  }
+  .card-actions button { flex: none; min-width: 0; height: 40px; }
+  .card-actions .slot-primary { grid-column: 1 / -1; grid-row: 1; order: 0; }
+  .card-actions .slot-aux { grid-column: 1; grid-row: 2; }
+  .card-actions .slot-details { grid-column: 2; grid-row: 2; }
 }
 `;
 
@@ -905,8 +1028,15 @@ class EsphomeOtaManager extends HTMLElement {
         this.buildDevice(e.detail.device, e.detail.returnFocus);
       }
     });
-    devDialog?.addEventListener("device-updated", () => {
-      this.refresh();
+    devDialog?.addEventListener("device-updated", async (e) => {
+      const removedId = e.detail?.device_id;
+      if (removedId) this.selectedDevices.delete(removedId);
+      await this.refresh();
+      const known = new Set(this.devices.map((d) => d.device_id));
+      [...this.selectedDevices].forEach((id) => {
+        if (!known.has(id)) this.selectedDevices.delete(id);
+      });
+      this._renderSelectionSummary();
     });
 
     const migDialog = this.shadowRoot.querySelector("esphome-ota-migration-dialog");
@@ -1176,7 +1306,7 @@ class EsphomeOtaManager extends HTMLElement {
     }
 
     container.innerHTML = `
-      <div class="grid">
+      <div class="device-list" role="list">
         ${filtered.map((dev) => this.renderCard(dev)).join("")}
       </div>
     `;
@@ -1196,8 +1326,8 @@ class EsphomeOtaManager extends HTMLElement {
   _attachCardListeners() {
     this.shadowRoot.querySelectorAll(".card-select").forEach((cb) => {
       cb.addEventListener("change", (e) => {
-        const id = e.target.getAttribute("data-id");
-        if (e.target.checked) this.selectedDevices.add(id);
+        const id = e.currentTarget.getAttribute("data-id");
+        if (e.currentTarget.checked) this.selectedDevices.add(id);
         else this.selectedDevices.delete(id);
         this._renderSelectionSummary();
       });
@@ -1205,7 +1335,7 @@ class EsphomeOtaManager extends HTMLElement {
 
     this.shadowRoot.querySelectorAll(".btn-prepare").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        const id = e.target.getAttribute("data-id");
+        const id = e.currentTarget.getAttribute("data-id");
         const dev = this.devices.find((d) => d.device_id === id);
         if (dev) this.openDeviceDialog(dev, "diff");
       });
@@ -1213,15 +1343,22 @@ class EsphomeOtaManager extends HTMLElement {
 
     this.shadowRoot.querySelectorAll(".btn-build").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        const id = e.target.getAttribute("data-id");
+        const id = e.currentTarget.getAttribute("data-id");
         const dev = this.devices.find((d) => d.device_id === id);
         if (dev) this.buildDevice(dev);
       });
     });
 
+    this.shadowRoot.querySelectorAll(".btn-progress").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const job = this._getActiveJob(e.currentTarget.getAttribute("data-id"));
+        if (job) this.openJobDialog(job);
+      });
+    });
+
     this.shadowRoot.querySelectorAll(".btn-view-logs").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        const jobId = e.target.getAttribute("data-job-id");
+        const jobId = e.currentTarget.getAttribute("data-job-id");
         const job = this.jobs.find((j) => j.job_id === jobId);
         if (job) this.openJobDialog(job);
       });
@@ -1229,7 +1366,7 @@ class EsphomeOtaManager extends HTMLElement {
 
     this.shadowRoot.querySelectorAll(".btn-hide").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        const id = e.target.getAttribute("data-id");
+        const id = e.currentTarget.getAttribute("data-id");
         const dev = this.devices.find((d) => d.device_id === id);
         if (dev) this.hideBinary(dev);
       });
@@ -1237,7 +1374,7 @@ class EsphomeOtaManager extends HTMLElement {
 
     this.shadowRoot.querySelectorAll(".btn-republish").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        const id = e.target.getAttribute("data-id");
+        const id = e.currentTarget.getAttribute("data-id");
         const dev = this.devices.find((d) => d.device_id === id);
         if (dev) this.republishBinary(dev);
       });
@@ -1245,17 +1382,9 @@ class EsphomeOtaManager extends HTMLElement {
 
     this.shadowRoot.querySelectorAll(".btn-details").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        const id = e.target.getAttribute("data-id");
+        const id = e.currentTarget.getAttribute("data-id");
         const dev = this.devices.find((d) => d.device_id === id);
         if (dev) this.openDeviceDialog(dev, "info");
-      });
-    });
-
-    this.shadowRoot.querySelectorAll(".btn-remove-ota").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        const id = e.target.getAttribute("data-id");
-        const dev = this.devices.find((d) => d.device_id === id);
-        if (dev) this.removeOta(dev);
       });
     });
   }
@@ -1298,29 +1427,6 @@ class EsphomeOtaManager extends HTMLElement {
     );
   }
 
-  async removeOta(device) {
-    const confirmMsg = t(this.hass, "remove_ota_confirm");
-    if (!window.confirm(confirmMsg)) return;
-    try {
-      await this.hass.callWS({
-        type: "esphome_ota/remove_ota",
-        device_id: device.device_id,
-      });
-      this.selectedDevices.delete(device.device_id);
-      try {
-        const res = await this.hass.callWS({ type: "esphome_ota/devices" });
-        if (Array.isArray(res)) this.devices = res;
-        else if (res?.devices) this.devices = res.devices;
-        this.devicesLoaded = true;
-      } catch (_err) {
-        // devices_updated subscription will refresh the list
-      }
-      this._renderDeviceList();
-    } catch (err) {
-      this.showToast(`Remove OTA error: ${err.message || err}`);
-    }
-  }
-
   renderCard(dev) {
     const activeJob = this._getActiveJob(dev.device_id);
     const latestJob = this._getLatestJob(dev.device_id);
@@ -1328,76 +1434,92 @@ class EsphomeOtaManager extends HTMLElement {
 
     const badgeText = t(this.hass, badgeKey);
     const isSelected = this.selectedDevices.has(dev.device_id);
-    const needsInitialInstall = dev.status === "needs_initial_install"
-      || (!dev.has_http_ota && !dev.last_installed_version);
+    const needsInitialInstall = dev.status !== "unmanaged" && (dev.status === "needs_initial_install"
+      || (!dev.has_http_ota && !dev.last_installed_version));
     const canChangeBinaryVisibility = !!dev.last_published_version && !activeJob;
     const expiryLabel = dev.has_public_binary
       ? (dev.expires_at
         ? `${new Date(dev.expires_at).toLocaleString()} · <span class="expiry-remaining" data-expiry="${escapeHtml(dev.expires_at)}">${escapeHtml(this._remainingTime(dev.expires_at))}</span>`
         : escapeHtml(t(this.hass, "expiry_disabled")))
       : "";
+    const name = dev.friendly_name || dev.name || "";
+    const id = escapeHtml(dev.device_id);
+    const rowClass = {
+      "badge-initial": "row-initial",
+      "badge-update": "row-update",
+      "badge-installed": "row-installed",
+      "badge-building": "row-building",
+      "badge-failed": "row-failed",
+    }[badgeClass] || "";
+    const label = (key) => escapeHtml(t(this.hass, key));
+    const aria = (key) => `${escapeHtml(t(this.hass, key))}: ${escapeHtml(name)}`;
 
-    let actionButton = "";
+    const btn = (cls, slot, extra, key) =>
+      `<button class="${cls} ${slot}" ${extra} aria-label="${aria(key)}">${label(key)}</button>`;
+    const failed = latestJob && (latestJob.stage === "failed" || latestJob.stage === "cancelled");
+    let primaryButton = "";
+    let auxButton = "";
+    let logLink = "";
     if (activeJob) {
-      actionButton = `<button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_view_logs"))}</button>`;
-    } else if (latestJob && (latestJob.stage === "failed" || latestJob.stage === "cancelled")) {
-      actionButton = `
-        <button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_build"))}</button>
-        <button class="btn-view-logs" data-job-id="${escapeHtml(latestJob.job_id)}">${escapeHtml(t(this.hass, "btn_view_logs"))}</button>
-      `;
+      primaryButton = btn("btn-progress", "slot-primary", `data-id="${id}"`, "btn_view_logs");
+    } else if (failed) {
+      primaryButton = btn("btn-build", "slot-primary", `data-id="${id}"`, "btn_build");
+      logLink = `<button type="button" class="btn-view-logs btn-log-link" data-job-id="${escapeHtml(latestJob.job_id)}" aria-label="${aria("btn_view_logs")}">${label("btn_logs_link")}</button>`;
     } else if (dev.status === "unmanaged") {
-      actionButton = `<button class="primary btn-prepare" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_prepare"))}</button>`;
+      primaryButton = btn("btn-prepare", "slot-primary", `data-id="${id}"`, "btn_prepare");
     } else {
-      actionButton = `<button class="primary btn-build" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_build"))}</button>`;
+      primaryButton = btn("btn-build", "slot-primary", `data-id="${id}"`, "btn_build");
+    }
+    if (!auxButton && canChangeBinaryVisibility) {
+      auxButton = dev.has_public_binary
+        ? btn("btn-hide", "slot-aux", `data-id="${id}"`, "btn_hide")
+        : btn("btn-republish", "slot-aux", `data-id="${id}"`, "btn_republish");
     }
 
+    const visibilityPill = dev.last_published_version
+      ? (dev.has_public_binary
+        ? `<span class="binary-status binary-active"><span class="status-dot-sm ok"></span> ${label("status_active")}</span>`
+        : `<span class="binary-status binary-hidden"><span class="status-dot-sm neutral"></span> ${label("status_hidden")}</span>`)
+      : "";
+
+    const dateParts = [];
+    if (dev.last_installed_at) dateParts.push(`${label("installed_date")}: ${escapeHtml(this._formatDeviceDate(dev.last_installed_at))}`);
+    if (dev.last_published_at) dateParts.push(`${label("published_date")}: ${escapeHtml(this._formatDeviceDate(dev.last_published_at))}`);
+    if (expiryLabel) dateParts.push(`${label("publication_expiry")}: ${expiryLabel}`);
+    const datesLine = dateParts.join(" · ");
+
     return `
-      <div class="card" data-id="${escapeHtml(dev.device_id)}">
-        <div class="card-header">
-          <div style="display: flex; gap: 8px; align-items: flex-start;">
-            <input type="checkbox" class="card-select" data-id="${escapeHtml(dev.device_id)}" aria-label="${escapeHtml(t(this.hass, "select_device"))}: ${escapeHtml(dev.friendly_name || dev.name)}" ${isSelected ? "checked" : ""}>
-            <div>
-              <h3 class="card-title">${escapeHtml(dev.friendly_name || dev.name)}</h3>
-              <div class="card-sub">${escapeHtml(dev.configuration)} • ${escapeHtml(dev.chip_family)}</div>
-            </div>
-          </div>
-          <span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>
-        </div>
-
-        ${expiryLabel ? `<div class="card-sub" style="padding: 0 16px 10px;">${escapeHtml(t(this.hass, "publication_expiry"))}: ${expiryLabel}</div>` : ""}
-
-        <div class="card-stats">
-          <div class="stat-item">
-            <span class="stat-label">${escapeHtml(t(this.hass, "installed_version"))}</span>
-            <span class="stat-val">${escapeHtml(dev.last_installed_version || "—")}</span>
-            ${dev.last_installed_at ? `<span class="stat-date">${escapeHtml(t(this.hass, "installed_date"))}: ${escapeHtml(this._formatDeviceDate(dev.last_installed_at))}</span>` : ""}
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">${escapeHtml(t(this.hass, "published_version"))}</span>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span class="stat-val">${escapeHtml(dev.last_published_version || "—")}</span>
-              ${dev.last_published_version ? (
-                dev.has_public_binary
-                  ? `<span class="binary-status binary-active" title="${escapeHtml(t(this.hass, "status_active"))}"><span class="status-dot-sm ok"></span> ${escapeHtml(t(this.hass, "status_active"))}</span>`
-                  : `<span class="binary-status binary-hidden" title="${escapeHtml(t(this.hass, "status_hidden"))}"><span class="status-dot-sm neutral"></span> ${escapeHtml(t(this.hass, "status_hidden"))}</span>`
-              ) : ""}
-            </div>
-            ${dev.last_published_at ? `<span class="stat-date">${escapeHtml(t(this.hass, "published_date"))}: ${escapeHtml(this._formatDeviceDate(dev.last_published_at))}</span>` : ""}
+      <div class="card ${rowClass}" role="listitem" data-id="${id}">
+        <label class="card-select-wrap">
+          <input type="checkbox" class="card-select" data-id="${id}" aria-label="${aria("select_device")}" ${isSelected ? "checked" : ""}>
+        </label>
+        <div class="card-head">
+        <div class="card-main">
+          <div class="card-title-line">
+            <h3 class="card-title" title="${escapeHtml(name)}">${escapeHtml(name)}</h3>
+            <span class="badge ${badgeClass}">${escapeHtml(badgeText)}</span>
           </div>
         </div>
-
-        ${needsInitialInstall ? `<div class="initial-install-guidance" role="status">${escapeHtml(t(this.hass, "initial_install_card_help"))}</div>` : ""}
-
+        <div class="card-versions">
+          <span class="ver-flow">
+            <span class="sr-only">${label("installed_version")}: </span><span class="ver-installed">${escapeHtml(dev.last_installed_version || "—")}</span>
+            <span class="ver-arrow" aria-hidden="true">→</span>
+            <span class="sr-only">${label("published_version")}: </span><span class="ver-published">${escapeHtml(dev.last_published_version || "—")}</span>
+          </span>
+          ${visibilityPill}
+        </div>
+        </div>
+        <div class="card-bottom">
+        <div class="card-meta">
+          <div class="card-sub"><span class="card-sub-text">${escapeHtml(dev.configuration)} • ${escapeHtml(dev.chip_family)}</span>${logLink}</div>
+          ${datesLine ? `<div class="card-dates">${datesLine}</div>` : ""}
+          ${needsInitialInstall ? `<div class="initial-install-guidance">${label("initial_install_card_help")}</div>` : ""}
+        </div>
         <div class="card-actions">
-          <div class="card-main-actions">${actionButton}</div>
-          <div class="card-secondary-actions">
-            <button class="btn-details" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_details"))}</button>
-            ${canChangeBinaryVisibility
-              ? dev.has_public_binary
-                ? `<button class="btn-hide" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_hide"))}</button>`
-                : `<button class="btn-republish" data-id="${escapeHtml(dev.device_id)}">${escapeHtml(t(this.hass, "btn_republish"))}</button>`
-              : ""}
-          </div>
+          ${auxButton}
+          ${btn("btn-details", "slot-details", `data-id="${id}"`, "btn_details")}
+          ${primaryButton}
+        </div>
         </div>
       </div>
     `;
