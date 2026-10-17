@@ -175,6 +175,7 @@ async def test_migration_matches_builder_and_reports_ambiguous(
 def test_migration_frontend_components() -> None:
     """Verify frontend manager.js and migration-dialog.js define migration UI elements."""
     manager_js = (_FRONTEND_DIR / "manager.js").read_text(encoding="utf-8")
+    device_dialog_js = (_FRONTEND_DIR / "device-dialog.js").read_text(encoding="utf-8")
     mig_dialog_js = (_FRONTEND_DIR / "migration-dialog.js").read_text(encoding="utf-8")
     i18n_js = (_FRONTEND_DIR / "i18n.js").read_text(encoding="utf-8")
 
@@ -215,7 +216,7 @@ def test_migration_frontend_components() -> None:
     assert (_FRONTEND_DIR / "elements.js").is_file()
     assert "_getLatestJob" in manager_js
     assert "_getDeviceBadge" in manager_js
-    assert "esphome_ota/remove_ota" in manager_js
+    assert "esphome_ota/remove_ota" in device_dialog_js
     assert "btn_remove_ota" in i18n_js
     assert "migration_ambiguous" in i18n_js
 
