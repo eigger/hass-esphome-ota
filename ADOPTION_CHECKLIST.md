@@ -33,12 +33,12 @@
 | GOV-05 | 구현과 독립 리뷰·검증을 별도 서브 에이전트에게 위임, 지적 수정·재검증 및 결과 취합 | EXCEPTION | 사용자 지시로 구현은 메인 에이전트, 리뷰만 Opus 서브 에이전트(STANDARDS.md 예외). 리뷰 지적 수정 후 재검증은 아래 기록 |
 | HA-01, HA-13 | `custom_components/<domain>/`와 domain 일치, 필요한 모듈·공개 API·생명주기는 Core 대응 구조 | PASS | `custom_components/esphome_ota/`, manifest `domain: esphome_ota` |
 | HA-02 | manifest 필드·정렬·동작 선언 확인, 공식 품질 등급 자가 표기 없음 | PASS | manifest 필드(dependencies, after_dependencies, config_flow, iot_class) 확인; 품질 등급 자가 표기 없음. Hassfest 결과는 CI 대기 |
-| HA-03 (권장) | 공통 상수·설정·갱신·플랫폼 역할 및 프로토콜 경계에 맞게 모듈 구성 | TODO | 이번 작업에서 구조 재검토 안 함(코드 변경 없음). 미채택 사유: 범위 밖 |
-| HA-04, HA-08 | UI 설정·중복·안정적 식별 및 기능별 options/reauth/reconfigure, entity 의미·registry 영향 확인 | TODO | 이번 채택에서 미검토 — 코드는 포맷만 변경(AST 동일) |
+| HA-03 (권장) | 공통 상수·설정·갱신·플랫폼 역할 및 프로토콜 경계에 맞게 모듈 구성 | TODO | Opus 감사: websocket.py/http.py에 게시·롤백 로직 중복, 타 모듈 private 속성 접근(http.py:182, monitor.py:302), builder_* 키 중복. 후속 PR
+| HA-04, HA-08 | UI 설정·중복·안정적 식별 및 기능별 options/reauth/reconfigure, entity 의미·registry 영향 확인 | TODO | HA-08은 엔티티 없음 N/A. HA-04: base_url 미검증(config_flow.py:90-113), single_config_entry 미선언, 연결 확인 없음. 후속 PR
 | HA-01, HA-04, HA-08, REL-01, REL-03 | domain·unique ID·entry schema·상태/통계 계약 변경 시 migration 테스트와 사용자 조치 안내 | N/A | domain·unique ID·entry schema·통계 계약을 변경하지 않음(AST 동일) → migration 불필요 |
-| HA-05, HA-06 | setup 실패 구분, unload/reload·부분 실패의 task/listener/연결 정리, async·timeout·취소 처리 | TODO | 이번 채택에서 미검토 — 기존 회귀 테스트로 동작 유지만 확인 |
-| HA-07 | 중복 polling·property I/O 방지, push 보존, unavailable/unknown·실패 후 복구 | TODO | 이번 채택에서 미검토 |
-| HA-11, HA-12 | 번역·action/schema 일치, 로그/diagnostics/fixture 비식별화와 제공 시 redaction 테스트 | TODO | 이번 채택에서 미검토 (diagnostics 테스트 test_diagnostics.py 존재) |
+| HA-05, HA-06 | setup 실패 구분, unload/reload·부분 실패의 task/listener/연결 정리, async·timeout·취소 처리 | TODO | 업로드 view가 reload 후 구 manager 유지(http.py:26, manager.py:282-288), 부분 setup 실패 시 정리 누락(__init__.py:28-35), websocket.py 블로킹 파일 I/O, monitor 태스크 수명, 영구 오류 무한 재시도. 후속 PR
+| HA-07 | 중복 polling·property I/O 방지, push 보존, unavailable/unknown·실패 후 복구 | PASS | 엔티티·polling 없음, push 유지(builder/connection.py:152, monitor.py:491), 재연결 backoff (감사 확인)
+| HA-11, HA-12 | 번역·action/schema 일치, 로그/diagnostics/fixture 비식별화와 제공 시 redaction 테스트 | TODO | diagnostics allowlist·테스트 PASS(diagnostics.py:24-41). 시크릿 slug가 로그에 노출(publisher.py:252 등)·builder_slug 번역 누락. 후속 PR
 
 ## 실제 HA 테스트·호환성·의존성
 
@@ -103,7 +103,7 @@
 |---|---|---|
 | TEST-04 | 지원 최소 결정(상향 또는 호환 코드) 후 정확한 최소 job 추가 | 사용자 승인 + CI |
 | HACS-03/05, CI-04/07/12 | PR의 Tests·Validate 결과·brand 검사·required checks 확인 | CI run 링크 |
-| HA-03/04/05/06/07/08/11/12 | 구현 동작 규칙 감사(이번 범위 밖) | 감사 기록 |
+| HA-03/04/05/06/11/12 | Opus 감사에서 발견된 결함 11건(High 3: upload view 재등록, 부분 setup 정리, 로그의 토큰 slug) 별도 후속 PR로 수정 | 후속 PR·테스트 |
 | GOV-03/04 | 채택 PR 링크, 중앙 현황표 행 갱신 | PR·중앙 커밋 |
 
 CI 성공만으로 실물 기기 검증을 주장하지 않습니다. 실물 검증은 수행하지 않았습니다.
