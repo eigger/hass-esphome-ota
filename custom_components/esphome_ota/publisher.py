@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import shutil
 import threading
 import uuid
@@ -20,15 +19,10 @@ from homeassistant.core import HomeAssistant
 from .const import DEFAULT_AUTO_CLEANUP_HOURS, DEFAULT_PUBLISH_DIR
 from .firmware import BinaryInfo
 from .models import EsphomeOtaError, PublishedArtifact
+from .redaction import install_redaction, mask_slug
 
 _LOGGER = logging.getLogger(__name__)
-
-_SLUG_TOKEN_RE = re.compile(r"_[0-9a-f]{32}$")
-
-
-def mask_slug(slug: str) -> str:
-    """Hide the secret token of a public slug (``{name}_{token}``) for logging."""
-    return _SLUG_TOKEN_RE.sub("_***", slug)
+install_redaction(_LOGGER)
 
 
 async def async_path_exists(hass: HomeAssistant, path: Path) -> bool:
@@ -39,6 +33,11 @@ async def async_path_exists(hass: HomeAssistant, path: Path) -> bool:
 async def async_path_is_file(hass: HomeAssistant, path: Path) -> bool:
     """Check ``path.is_file()`` without blocking the event loop."""
     return await hass.async_add_executor_job(path.is_file)
+
+
+async def async_any_path_exists(hass: HomeAssistant, *paths: Path) -> bool:
+    """Check whether any of ``paths`` exists in a single executor job."""
+    return await hass.async_add_executor_job(lambda: any(p.exists() for p in paths))
 
 
 def _unlink_all(paths: tuple[Path, ...]) -> None:

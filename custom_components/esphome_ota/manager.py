@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .redaction import install_redaction
 from .builder.client import BuilderClient
 from .builder.resolver import BuilderResolver
 from .const import (
@@ -29,13 +30,14 @@ from .const import (
 from .devices import DeviceManager
 from .jobs import JobRunner
 from .migration import MigrationManager
-from .models import BuilderAuthError, BuilderSelection
+from .models import BuilderAuthError, BuilderForbiddenError, BuilderSelection
 from .monitor import InstallationMonitor
 from .panel import PanelManager
 from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 BACKOFF_STEPS = [2, 5, 10, 30, 60]
 # Failures that need user action (Builder requires auth, several Builders and none
@@ -122,6 +124,7 @@ class OtaManager:
         self._refresh_task: asyncio.Task[None] | None = None
         self._reconnect_task: asyncio.Task[None] | None = None
         self._unloaded = False
+        self.ready = False
         self._reconnect_backoff_index = 0
         self._permanent_failure = False
         self._suppress_reload_count = 0
@@ -184,7 +187,7 @@ class OtaManager:
     def _note_connect_failure(self, err: Exception) -> None:
         """Remember whether a failure needs user action rather than a quick retry."""
         self._permanent_failure = (
-            isinstance(err, BuilderAuthError)
+            isinstance(err, (BuilderAuthError, BuilderForbiddenError))
             or self.resolver.status == STATUS_SELECTION_REQUIRED
         )
 
@@ -322,6 +325,7 @@ class OtaManager:
 
         # 4. Start installation monitor
         await self.monitor.async_setup()
+        self.ready = True
 
     async def async_unload(self) -> None:
         """Clean up resources on integration unload."""

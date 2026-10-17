@@ -38,6 +38,14 @@ def _normalize_base_url(value: str) -> str | None:
         return None
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         return None
+    if (
+        parsed.query
+        or parsed.fragment
+        or parsed.username
+        or parsed.password
+        or any(ch.isspace() for ch in cleaned)
+    ):
+        return None
     return cleaned
 
 

@@ -25,6 +25,10 @@ class BuilderConnectionError(BuilderError):
     """Cannot connect to ESPHome Builder trusted listener."""
 
 
+class BuilderForbiddenError(BuilderConnectionError):
+    """Builder listener answered HTTP 403 (this host is not trusted)."""
+
+
 class BuilderAuthError(BuilderError):
     """Builder listener rejected connection due to authentication requirement."""
 

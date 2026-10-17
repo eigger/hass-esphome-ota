@@ -44,7 +44,8 @@ from custom_components.esphome_ota.models import (
     PublishedArtifact,
 )
 from custom_components.esphome_ota.monitor import InstallationMonitor
-from custom_components.esphome_ota.publisher import ArtifactPublisher, mask_slug
+from custom_components.esphome_ota.publisher import ArtifactPublisher
+from custom_components.esphome_ota.redaction import mask_slug, redact
 from custom_components.esphome_ota.storage import StorageManager
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
@@ -135,6 +136,7 @@ async def test_partial_setup_failure_cleans_up(
 
 def test_mask_slug_hides_token() -> None:
     assert mask_slug(f"livingroom_{SECRET}") == "livingroom_***"
+    assert mask_slug("livingroom_mysecret") == "livingroom_***"
     assert mask_slug("legacy-name") == "legacy-name"
 
 
@@ -281,7 +283,18 @@ async def test_websocket_file_checks_do_not_block_event_loop(
 
 
 @pytest.mark.parametrize(
-    "bad", ["", "not a url", "ftp://host", "http://", "https://h:x"]
+    "bad",
+    [
+        "",
+        "not a url",
+        "ftp://host",
+        "http://",
+        "https://h:x",
+        "https://ha/x?y=1",
+        "https://ha/#f",
+        "http://u:p@ha",
+        "http://ha st",
+    ],
 )
 async def test_config_flow_rejects_invalid_base_url(
     hass: HomeAssistant, bad: str
@@ -504,3 +517,92 @@ async def test_builder_slug_data_keys_use_constants() -> None:
         if path.name == "const.py":
             continue
         assert not re.search(r"""["']builder_(host|port)["']""", path.read_text())
+
+
+async def test_log_filter_redacts_exceptions_and_custom_tokens(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """OSError file names and tracebacks never reveal tokens, whatever their shape."""
+    from custom_components.esphome_ota import publisher as publisher_module
+
+    path = "/config/www/esphome_ota/livingroom_mysecret.ota.bin"
+    assert redact(f"[Errno 13] Permission denied: '{path}'") == (
+        "[Errno 13] Permission denied: '/config/www/esphome_ota/livingroom_***.ota.bin'"
+    )
+    caplog.set_level(logging.DEBUG)
+    try:
+        raise PermissionError(13, "Permission denied", path)
+    except PermissionError as err:
+        publisher_module._LOGGER.exception("failed: %s", err)
+    assert "mysecret" not in caplog.text
+    assert "mysecret" not in caplog.records[-1].exc_text
+    assert "livingroom_***.ota.bin" in caplog.text
+
+
+async def test_upload_refused_until_manager_ready(
+    hass: HomeAssistant, hass_client: Any, mock_config_entry: MockConfigEntry
+) -> None:
+    with patch(DISCOVERY, return_value=[]):
+        manager = await _setup(hass, mock_config_entry)
+        manager.ready = False
+        client = await hass_client()
+        form = aiohttp.FormData()
+        form.add_field("file", _firmware_blob(), filename="fw.bin")
+        resp = await client.post("/api/esphome_ota/upload/livingroom", data=form)
+        assert resp.status == 503
+
+
+async def test_http_403_is_a_permanent_failure(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    from custom_components.esphome_ota.models import BuilderForbiddenError
+
+    mock_config_entry.add_to_hass(hass)
+    manager = OtaManager(hass, mock_config_entry)
+    manager._note_connect_failure(BuilderForbiddenError("403"))
+    assert manager._permanent_failure is True
+    await manager.async_unload()
+
+
+async def test_selection_required_loop_uses_long_interval(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    mock_config_entry.add_to_hass(hass)
+    manager = OtaManager(hass, mock_config_entry)
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+        if len(delays) >= 2:
+            manager._unloaded = True
+
+    async def _resolve() -> Any:
+        manager.resolver.status = STATUS_SELECTION_REQUIRED
+        raise BuilderConnectionError("Selection required")
+
+    manager.resolver.async_resolve = _resolve  # type: ignore[method-assign]
+    with patch.object(manager_module.asyncio, "sleep", _fake_sleep):
+        await manager._reconnect_loop()
+    # first delay is the initial short backoff; after the first failure it is long
+    assert delays[-1] >= PERMANENT_FAILURE_INTERVAL * 0.8
+    await manager.async_unload()
+
+
+async def test_setup_cleanup_failure_still_raises_original(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    mock_config_entry.add_to_hass(hass)
+    with (
+        patch(DISCOVERY, return_value=[]),
+        patch(
+            "custom_components.esphome_ota.manager.InstallationMonitor.async_setup",
+            side_effect=RuntimeError("monitor boom"),
+        ),
+        patch(
+            "custom_components.esphome_ota.manager.OtaManager.async_unload",
+            side_effect=RuntimeError("unload boom"),
+        ),
+    ):
+        assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert DOMAIN not in hass.data

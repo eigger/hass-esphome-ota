@@ -15,11 +15,13 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .redaction import install_redaction, mask_slug
 from .const import DEFAULT_AUTO_CLEANUP_HOURS
 from .devices import DeviceManager
-from .publisher import ArtifactPublisher, async_path_exists, mask_slug
+from .publisher import ArtifactPublisher, async_path_exists
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 class InstallationMonitor:
@@ -310,7 +312,7 @@ class InstallationMonitor:
                 dev = self.device_manager.get_device(device_id)
                 if dev and dev.update_entity_id != matched_entity_id:
                     dev.update_entity_id = matched_entity_id
-                    self._track_task(
+                    self.hass.async_create_task(
                         self.device_manager.storage.async_save_devices(
                             self.device_manager._managed_devices
                         )
@@ -479,7 +481,7 @@ class InstallationMonitor:
                             },
                         )
 
-                self._track_task(_mark_and_notify_verified())
+                self.hass.async_create_task(_mark_and_notify_verified())
             elif dev.last_installed_version != installed_version:
                 _LOGGER.info(
                     "Discovered installed version %s for %s",
@@ -499,7 +501,7 @@ class InstallationMonitor:
                             {"devices": self.device_manager.list_all()},
                         )
 
-                self._track_task(_mark_and_notify_updated())
+                self.hass.async_create_task(_mark_and_notify_updated())
 
         unsub = async_track_state_change_event(self.hass, [entity_id], _state_changed)
         self._unsub_listeners.append(unsub)

@@ -20,6 +20,7 @@ from ..models import (
     BuilderAuthError,
     BuilderConnectionError,
     BuilderError,
+    BuilderForbiddenError,
     BuilderTimeoutError,
 )
 
@@ -90,7 +91,7 @@ class BuilderConnection:
                 )
         except aiohttp.WSServerHandshakeError as err:
             if err.status == 403:
-                raise BuilderConnectionError(
+                raise BuilderForbiddenError(
                     f"ESPHome Builder rejected connection (HTTP 403). "
                     f"Host {self.host} may not be recognized as trusted loopback."
                 ) from err
@@ -129,19 +130,27 @@ class BuilderConnection:
             self._reader_task.cancel()
             # The reader re-raises its own cancellation; collect it here while still
             # propagating a cancellation of the caller itself.
-            await asyncio.gather(self._reader_task, return_exceptions=True)
-            self._reader_task = None
+            try:
+                await asyncio.gather(self._reader_task, return_exceptions=True)
+            finally:
+                self._reader_task = None
+                await self._close_socket()
+        else:
+            await self._close_socket()
 
-        if self._ws and not self._ws.closed:
-            await self._ws.close()
-            self._ws = None
-
-        # Flush any waiting queues with error
-        for queue in self._queues.values():
-            queue.put_nowait(
-                {"error_code": "DISCONNECTED", "details": "Connection closed"}
-            )
-        self._queues.clear()
+    async def _close_socket(self) -> None:
+        """Close the socket and fail waiting queues (also when cancelled)."""
+        try:
+            if self._ws and not self._ws.closed:
+                await self._ws.close()
+                self._ws = None
+        finally:
+            # Flush any waiting queues with error
+            for queue in self._queues.values():
+                queue.put_nowait(
+                    {"error_code": "DISCONNECTED", "details": "Connection closed"}
+                )
+            self._queues.clear()
 
     async def _await_server_info(self) -> dict[str, Any]:
         """Wait for the initial unsolicited server info frame."""
