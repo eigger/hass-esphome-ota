@@ -45,13 +45,13 @@
 | 규칙 ID | 확인 항목 | 상태 | 근거 / 남은 작업 |
 |---|---|---|---|
 | TEST-08 | `tests/components/<domain>/`에 구현과 대응하는 테스트·domain fixture 배치, discovery·CI 경로 일치 | PASS | `tests/components/esphome_ota/`, CI 경로 일치 |
-| TEST-02, TEST-03, DEP-07 | 실제 HA·호환 플러그인과 `hass`/`enable_custom_integrations` fixture 사용, HA core stub/복사본/`--no-deps`로 대체하지 않음 | PASS | 실제 HA 2026.10.2·플러그인 0.13.373, `enable_custom_integrations`(conftest.py). 보조: test_builder_discovery.py:30-33이 `sys.modules`에 esphome dashboard 모듈을 패치(기존 보조 테스트이며 통합 검증으로 계산하지 않음, 후속 개선 대상) |
+| TEST-02, TEST-03, DEP-07 | 실제 HA·호환 플러그인과 `hass`/`enable_custom_integrations` fixture 사용, HA core stub/복사본/`--no-deps`로 대체하지 않음 | PASS | 실제 HA 2026.10.2·플러그인 0.13.373, `enable_custom_integrations`(conftest.py). test_builder_discovery.py의 `sys.modules` 가짜 모듈을 실제 `esphome.dashboard.async_get_dashboard` 패치로 교체(ha-components에 esphome 추가) |
 | TEST-09 | 실제 loader·config entry manager로 setup/플랫폼 로딩, HA 상태·registry·service/action으로 결과 검증 | PASS | config_entries.async_setup/async_setup_component를 쓰는 테스트 9개 파일, 167 passed |
 | TEST-01, TEST-06, TEST-07 | 구현 기능별 성공·실패·중복·migration·unload·복구 회귀 검증, 외부 통신 경계만 mock, skip 사유 | PASS | 기존 테스트 삭제 없음, 외부 Builder 경계 mock |
 | TEST-04, HACS-01 | 변경 전 지원 최소·current·각 Python/플러그인 분리, 선언한 정확한 최소 검증, 상향 시 비호환 근거·명시적 승인 확인 | EXCEPTION | STANDARDS.md 예외: 선언 최소 2024.1.0이 코드와 불일치. 최소 상향 안 함 |
 | TEST-05, HA-10, DEP-02, DEP-05 | imagespec·blesession 등 최소/현재 라이브러리 별도 환경, 실제 HA 테스트·정확한 설치값·API 경계 검증 | N/A | 외부 Python 라이브러리 없음(`requirements: []`), Bluetooth 미사용 |
 | DEP-01, DEP-06 | Python runtime은 manifest requirements, HA domain은 dependencies/after_dependencies, 테스트·린트 requirements는 별도 | PASS | requirements_test.txt / requirements_lint.txt 분리, manifest는 dependencies 사용 |
-| DEP-07, CI-06 | 실제 사용하는 HA 구성요소의 requirements·필수 재귀 의존성·선택 로딩 경로 설치, resolver·`pip check` 통과 | PASS | `ha-components: frontend panel_custom websocket_api http`; 로컬 `pip check` No broken requirements(리뷰 에이전트 확인). CI 설치 결과는 대기 |
+| DEP-07, CI-06 | 실제 사용하는 HA 구성요소의 requirements·필수 재귀 의존성·선택 로딩 경로 설치, resolver·`pip check` 통과 | PASS | `ha-components: frontend panel_custom websocket_api http esphome`; 로컬 `pip check` No broken requirements(리뷰 에이전트 확인). CI 설치 결과는 대기 |
 | DEP-02, DEP-03, DEP-08 | 의존성 추가/변경의 버전·extras·marker·선언 위치·지원 플랫폼·라이선스 검토, 실제 HA 테스트와 문서 갱신 | N/A | 이번 변경에서 의존성 추가·변경 없음(requirements_test.txt의 pytest-timeout 별도 핀 제거 포함) |
 
 독립 리뷰는 변경 전후 지원 최소와 current를 비교하고, 봇 PR이 과거 최소 requirements·constraints까지 갱신하거나 expected-ha-version·Python을 누락하지 않았는지 확인합니다. 최신 테스트 실패는 호환 수정 대상으로 처리합니다.
@@ -69,7 +69,7 @@
 | 규칙 ID | 확인 항목 | 상태 | 근거 / 남은 작업 |
 |---|---|---|---|
 | HACS-01, HACS-02 | 루트 README/LICENSE/hacs.json, 검증한 최소 HA, 실제 배포 구조와 필요한 옵션 일치 | PASS | 루트 README/LICENSE/hacs.json, `custom_components/esphome_ota`, `content_in_root: false` (최소 HA 값은 예외) |
-| HACS-03, HACS-05 | Default 여부는 목록 근거로 확인, [로컬 brand/icon.png 또는 원격 brands 근거](https://github.com/eigger/hass-repo-standards/blob/main/docs/hacs.md)와 HACS/Hassfest 실제 실행, ignore는 이유·해제 조건 기록 | TODO | brand/icon.png 존재(128×128, HA 지침 256×256 미달 → 후속). HACS·Hassfest 실행은 원격 CI 대기 |
+| HACS-03, HACS-05 | Default 여부는 목록 근거로 확인, [로컬 brand/icon.png 또는 원격 brands 근거](https://github.com/eigger/hass-repo-standards/blob/main/docs/hacs.md)와 HACS/Hassfest 실제 실행, ignore는 이유·해제 조건 기록 | TODO | brand/icon.png를 256×256으로 교체(기존 128px를 LANCZOS 업스케일, brand/README.md 기록; 원본 재export 권장). HACS·Hassfest 실행은 원격 CI 대기 |
 | HACS-06 (권장) | description·topics·issue 경로·brands 및 사용하는 HACS 필드 지원 확인 | PASS | `gh repo view`: description·topics·Issues 설정 확인 |
 | CI-01, CI-02 | Validate/Python Tests 공통화, 확장 job 유지, PR·실제 기본 브랜치 push·dispatch 및 필요한 schedule | PASS | tests.yml/validate.yml: PR, main push, dispatch, validate schedule |
 | CI-03, CI-05, CI-08 | 최소 권한·checkout 자격증명 비보존·timeout·concurrency, full SHA·갱신 관리, 비신뢰 입력·secrets 경계 | PASS | `permissions: contents: read`, concurrency, 공통 workflow가 checkout 자격증명 비보존·timeout 설정, SHA 고정, 비신뢰 입력 없음 |
@@ -103,9 +103,7 @@
 |---|---|---|
 | TEST-04 | 지원 최소 결정(상향 또는 호환 코드) 후 정확한 최소 job 추가 | 사용자 승인 + CI |
 | HACS-03/05, CI-04/07/12 | PR의 Tests·Validate 결과·brand 검사·required checks 확인 | CI run 링크 |
-| HACS-03 | brand/icon.png를 256×256(선택 512 @2x)으로 교체, 출처·권리 기록 | 파일·HACS 실행 |
 | HA-03/04/05/06/07/08/11/12 | 구현 동작 규칙 감사(이번 범위 밖) | 감사 기록 |
-| TEST-02 | test_builder_discovery.py의 `sys.modules` 패치를 실제 모듈 패치로 교체 | 테스트 변경 |
 | GOV-03/04 | 채택 PR 링크, 중앙 현황표 행 갱신 | PR·중앙 커밋 |
 
 CI 성공만으로 실물 기기 검증을 주장하지 않습니다. 실물 검증은 수행하지 않았습니다.

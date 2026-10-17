@@ -22,5 +22,5 @@ jobs:
       requirements: requirements_test.txt
       expected-ha-version: '2026.10.2'
       test-profile: ha
-      ha-components: 'frontend panel_custom websocket_api http'
+      ha-components: 'frontend panel_custom websocket_api http esphome'
       pytest-args: tests/components/esphome_ota/ -v --timeout 120

@@ -24,12 +24,9 @@ async def test_discovery_from_esphome_dashboard(hass: HomeAssistant) -> None:
     mock_coord.url = "http://127.0.0.1:6052"
     mock_coord.addon_slug = "5c53de3b_esphome"
 
-    mock_mod = MagicMock()
-    mock_mod.async_get_dashboard = MagicMock(return_value=mock_coord)
-
-    with patch.dict(
-        "sys.modules",
-        {"homeassistant.components.esphome.dashboard": mock_mod},
+    with patch(
+        "homeassistant.components.esphome.dashboard.async_get_dashboard",
+        return_value=mock_coord,
     ):
         adapter = HaDiscoveryAdapter(hass)
         candidates = await adapter.async_discover_from_esphome_dashboard()

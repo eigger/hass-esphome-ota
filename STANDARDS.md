@@ -26,7 +26,7 @@
 
 ## HACS brand
 
-`custom_components/esphome_ota/brand/icon.png`가 이미 존재합니다. 이번 작업에서 이미지 내용·권리를 검증하지 않았고 현재 128×128 PNG이므로 HA 지침(256×256)에 맞는 교체가 필요합니다(후속 작업)., HACS brands 검사는 원격 CI 결과로 확인합니다.
+`custom_components/esphome_ota/brand/icon.png`가 이미 존재합니다. 이번 작업에서 이미지 내용·권리를 검증하지 않았고 기존 128×128을 256×256으로 업스케일했습니다(brand/README.md). 원본 아트워크 재export가 더 선명합니다., HACS brands 검사는 원격 CI 결과로 확인합니다.
 
 ## 규칙 범위 메모
 

@@ -18,7 +18,7 @@ Python 3.14 is required by the current Home Assistant test environment.
 python3.14 -m venv .venv && . .venv/bin/activate
 pip install -r requirements_lint.txt -r requirements_test.txt
 # CI also installs the requirements of the HA components the tests load
-# (ha-components: frontend panel_custom websocket_api http). Locally, `frontend` needs:
+# (ha-components: frontend panel_custom websocket_api http esphome). Locally, `frontend` needs:
 pip install "$(python -c 'import json,pathlib,homeassistant.components as c;print(json.loads((pathlib.Path(c.__file__).parent/"frontend/manifest.json").read_text())["requirements"][0])')"
 python -m ruff check . && python -m ruff format --check .
 python -m pytest tests/components/esphome_ota/ -v --timeout 120
