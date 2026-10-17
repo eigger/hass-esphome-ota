@@ -7,6 +7,7 @@
 - 기본 브랜치: main; domain: esphome_ota
 - 적용 점검표: [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md)
 - 중앙 현황표: https://github.com/eigger/hass-repo-standards/blob/main/docs/adoption-status.md (이번 작업에서는 중앙 리포를 수정하지 않았으며 반영할 내용은 체크리스트 '남은 작업'에 기록)
+- 중앙 현황 갱신일: 미등록 (중앙 리포 미수정)
 - 조율: 메인 에이전트; 독립 리뷰·검증: Opus 서브 에이전트
 - 테스트 경로: `tests/components/esphome_ota/`
 - 변경 전 지원 최소 HA / 선언 근거: `hacs.json` `homeassistant: 2024.1.0` (README에는 별도 선언 없음)
@@ -21,10 +22,11 @@
 | 규칙 ID | 이유 | 담당자 | 재검토 조건 |
 |---|---|---|---|
 | TEST-04, HACS-01 | `hacs.json`이 선언한 최소 HA 2024.1.0에서 코드가 동작하지 않습니다. `panel.py`가 `homeassistant.components.http.StaticPathConfig`를 import하는데 HA 2024.1.2(해당 시점 플러그인 0.13.88, 정확한 2024.1.0용 플러그인 릴리스는 PyPI에 없음)에서 ImportError가 발생합니다. 따라서 별도 minimum-ha job을 만들지 않았고 선언 최소를 검증된 값으로 취급하지 않습니다. 최신화 요청만으로 최소를 상향하지 않습니다. | @eigger | 사용자가 지원 최소 상향(또는 하위 호환 코드 도입)을 승인하면 `hacs.json`·README·CI를 함께 변경하고 정확한 최소 환경 job을 추가 |
+| GOV-05 | 사용자 지시에 따라 구현은 메인 에이전트가 직접 수행하고 독립 리뷰만 별도 Opus 서브 에이전트에 위임 | @eigger | 다음 재검토 또는 후속 채택 작업 |
 
 ## HACS brand
 
-`custom_components/esphome_ota/brand/icon.png`가 이미 존재합니다. 이번 작업에서 이미지 내용·크기·권리를 새로 검증하지 않았으며, HACS brands 검사는 원격 CI 결과로 확인합니다.
+`custom_components/esphome_ota/brand/icon.png`가 이미 존재합니다. 이번 작업에서 이미지 내용·권리를 검증하지 않았고 현재 128×128 PNG이므로 HA 지침(256×256)에 맞는 교체가 필요합니다(후속 작업)., HACS brands 검사는 원격 CI 결과로 확인합니다.
 
 ## 규칙 범위 메모
 

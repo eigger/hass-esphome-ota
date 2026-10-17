@@ -35,14 +35,14 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 2. Download **ESPHome OTA** and restart Home Assistant.
 3. Go to **Settings** > **Devices & Services** > **Add Integration** and select **ESPHome OTA**.
 
-Manual installation: copy `custom_components/esphome_ota` into `<config>/custom_components/` and restart. To remove, delete the integration entry, then that folder (and `www/esphome_ota/` if you no longer need published firmware).
+Manual installation: copy `custom_components/esphome_ota` into `<config>/custom_components/` and restart. To remove, delete the integration entry, then that folder (and, if no longer needed, the published firmware in `www/esphome_ota/` and the private archive `/config/esphome_ota/firmware/`; neither is removed automatically).
 
 ## Quick start
 
-1. Open **ESPHome OTA** in the sidebar; devices known to the Builder are listed.
+1. After adding the integration the Builder is discovered automatically; confirm and save the Base URL. Then open **ESPHome OTA** in the sidebar; devices known to the Builder are listed.
 2. Click **Prepare OTA** on a device, review the YAML diff, and click **Apply to YAML**.
 3. Click **Build & Publish** and watch the live log; the manifest and binary are published to `/local/esphome_ota/`.
-4. Devices without HTTP OTA need a one-time USB or local OTA flash; later updates install over HTTP OTA.
+4. Devices without HTTP OTA need a one-time USB or local OTA flash; later updates can be installed remotely through the Home Assistant Update entity over HTTP OTA.
 
 ## Important limitations
 
@@ -52,7 +52,7 @@ Manual installation: copy `custom_components/esphome_ota` into `<config>/custom_
 
 ## Legacy migration
 
-Coming from the ESPHome OTA Publisher add-on? Use **Import from Legacy Add-on** in the panel. It reads `registered.json`, copies binaries from `www/esphome_ota/` into private storage, and keeps tokens and device slugs. Stop or uninstall the add-on afterwards.
+Coming from the ESPHome OTA Publisher add-on? Use **Import from Legacy Add-on** at the top right of the panel and review the preview of devices and binaries. It reads `esphome/ota_server/registered.json`, copies binaries from `www/esphome_ota/` into private storage, and keeps tokens and device slugs. Stop or uninstall the add-on afterwards.
 
 ## Documentation
 

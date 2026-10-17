@@ -35,14 +35,14 @@
 2. **ESPHome OTA**를 다운로드하고 Home Assistant를 재시작합니다.
 3. **설정** > **기기 및 서비스** > **통합 구성요소 추가**에서 **ESPHome OTA**를 선택합니다.
 
-수동 설치: `custom_components/esphome_ota`를 `<config>/custom_components/`로 복사하고 재시작합니다. 제거하려면 통합 항목을 삭제한 뒤 해당 폴더(게시한 펌웨어가 불필요하면 `www/esphome_ota/`도)를 삭제합니다.
+수동 설치: `custom_components/esphome_ota`를 `<config>/custom_components/`로 복사하고 재시작합니다. 제거하려면 통합 항목을 삭제한 뒤 해당 폴더를 삭제합니다. 게시한 펌웨어(`www/esphome_ota/`)와 프라이빗 보관본(`/config/esphome_ota/firmware/`)은 자동 삭제되지 않으므로 불필요하면 직접 삭제합니다.
 
 ## 빠른 시작
 
-1. 사이드바의 **ESPHome OTA**를 열면 Builder의 기기 목록이 표시됩니다.
+1. 통합을 추가하면 Builder가 자동 감지되며 Base URL을 확인·저장합니다. 이후 사이드바의 **ESPHome OTA**를 열면 Builder의 기기 목록이 표시됩니다.
 2. 기기 카드의 **OTA 준비**로 YAML Diff를 검토하고 **YAML에 적용**을 누릅니다.
 3. **빌드 및 게시**를 누르고 실시간 로그를 확인하면 매니페스트와 바이너리가 `/local/esphome_ota/`에 게시됩니다.
-4. HTTP OTA가 아직 없는 기기는 최초 1회 USB 또는 로컬 OTA로 설치하며, 이후부터 HTTP OTA로 업데이트합니다.
+4. HTTP OTA가 아직 없는 기기는 최초 1회 USB 또는 로컬 OTA로 설치하며, 이후부터 HA의 Update 엔티티로 HTTP OTA 원격 설치가 가능합니다.
 
 ## 중요 제한사항
 
@@ -52,7 +52,7 @@
 
 ## 레거시 애드온 데이터 이전
 
-기존 ESPHome OTA Publisher 애드온에서 전환하는 경우 패널의 **기존 애드온 데이터 이전**을 사용합니다. 이전 대상 기기와 바이너리 미리보기를 확인한 뒤 실행하면 `registered.json`, `www/esphome_ota/`의 바이너리, 토큰, 슬러그가 유지됩니다. 완료 후 기존 애드온을 중지하거나 삭제합니다.
+기존 ESPHome OTA Publisher 애드온에서 전환하는 경우 패널 우측 상단의 **기존 애드온 데이터 이전**을 사용합니다. 이전 대상 기기와 바이너리 미리보기를 확인한 뒤 실행하면 `esphome/ota_server/registered.json`을 읽고 `www/esphome_ota/`의 바이너리를 프라이빗 저장소로 복사하며 토큰과 슬러그가 유지됩니다. 완료 후 기존 애드온을 중지하거나 삭제합니다.
 
 ## 문서
 
