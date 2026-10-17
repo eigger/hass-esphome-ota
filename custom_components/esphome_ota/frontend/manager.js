@@ -404,8 +404,8 @@ label.card-select-wrap {
   appearance: none;
   background: none;
   border: 0;
-  padding: 0;
-  margin: 0;
+  padding: 4px 2px;
+  margin: -4px -2px;
   min-height: 0;
   height: auto;
   font: inherit;
@@ -511,6 +511,10 @@ label.card-select-wrap {
 .card-actions .slot-aux { order: 1; }
 .card-actions .slot-details { order: 2; }
 .card-actions .slot-primary { order: 3; }
+/* Fixed widths so every row's slots land on the same x coordinates. */
+.card-actions .slot-primary { min-width: 8.5rem; }
+.card-actions .slot-details,
+.card-actions .slot-aux { min-width: 5.5rem; }
 .card-actions button {
   flex: none;
   min-width: 5rem;
@@ -601,15 +605,28 @@ label.card-select-wrap {
   }
   .card-select-wrap { min-width: 40px; min-height: 40px; }
   .card-versions { margin-left: 0; justify-content: flex-start; }
+  .card-select-wrap { align-self: start; }
   .card-actions {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
     width: 100%;
   }
-  .card-actions button { flex: none; min-width: 0; height: 40px; }
-  .card-actions .slot-primary { grid-column: 1 / -1; grid-row: 1; order: 0; }
-  .card-actions .slot-aux { grid-column: 1; grid-row: 2; }
-  .card-actions .slot-details { grid-column: 2; grid-row: 2; }
+  .card-actions button {
+    flex: none;
+    min-width: 0;
+    min-height: 40px;
+    height: auto;
+    padding: 4px 6px;
+    white-space: normal;
+    line-height: 1.2;
+    text-align: center;
+  }
+  .card-actions .slot-aux,
+  .card-actions .slot-details,
+  .card-actions .slot-primary { min-width: 0; }
+  .card-actions .slot-aux { grid-column: 1; grid-row: 1; }
+  .card-actions .slot-details { grid-column: 2; grid-row: 1; }
+  .card-actions .slot-primary { grid-column: 3; grid-row: 1; }
 }
 `;
 
@@ -1030,13 +1047,12 @@ class EsphomeOtaManager extends HTMLElement {
     });
     devDialog?.addEventListener("device-updated", async (e) => {
       const removedId = e.detail?.device_id;
-      if (removedId) this.selectedDevices.delete(removedId);
+      if (removedId) {
+        this.selectedDevices.delete(removedId);
+        this._renderDeviceList();
+        this._renderSelectionSummary();
+      }
       await this.refresh();
-      const known = new Set(this.devices.map((d) => d.device_id));
-      [...this.selectedDevices].forEach((id) => {
-        if (!known.has(id)) this.selectedDevices.delete(id);
-      });
-      this._renderSelectionSummary();
     });
 
     const migDialog = this.shadowRoot.querySelector("esphome-ota-migration-dialog");
@@ -1464,13 +1480,13 @@ class EsphomeOtaManager extends HTMLElement {
       primaryButton = btn("btn-progress", "slot-primary", `data-id="${id}"`, "btn_view_logs");
     } else if (failed) {
       primaryButton = btn("btn-build", "slot-primary", `data-id="${id}"`, "btn_build");
-      logLink = `<button type="button" class="btn-view-logs btn-log-link" data-job-id="${escapeHtml(latestJob.job_id)}" aria-label="${aria("btn_view_logs")}">${label("btn_logs_link")}</button>`;
+      logLink = `<button type="button" class="btn-view-logs btn-log-link" data-job-id="${escapeHtml(latestJob.job_id)}" aria-label="${aria("btn_logs_link")}">${label("btn_logs_link")}</button>`;
     } else if (dev.status === "unmanaged") {
       primaryButton = btn("btn-prepare", "slot-primary", `data-id="${id}"`, "btn_prepare");
     } else {
       primaryButton = btn("btn-build", "slot-primary", `data-id="${id}"`, "btn_build");
     }
-    if (!auxButton && canChangeBinaryVisibility) {
+    if (canChangeBinaryVisibility) {
       auxButton = dev.has_public_binary
         ? btn("btn-hide", "slot-aux", `data-id="${id}"`, "btn_hide")
         : btn("btn-republish", "slot-aux", `data-id="${id}"`, "btn_republish");
