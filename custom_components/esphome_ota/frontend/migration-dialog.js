@@ -97,10 +97,11 @@ const css = `
   font-size: 0.8rem;
 }
 .device-tag {
-  background: #ffffff;
+  background: var(--card-background-color, #ffffff);
   padding: 3px 8px;
   border-radius: 6px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--divider-color, #cbd5e1);
+  border-color: color-mix(in srgb, var(--primary-text-color, #1e293b) 25%, var(--card-background-color, #ffffff));
   font-family: monospace;
 }
 .status-box {
@@ -151,20 +152,26 @@ button {
 button:hover {
   background: var(--secondary-background-color, #f1f5f9);
 }
+/* Filled single-CTA button: fill = brand colour darkened 30% (40% on hover) with fixed white
+   text, independent of --text-primary-color. The default HA primary (#03a9f4) gets 5.0:1 (6.4:1
+   on hover); very light brand colours can fall below 4.5:1 (known limitation). The border mixes
+   toward the text colour so the edge keeps >= 3:1 against the card in light and dark themes. */
 button.primary {
   background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
-  color: var(--text-primary-color, #ffffff);
-  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
 }
 button.primary:hover:not(:disabled) {
-  opacity: 0.92;
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 60%, #000);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
 }
 /* Fixed dark primary only for browsers without color-mix(). */
 @supports not (background: color-mix(in srgb, red 10%, transparent)) {
-  button.primary { background: #0369a1; border-color: #0369a1; }
+  button.primary { background: #0369a1; border-color: #0284c7; }
+  button.primary:hover:not(:disabled) { background: #075985; border-color: #0284c7; }
 }
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.7;
   cursor: not-allowed;
 }
 .btn-close {
@@ -221,6 +228,19 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
     } finally {
       this.loading = false;
       this.render();
+    }
+  }
+
+  _formatDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    const options = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+    const timeZone = this._hass?.config?.time_zone;
+    if (timeZone && this._hass?.locale?.time_zone !== "local") options.timeZone = timeZone;
+    try {
+      return new Intl.DateTimeFormat(this._hass?.language || this._hass?.locale?.language || "en", options).format(date);
+    } catch (_err) {
+      return date.toLocaleString();
     }
   }
 
@@ -346,7 +366,7 @@ class EsphomeOtaMigrationDialog extends HTMLElement {
         statusMsg = `
           <div class="status-box info" style="display: flex; align-items: center; gap: 8px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            <span>${escapeHtml(t(this._hass, "migration_already_done"))}${p.migrated_at ? ` (${escapeHtml(new Date(p.migrated_at).toLocaleString())})` : ""}</span>
+            <span>${escapeHtml(t(this._hass, "migration_already_done"))}${p.migrated_at ? ` (${escapeHtml(this._formatDate(p.migrated_at))})` : ""}</span>
           </div>
         `;
       }

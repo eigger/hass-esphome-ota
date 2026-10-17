@@ -56,11 +56,13 @@ const css = `
 .device-name {
   font-weight: 600;
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
 }
 .device-sub {
   font-size: 0.8rem;
   color: var(--secondary-text-color, #64748b);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 .version-grid {
   display: grid;
@@ -202,21 +204,26 @@ button:hover:not(:disabled) {
   background: var(--secondary-background-color, #f1f5f9);
   border-color: var(--divider-color, #9ca3af);
 }
+/* Filled single-CTA button: fill = brand colour darkened 30% (40% on hover) with fixed white
+   text, independent of --text-primary-color. The default HA primary (#03a9f4) gets 5.0:1 (6.4:1
+   on hover); very light brand colours can fall below 4.5:1 (known limitation). The border mixes
+   toward the text colour so the edge keeps >= 3:1 against the card in light and dark themes. */
 button.primary {
   background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
-  color: var(--text-primary-color, #ffffff);
-  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
 }
 button.primary:hover:not(:disabled) {
-  opacity: 0.92;
-  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 60%, #000);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
 }
 /* Fixed dark primary only for browsers without color-mix(). */
 @supports not (background: color-mix(in srgb, red 10%, transparent)) {
-  button.primary, button.primary:hover { background: #0369a1; border-color: #0369a1; }
+  button.primary { background: #0369a1; border-color: #0284c7; }
+  button.primary:hover:not(:disabled) { background: #075985; border-color: #0284c7; }
 }
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.7;
   cursor: not-allowed;
 }
 .btn-close {
