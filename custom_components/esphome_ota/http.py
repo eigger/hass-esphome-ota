@@ -10,7 +10,7 @@ from aiohttp import web
 from homeassistant.components.http import HomeAssistantView, require_admin
 from homeassistant.core import HomeAssistant
 
-from .const import DEFAULT_AUTO_CLEANUP_HOURS, MAX_UPLOAD_SIZE
+from .const import DEFAULT_AUTO_CLEANUP_HOURS, DOMAIN, MAX_UPLOAD_SIZE
 from .firmware import BinaryValidationError, inspect_binary
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,13 +23,17 @@ class FirmwareUploadView(HomeAssistantView):
     url = "/api/esphome_ota/upload/{device_id}"
     requires_auth = True
 
-    def __init__(self, hass: HomeAssistant, manager: Any) -> None:
+    def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
-        self.manager = manager
 
     @require_admin
     async def post(self, request: web.Request, device_id: str) -> web.Response:
         """Handle multipart firmware upload."""
+        # The view is registered once; resolve the current manager per request so
+        # a reloaded entry never serves uploads through a stale manager.
+        manager: Any = self.hass.data.get(DOMAIN, {}).get("manager")
+        if manager is None:
+            return web.json_response({"error": "ESPHome OTA is not loaded"}, status=503)
         if not request.can_read_body:
             return web.json_response({"error": "No body in request"}, status=400)
 
@@ -95,8 +99,8 @@ class FirmwareUploadView(HomeAssistantView):
                 status=422,
             )
 
-        async with self.manager.device_manager.get_lock(clean_device_id):
-            dev = self.manager.device_manager.get_device(clean_device_id)
+        async with manager.device_manager.get_lock(clean_device_id):
+            dev = manager.device_manager.get_device(clean_device_id)
             newly_registered = False
             published = None
             previous_artifact = None
@@ -107,9 +111,7 @@ class FirmwareUploadView(HomeAssistantView):
             previous_cleanup_delay = None
             builder_device = None
             if not dev:
-                builder_device = self.manager.device_manager.get_builder_raw(
-                    clean_device_id
-                )
+                builder_device = manager.device_manager.get_builder_raw(clean_device_id)
                 if not builder_device:
                     return web.json_response(
                         {"error": f"Unknown ESPHome device: {clean_device_id}"},
@@ -134,16 +136,16 @@ class FirmwareUploadView(HomeAssistantView):
                     expected_chip=dev.chip_family if dev else None,
                     reserved_version=dev.managed_version if dev else None,
                 )
-                artifacts = await self.manager.storage.async_load_artifacts()
+                artifacts = await manager.storage.async_load_artifacts()
                 previous_artifact = artifacts.get(clean_device_id)
                 if dev:
-                    public_path = self.manager.publisher.www_dir / f"{dev.slug}.ota.bin"
+                    public_path = manager.publisher.www_dir / f"{dev.slug}.ota.bin"
                     previous_public_exists = public_path.is_file()
                     if previous_public_exists:
                         try:
                             if previous_artifact:
                                 try:
-                                    previous_public_blob = await self.manager.publisher.async_load_private_artifact(
+                                    previous_public_blob = await manager.publisher.async_load_private_artifact(
                                         previous_artifact.private_path
                                     )
                                 except Exception:  # noqa: BLE001
@@ -178,17 +180,15 @@ class FirmwareUploadView(HomeAssistantView):
                                 },
                                 status=409,
                             )
-                    if self.manager.monitor:
-                        timer = self.manager.monitor._cleanup_timers.get(
-                            clean_device_id
-                        )
+                    if manager.monitor:
+                        timer = manager.monitor._cleanup_timers.get(clean_device_id)
                         if timer:
                             previous_cleanup_delay = max(
                                 0.0, timer.when() - self.hass.loop.time()
                             )
                 if not dev:
                     # Validate the binary before persisting a newly discovered device.
-                    dev = await self.manager.device_manager.async_register_or_update(
+                    dev = await manager.device_manager.async_register_or_update(
                         device_id=clean_device_id,
                         configuration=configuration,
                         name=name,
@@ -196,7 +196,7 @@ class FirmwareUploadView(HomeAssistantView):
                         target_platform=target_platform,
                     )
                     newly_registered = True
-                published = await self.manager.publisher.async_publish(
+                published = await manager.publisher.async_publish(
                     device_id=dev.device_id,
                     configuration=dev.configuration,
                     slug=dev.slug,
@@ -209,7 +209,7 @@ class FirmwareUploadView(HomeAssistantView):
                         else dev.publication_cleanup_hours
                         if dev.publication_cleanup_hours is not None
                         else getattr(
-                            self.manager,
+                            manager,
                             "cleanup_hours",
                             DEFAULT_AUTO_CLEANUP_HOURS,
                         )
@@ -218,25 +218,25 @@ class FirmwareUploadView(HomeAssistantView):
                     if auto_hide_override is None
                     else auto_hide_override,
                 )
-                await self.manager.storage.async_save_artifact(dev.device_id, published)
-                await self.manager.device_manager.async_mark_published(
+                await manager.storage.async_save_artifact(dev.device_id, published)
+                await manager.device_manager.async_mark_published(
                     dev.device_id,
                     published.version,
                     published.expires_at,
                     published.published_at,
                 )
-                if self.manager.monitor:
-                    self.manager.monitor.schedule_cleanup(
+                if manager.monitor:
+                    manager.monitor.schedule_cleanup(
                         dev.device_id,
                         dev.slug,
                         artifact_id=published.published_at,
                         expires_at=published.expires_at,
                         cleanup_hours=published.cleanup_hours,
                     )
-                    await self.manager.monitor.async_refresh_entity(dev.device_id)
-                self.manager._dispatch_event(
+                    await manager.monitor.async_refresh_entity(dev.device_id)
+                manager._dispatch_event(
                     "devices_updated",
-                    {"devices": self.manager.device_manager.list_all()},
+                    {"devices": manager.device_manager.list_all()},
                 )
                 return web.json_response(
                     {
@@ -256,8 +256,8 @@ class FirmwareUploadView(HomeAssistantView):
                 _LOGGER.exception("Failed processing manual firmware upload: %s", err)
                 rollback_errors = []
                 if published or newly_registered:
-                    if self.manager.monitor:
-                        self.manager.monitor.cancel_cleanup(dev.device_id)
+                    if manager.monitor:
+                        manager.monitor.cancel_cleanup(dev.device_id)
                     restored_publication = None
                     if (
                         published
@@ -267,7 +267,7 @@ class FirmwareUploadView(HomeAssistantView):
                     ):
                         try:
                             restored_publication = (
-                                await self.manager.publisher.async_publish(
+                                await manager.publisher.async_publish(
                                     device_id=dev.device_id,
                                     configuration=dev.configuration,
                                     slug=dev.slug,
@@ -278,7 +278,7 @@ class FirmwareUploadView(HomeAssistantView):
                                         previous_artifact.cleanup_hours
                                         if previous_artifact
                                         and previous_artifact.cleanup_hours is not None
-                                        else self.manager.cleanup_hours
+                                        else manager.cleanup_hours
                                     ),
                                     auto_hide=previous_artifact.auto_hide
                                     if previous_artifact
@@ -305,7 +305,7 @@ class FirmwareUploadView(HomeAssistantView):
                             )
                     elif published:
                         try:
-                            await self.manager.publisher.async_deactivate(
+                            await manager.publisher.async_deactivate(
                                 dev.slug, expected_artifact_id=published.published_at
                             )
                         except Exception:  # noqa: BLE001
@@ -319,8 +319,7 @@ class FirmwareUploadView(HomeAssistantView):
                         for suffix in (".json", ".ota.json"):
                             try:
                                 (
-                                    self.manager.publisher.www_dir
-                                    / f"{dev.slug}{suffix}"
+                                    manager.publisher.www_dir / f"{dev.slug}{suffix}"
                                 ).unlink(missing_ok=True)
                             except OSError:
                                 _LOGGER.exception(
@@ -331,7 +330,7 @@ class FirmwareUploadView(HomeAssistantView):
                                     "could not remove a failed upload manifest"
                                 )
                     try:
-                        await self.manager.storage.async_restore_artifact(
+                        await manager.storage.async_restore_artifact(
                             dev.device_id, restored_publication or previous_artifact
                         )
                     except Exception:  # noqa: BLE001
@@ -342,8 +341,8 @@ class FirmwareUploadView(HomeAssistantView):
                     if previous_device:
                         try:
                             dev.__dict__.update(deepcopy(previous_device.__dict__))
-                            await self.manager.storage.async_save_devices(
-                                self.manager.device_manager._managed_devices
+                            await manager.storage.async_save_devices(
+                                manager.device_manager._managed_devices
                             )
                         except Exception:  # noqa: BLE001
                             _LOGGER.exception(
@@ -355,7 +354,7 @@ class FirmwareUploadView(HomeAssistantView):
                             )
                     elif newly_registered:
                         try:
-                            await self.manager.device_manager.async_remove_device(
+                            await manager.device_manager.async_remove_device(
                                 clean_device_id
                             )
                         except Exception:  # noqa: BLE001
@@ -366,10 +365,10 @@ class FirmwareUploadView(HomeAssistantView):
                             rollback_errors.append(
                                 "could not remove the newly registered device record"
                             )
-                    if self.manager.monitor:
+                    if manager.monitor:
                         try:
                             if restored_publication:
-                                self.manager.monitor.schedule_cleanup(
+                                manager.monitor.schedule_cleanup(
                                     dev.device_id,
                                     dev.slug,
                                     artifact_id=restored_publication.published_at,
@@ -377,14 +376,14 @@ class FirmwareUploadView(HomeAssistantView):
                                     cleanup_hours=restored_publication.cleanup_hours,
                                 )
                             elif previous_public_exists and published:
-                                self.manager.monitor.schedule_cleanup(
+                                manager.monitor.schedule_cleanup(
                                     dev.device_id,
                                     dev.slug,
                                     delay_seconds=previous_cleanup_delay,
                                     artifact_id=published.published_at,
                                 )
                             elif previous_artifact and not newly_registered:
-                                self.manager.monitor.cancel_cleanup(dev.device_id)
+                                manager.monitor.cancel_cleanup(dev.device_id)
                         except Exception:  # noqa: BLE001
                             _LOGGER.exception(
                                 "Could not restore cleanup timer for %s",

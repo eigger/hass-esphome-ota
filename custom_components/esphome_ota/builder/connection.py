@@ -13,6 +13,7 @@ import aiohttp
 from ..const import (
     STREAM_POLL_INTERVAL,
     WS_COMMAND_TIMEOUT,
+    WS_CONNECT_TIMEOUT,
     WS_HEARTBEAT_INTERVAL,
 )
 from ..models import (
@@ -81,11 +82,12 @@ class BuilderConnection:
         _LOGGER.debug("Connecting to ESPHome Builder at %s", url)
 
         try:
-            self._ws = await self.session.ws_connect(
-                url,
-                heartbeat=WS_HEARTBEAT_INTERVAL,
-                max_msg_size=16 * 1024 * 1024,
-            )
+            async with asyncio.timeout(WS_CONNECT_TIMEOUT):
+                self._ws = await self.session.ws_connect(
+                    url,
+                    heartbeat=WS_HEARTBEAT_INTERVAL,
+                    max_msg_size=16 * 1024 * 1024,
+                )
         except aiohttp.WSServerHandshakeError as err:
             if err.status == 403:
                 raise BuilderConnectionError(
@@ -94,6 +96,10 @@ class BuilderConnection:
                 ) from err
             raise BuilderConnectionError(
                 f"Failed to connect to ESPHome Builder at {url}: HTTP {err.status}"
+            ) from err
+        except TimeoutError as err:
+            raise BuilderConnectionError(
+                f"Timed out connecting to ESPHome Builder at {url}"
             ) from err
         except (aiohttp.ClientError, OSError) as err:
             raise BuilderConnectionError(
@@ -121,10 +127,9 @@ class BuilderConnection:
 
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
+            # The reader re-raises its own cancellation; collect it here while still
+            # propagating a cancellation of the caller itself.
+            await asyncio.gather(self._reader_task, return_exceptions=True)
             self._reader_task = None
 
         if self._ws and not self._ws.closed:
@@ -171,7 +176,7 @@ class BuilderConnection:
                     _LOGGER.debug("Unmatched frame for key '%s': %s", key, payload)
 
         except asyncio.CancelledError:
-            pass
+            raise
         except Exception as err:  # noqa: BLE001
             if not self._closing:
                 _LOGGER.warning("Builder WS connection read loop terminated: %s", err)

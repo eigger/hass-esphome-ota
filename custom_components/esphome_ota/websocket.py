@@ -17,6 +17,11 @@ from homeassistant.loader import async_get_integration
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
 from .firmware import inspect_binary
+from .publisher import (
+    async_path_exists,
+    async_path_is_file,
+    async_unlink_paths,
+)
 from .models import (
     BuilderConnectionError,
     BuilderTimeoutError,
@@ -563,9 +568,9 @@ async def ws_deactivate(
             if art and art.public_bin_path
             else manager.publisher.www_dir / f"{dev.slug}.ota.bin"
         )
-        if not public_bin.exists():
+        if not await async_path_exists(hass, public_bin):
             public_bin = manager.publisher.www_dir / f"{dev.slug}.ota.bin"
-        is_private = removed or not public_bin.exists()
+        is_private = removed or not await async_path_exists(hass, public_bin)
         if is_private and manager.monitor:
             manager.monitor.cancel_cleanup(device_id)
         if art and is_private:
@@ -651,32 +656,36 @@ async def ws_set_token(
                     manager.publisher.www_dir / f"{new_slug}.ota.json"
                 )
                 if any(
-                    path.exists()
-                    for path in (
-                        new_binary_path,
-                        new_md5_path,
-                        new_manifest_path,
-                        new_ota_manifest_path,
-                    )
+                    [
+                        await async_path_exists(hass, path)
+                        for path in (
+                            new_binary_path,
+                            new_md5_path,
+                            new_manifest_path,
+                            new_ota_manifest_path,
+                        )
+                    ]
                 ):
                     raise RuntimeError(
                         f"The requested public slug '{new_slug}' already has published files; choose a different token."
                     )
                 old_public_state_exists = artifact is not None or any(
-                    path.exists()
-                    for path in (
-                        old_binary_path,
-                        manager.publisher.www_dir / f"{old_slug}.ota.bin.md5",
-                        manager.publisher.www_dir / f"{old_slug}.json",
-                        manager.publisher.www_dir / f"{old_slug}.ota.json",
-                    )
+                    [
+                        await async_path_exists(hass, path)
+                        for path in (
+                            old_binary_path,
+                            manager.publisher.www_dir / f"{old_slug}.ota.bin.md5",
+                            manager.publisher.www_dir / f"{old_slug}.json",
+                            manager.publisher.www_dir / f"{old_slug}.ota.json",
+                        )
+                    ]
                 )
                 if old_public_state_exists and not client:
                     raise RuntimeError(
                         "Reconnect the ESPHome Builder before changing this token; "
                         "an existing firmware artifact or public URL must be synchronized."
                     )
-                if old_binary_path.is_file():
+                if await async_path_is_file(hass, old_binary_path):
                     if not artifact:
                         raise RuntimeError(
                             f"The current public slug '{old_slug}' has no stored artifact record; refusing to rotate the token."
@@ -722,7 +731,11 @@ async def ws_set_token(
                         configuration, updated_yaml, expected=original_yaml
                     )
 
-            if old_slug != new_slug and artifact and old_binary_path.is_file():
+            if (
+                old_slug != new_slug
+                and artifact
+                and await async_path_is_file(hass, old_binary_path)
+            ):
                 cleanup_hours = (
                     artifact.cleanup_hours
                     if artifact.cleanup_hours is not None
@@ -786,11 +799,10 @@ async def ws_set_token(
             # Retire stale manifests only after the new state has been committed.
             if old_slug != new_slug:
                 try:
-                    (manager.publisher.www_dir / f"{old_slug}.json").unlink(
-                        missing_ok=True
-                    )
-                    (manager.publisher.www_dir / f"{old_slug}.ota.json").unlink(
-                        missing_ok=True
+                    await async_unlink_paths(
+                        hass,
+                        manager.publisher.www_dir / f"{old_slug}.json",
+                        manager.publisher.www_dir / f"{old_slug}.ota.json",
                     )
                 except OSError as cleanup_err:
                     _LOGGER.warning(
@@ -801,11 +813,10 @@ async def ws_set_token(
             if new_binary_published:
                 try:
                     await manager.publisher.async_deactivate(new_slug)
-                    (manager.publisher.www_dir / f"{new_slug}.json").unlink(
-                        missing_ok=True
-                    )
-                    (manager.publisher.www_dir / f"{new_slug}.ota.json").unlink(
-                        missing_ok=True
+                    await async_unlink_paths(
+                        hass,
+                        manager.publisher.www_dir / f"{new_slug}.json",
+                        manager.publisher.www_dir / f"{new_slug}.ota.json",
                     )
                     if artifact:
                         await manager.storage.async_save_artifact(
