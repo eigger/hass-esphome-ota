@@ -203,13 +203,17 @@ button:hover:not(:disabled) {
   border-color: var(--divider-color, #9ca3af);
 }
 button.primary {
-  background: var(--primary-color, #0284c7);
-  color: #ffffff;
-  border-color: var(--primary-color, #0284c7);
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: var(--text-primary-color, #ffffff);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
 }
 button.primary:hover:not(:disabled) {
   opacity: 0.92;
-  border-color: var(--primary-color, #0284c7);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+}
+/* Fixed dark primary only for browsers without color-mix(). */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  button.primary, button.primary:hover { background: #0369a1; border-color: #0369a1; }
 }
 button:disabled {
   opacity: 0.55;

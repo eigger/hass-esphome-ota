@@ -60,7 +60,7 @@ h1 {
   align-items: center;
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--secondary-text-color, #64748b);
+  color: color-mix(in srgb, var(--secondary-text-color, #475569) 50%, var(--primary-text-color, #1e293b));
   background: var(--secondary-background-color, #f1f5f9);
   padding: 2px 7px;
   border-radius: 9999px;
@@ -83,14 +83,14 @@ h1 {
   border-radius: 50%;
   background: #94a3b8;
 }
-.status-ready .status-dot { background: #22c55e; }
-.status-ready { color: #166534; background: #dcfce7; }
-.status-connecting .status-dot, .status-reconnecting .status-dot, .status-waiting .status-dot { background: #eab308; }
-.status-connecting, .status-reconnecting, .status-waiting { color: #854d0e; background: #fef9c3; }
-.status-selection_required .status-dot { background: #f97316; }
-.status-selection_required { color: #c2410c; background: #ffedd5; }
-.status-error .status-dot, .status-unsupported .status-dot { background: #ef4444; }
-.status-error, .status-unsupported { color: #991b1b; background: #fee2e2; }
+.status-ready .status-dot { background: var(--success-color, #22c55e); }
+.status-ready { color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--success-color, #22c55e) 14%, transparent); }
+.status-connecting .status-dot, .status-reconnecting .status-dot, .status-waiting .status-dot { background: var(--warning-color, #eab308); }
+.status-connecting, .status-reconnecting, .status-waiting { color: color-mix(in srgb, var(--warning-color, #ca8a04) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--warning-color, #eab308) 14%, transparent); }
+.status-selection_required .status-dot { background: var(--orange-color, #f97316); }
+.status-selection_required { color: color-mix(in srgb, var(--orange-color, #ea580c) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--orange-color, #f97316) 14%, transparent); }
+.status-error .status-dot, .status-unsupported .status-dot { background: var(--error-color, #ef4444); }
+.status-error, .status-unsupported { color: color-mix(in srgb, var(--error-color, #dc2626) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--error-color, #ef4444) 14%, transparent); }
 
 .bottom-notifications {
   position: fixed;
@@ -129,22 +129,22 @@ h1 {
   }
 }
 .selection-banner {
-  background: #fff7ed;
-  border: 1px solid #fdba74;
-  color: #9a3412;
+  background: color-mix(in srgb, var(--orange-color, #f97316) 12%, var(--card-background-color, #ffffff));
+  border: 1px solid color-mix(in srgb, var(--orange-color, #f97316) 45%, transparent);
+  color: color-mix(in srgb, var(--orange-color, #ea580c) 45%, var(--primary-text-color, #1e293b));
 }
 .selection-banner select {
   padding: 6px 12px;
   border-radius: 6px;
-  border: 1px solid #fdba74;
-  background: #ffffff;
-  color: #1e293b;
+  border: 1px solid color-mix(in srgb, var(--orange-color, #f97316) 45%, transparent);
+  background: var(--card-background-color, #ffffff);
+  color: var(--primary-text-color, #1e293b);
   font-size: 0.85rem;
 }
 .migration-banner {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1e40af;
+  background: color-mix(in srgb, var(--info-color, #0284c7) 12%, var(--card-background-color, #ffffff));
+  border: 1px solid color-mix(in srgb, var(--info-color, #0284c7) 40%, transparent);
+  color: color-mix(in srgb, var(--info-color, #0369a1) 45%, var(--primary-text-color, #1e293b));
 }
 .migration-banner-left {
   display: flex;
@@ -156,17 +156,18 @@ h1 {
 }
 .migration-banner-title {
   font-weight: 600;
-  color: #1e3a8a;
+  color: color-mix(in srgb, var(--info-color, #0369a1) 40%, var(--primary-text-color, #1e293b));
 }
 .migration-banner-desc {
   font-size: 0.8rem;
-  color: #3b82f6;
+  color: color-mix(in srgb, var(--info-color, #0369a1) 45%, var(--primary-text-color, #1e293b));
   margin-top: 2px;
 }
 
 .header-actions {
   display: flex;
   gap: 8px;
+  margin-left: auto;
 }
 .selection-summary {
   display: flex;
@@ -206,20 +207,15 @@ button:disabled {
   cursor: not-allowed;
 }
 button.primary {
-  background: var(--primary-color, #0284c7);
-  color: #ffffff;
-  border-color: var(--primary-color, #0284c7);
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: var(--text-primary-color, #ffffff);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
 }
 button.primary:hover {
   opacity: 0.92;
 }
-button.danger {
-  background: #ffffff;
-  color: #b91c1c;
-  border-color: #fca5a5;
-}
-button.danger:hover {
-  background: #fef2f2;
+.btn-batch.has-selection {
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 60%, var(--divider-color, #cbd5e1));
 }
 
 .controls {
@@ -412,7 +408,7 @@ label.card-select-wrap {
   box-sizing: border-box;
   height: auto;
   font: inherit;
-  color: var(--error-color, #b91c1c);
+  color: color-mix(in srgb, var(--error-color, #dc2626) 45%, var(--primary-text-color, #1e293b));
   text-decoration: underline;
   cursor: pointer;
 }
@@ -427,12 +423,11 @@ label.card-select-wrap {
   font-weight: 500;
   white-space: nowrap;
 }
-.badge-unmanaged { background: var(--secondary-background-color, #f1f5f9); color: var(--secondary-text-color, #475569); }
-.badge-initial { background: var(--warning-background-color, color-mix(in srgb, var(--warning-color, #d97706) 10%, transparent)); color: var(--warning-color, #92400e); }
-.badge-update { background: var(--success-background-color, color-mix(in srgb, var(--success-color, #16a34a) 10%, transparent)); color: var(--success-color, #166534); }
-.badge-installed { background: var(--info-background-color, color-mix(in srgb, var(--info-color, #0284c7) 10%, transparent)); color: var(--info-color, #0369a1); }
-.badge-building { background: var(--info-background-color, color-mix(in srgb, var(--info-color, #0284c7) 10%, transparent)); color: var(--info-color, #075985); }
-.badge-failed { background: var(--error-background-color, color-mix(in srgb, var(--error-color, #dc2626) 10%, transparent)); color: var(--error-color, #991b1b); }
+.badge-unmanaged { background: var(--secondary-background-color, #f1f5f9); color: color-mix(in srgb, var(--secondary-text-color, #475569) 50%, var(--primary-text-color, #1e293b)); }
+.badge-initial { background: var(--warning-background-color, color-mix(in srgb, var(--warning-color, #d97706) 10%, transparent)); color: color-mix(in srgb, var(--warning-color, #d97706) 45%, var(--primary-text-color, #1e293b)); }
+.badge-update { background: var(--success-background-color, color-mix(in srgb, var(--success-color, #16a34a) 10%, transparent)); color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b)); }
+.badge-installed, .badge-building { background: var(--info-background-color, color-mix(in srgb, var(--info-color, #0284c7) 10%, transparent)); color: color-mix(in srgb, var(--info-color, #0284c7) 45%, var(--primary-text-color, #1e293b)); }
+.badge-failed { background: var(--error-background-color, color-mix(in srgb, var(--error-color, #dc2626) 10%, transparent)); color: color-mix(in srgb, var(--error-color, #dc2626) 45%, var(--primary-text-color, #1e293b)); }
 
 .card-versions {
   flex: 0 1 auto;
@@ -464,9 +459,9 @@ label.card-select-wrap {
 }
 .ver-installed { color: var(--secondary-text-color, #64748b); }
 .ver-published { color: var(--primary-text-color, #1e293b); }
-.ver-arrow { opacity: 0.6; }
-.card.row-update .ver-arrow { opacity: 1; color: var(--success-color, #16a34a); }
-.card.row-update .ver-published { color: var(--success-color, #166534); }
+.ver-arrow { color: var(--secondary-text-color, #64748b); }
+.card.row-update .ver-arrow { color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b)); }
+.card.row-update .ver-published { color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b)); }
 .initial-install-guidance {
   overflow-wrap: anywhere;
   color: var(--secondary-text-color, #64748b);
@@ -486,11 +481,11 @@ label.card-select-wrap {
 }
 .binary-active {
   background: var(--success-background-color, color-mix(in srgb, var(--success-color, #16a34a) 10%, transparent));
-  color: var(--success-color, #166534);
+  color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b));
 }
 .binary-hidden {
   background: var(--secondary-background-color, #f1f5f9);
-  color: var(--secondary-text-color, #64748b);
+  color: color-mix(in srgb, var(--secondary-text-color, #475569) 50%, var(--primary-text-color, #1e293b));
 }
 .status-dot-sm {
   width: 6px;
@@ -543,13 +538,56 @@ label.card-select-wrap {
 /* Only rows that really need action get a tinted outline; never a filled button. */
 .card.row-update .card-actions .btn-build,
 .card.row-initial .card-actions .btn-build {
-  color: var(--primary-color, #0369a1);
-  border-color: var(--primary-color, #0369a1);
+  color: color-mix(in srgb, var(--primary-color, #0284c7) 55%, var(--primary-text-color, #1e293b));
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 75%, var(--primary-text-color, #1e293b));
+}
+/* Fallback for browsers without color-mix() (Chrome<111, Safari<16.2, Firefox<113, old
+   Companion WebViews). The rgba tints are deliberately fixed colours, not theme-derived:
+   they are only a faint 16% wash, and the text switches to the theme text colour so it
+   stays readable in light and dark themes alike. Placed after the rules it overrides. */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  .badge-initial, .badge-update, .badge-installed, .badge-building, .badge-failed, .binary-active {
+    color: var(--primary-text-color, #1e293b);
+  }
+  .badge-initial { background: rgba(217, 119, 6, 0.16); }
+  .badge-update, .binary-active { background: rgba(22, 163, 74, 0.16); }
+  .badge-installed, .badge-building { background: rgba(2, 132, 199, 0.16); }
+  .badge-failed { background: rgba(220, 38, 38, 0.16); }
+  .badge-unmanaged, .binary-hidden, .version-tag { color: var(--primary-text-color, #1e293b); }
+  .card.row-update .ver-arrow { color: var(--primary-text-color, #1e293b); }
+  .status-ready, .status-connecting, .status-reconnecting, .status-waiting,
+  .status-selection_required, .status-error, .status-unsupported { color: var(--primary-text-color, #1e293b); }
+  .status-ready { background: rgba(34, 197, 94, 0.16); }
+  .status-connecting, .status-reconnecting, .status-waiting { background: rgba(234, 179, 8, 0.2); }
+  .status-selection_required { background: rgba(249, 115, 22, 0.16); }
+  .status-error, .status-unsupported { background: rgba(239, 68, 68, 0.16); }
+  .selection-banner, .migration-banner { background: var(--card-background-color, #ffffff); border-color: var(--divider-color, #cbd5e1); color: var(--primary-text-color, #1e293b); }
+  .migration-banner-title, .migration-banner-desc { color: var(--primary-text-color, #1e293b); }
+  .selection-banner select { border-color: var(--divider-color, #cbd5e1); }
+  button.primary { background: #0369a1; border-color: #0369a1; }
+  .card-sub .btn-log-link, .card.row-update .ver-published { color: var(--primary-text-color, #1e293b); }
+  .card.row-update .card-actions .btn-build,
+  .card.row-initial .card-actions .btn-build { color: var(--primary-text-color, #1e293b); border-color: var(--primary-color, #0284c7); }
+  .btn-batch.has-selection { border-color: var(--primary-color, #0284c7); }
 }
 .empty-state {
   text-align: center;
   padding: 60px 20px;
   color: var(--secondary-text-color, #64748b);
+}
+/* Medium widths: when the action buttons no longer fit beside the title and status
+   badge, give them their own full-width row (buttons share the width) instead of a ragged
+   right-aligned one. */
+@container manager (max-width: 1080px) {
+  .header-actions {
+    order: 3;
+    width: 100%;
+  }
+  .header-actions button {
+    flex: 1 1 auto;
+    justify-content: center;
+    white-space: nowrap;
+  }
 }
 @container manager (max-width: 650px) {
   header {
@@ -559,33 +597,38 @@ label.card-select-wrap {
     gap: 8px;
     flex-wrap: wrap;
   }
-  .header-title-wrap { flex: 1 1 calc(100% - 52px); min-width: 0; }
+  .header-title-wrap {
+    flex: 1 1 0;
+    min-width: min-content;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
   .header-title-wrap h1 {
     font-size: 1.1rem;
   }
   .builder-badge {
-    order: 2;
-    margin-left: 4px;
+    margin-left: auto;
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+  .status-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .header-actions {
-    order: 3;
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    flex-wrap: wrap;
     gap: 6px;
   }
   .header-actions button {
     min-width: 0;
     min-height: 38px;
     padding: 5px 6px;
-    justify-content: center;
     text-align: center;
     white-space: normal;
     line-height: 1.2;
-  }
-  .builder-badge {
-    padding: 4px 8px;
-    font-size: 0.75rem;
   }
   .controls {
     padding: 12px 12px 6px;
@@ -629,6 +672,13 @@ label.card-select-wrap {
   .card-actions .slot-aux { grid-column: 1; grid-row: 1; }
   .card-actions .slot-details { grid-column: 2; grid-row: 1; }
   .card-actions .slot-primary { grid-column: 3; grid-row: 1; }
+}
+@container manager (max-width: 360px) {
+  .header-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .btn-batch { grid-column: 1 / -1; }
 }
 `;
 
@@ -824,18 +874,18 @@ class EsphomeOtaManager extends HTMLElement {
       this._renderSelectionBanner();
     } else if (event === "devices_updated" && data) {
       this.devices = data.devices || [];
+      this.initialLoadError = false;
       this.devicesLoaded = true;
       this._pruneSelection();
       this._renderDeviceList();
-      this._renderSelectionSummary();
     } else if (event === "installation_verified" && data) {
       if (data.devices) {
         this.devices = data.devices;
+        this.initialLoadError = false;
         this.devicesLoaded = true;
         this._pruneSelection();
       }
       this._renderDeviceList();
-      this._renderSelectionSummary();
     } else if (event === "job_updated" && data) {
       const idx = this.jobs.findIndex((j) => j.job_id === data.job_id);
       if (idx >= 0) this.jobs[idx] = data;
@@ -851,6 +901,7 @@ class EsphomeOtaManager extends HTMLElement {
     } else if (msg.status !== undefined) {
       this.status = msg.status;
       this.devices = msg.devices || [];
+      this.initialLoadError = false;
       this.devicesLoaded = true;
       this.jobs = msg.jobs || [];
       this.render();
@@ -893,7 +944,7 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   async batchBuild() {
-    if (this.batchBuilding) return;
+    if (this.batchBuilding || this.initialLoadError) return;
     if (this.selectedDevices.size === 0) {
       this.showToast(t(this.hass, "batch_select_required"));
       return;
@@ -911,7 +962,6 @@ class EsphomeOtaManager extends HTMLElement {
       const failedIds = requestedIds.filter((id) => !Object.hasOwn(jobs, id));
       queuedIds.forEach((id) => this.selectedDevices.delete(id));
       this._renderDeviceList();
-      this._renderSelectionSummary();
       const message = failedIds.length
         ? this._formatText("batch_partial", { queued: queuedIds.length, failed: failedIds.length })
         : this._formatText("batch_queued", { count: queuedIds.length });
@@ -932,6 +982,7 @@ class EsphomeOtaManager extends HTMLElement {
   }
 
   _pruneSelection() {
+    if (!this.devicesLoaded || this.initialLoadError) return;
     const known = new Set((this.devices || []).map((dev) => dev.device_id));
     for (const id of [...this.selectedDevices]) {
       if (!known.has(id)) this.selectedDevices.delete(id);
@@ -949,10 +1000,16 @@ class EsphomeOtaManager extends HTMLElement {
     );
     const hiddenCount = [...this.selectedDevices].filter((id) => !visibleIds.has(id)).length;
     summary.hidden = count === 0;
-    text.textContent = hiddenCount
-      ? this._formatText("selection_summary_hidden", { count, hidden: hiddenCount })
-      : this._formatText("selection_summary", { count });
-    batchButton.disabled = count === 0 || this.batchBuilding;
+    if (this.initialLoadError) {
+      // The list failed to load, so visibility of the selection cannot be judged.
+      text.textContent = this._formatText("selection_summary_unverified", { count });
+    } else {
+      text.textContent = hiddenCount
+        ? this._formatText("selection_summary_hidden", { count, hidden: hiddenCount })
+        : this._formatText("selection_summary", { count });
+    }
+    batchButton.disabled = count === 0 || this.batchBuilding || this.initialLoadError;
+    batchButton.classList.toggle("has-selection", count > 0 && !batchButton.disabled);
     batchButton.textContent = this.batchBuilding
       ? t(this.hass, "batch_building")
       : `${t(this.hass, "batch_build")} (${count})`;
@@ -988,12 +1045,12 @@ class EsphomeOtaManager extends HTMLElement {
         </div>
         <div class="builder-badge" id="builder-badge">
           <span class="status-dot"></span>
-          <span id="status-text"></span>
+          <span class="status-text"></span>
         </div>
         <div class="header-actions">
           <button id="btn-migration">${escapeHtml(t(this.hass, "migration") || "Import")}</button>
           <button id="btn-reconnect">${escapeHtml(t(this.hass, "reconnect") || "Reconnect")}</button>
-          <button class="primary" id="btn-batch">${escapeHtml(t(this.hass, "batch_build") || "Batch Build")}</button>
+          <button class="btn-batch" id="btn-batch">${escapeHtml(t(this.hass, "batch_build") || "Batch Build")}</button>
         </div>
       </header>
 
@@ -1036,7 +1093,6 @@ class EsphomeOtaManager extends HTMLElement {
     this.shadowRoot.getElementById("btn-clear-selection")?.addEventListener("click", () => {
       this.selectedDevices.clear();
       this._renderDeviceList();
-      this._renderSelectionSummary();
     });
 
     const searchInput = this.shadowRoot.getElementById("search");
@@ -1063,7 +1119,6 @@ class EsphomeOtaManager extends HTMLElement {
       if (removedId) {
         this.selectedDevices.delete(removedId);
         this._renderDeviceList();
-        this._renderSelectionSummary();
       }
       await this.refresh();
     });
@@ -1086,7 +1141,7 @@ class EsphomeOtaManager extends HTMLElement {
 
   _updateStatusBadge() {
     const badge = this.shadowRoot.getElementById("builder-badge");
-    const statusTextEl = this.shadowRoot.getElementById("status-text");
+    const statusTextEl = this.shadowRoot.querySelector(".status-text");
     if (!badge || !statusTextEl) return;
 
     badge.className = `builder-badge status-${this.status}`;
@@ -1176,7 +1231,6 @@ class EsphomeOtaManager extends HTMLElement {
     this._renderSelectionBanner();
     this._renderMigrationBanner();
     this._renderDeviceList();
-    this._renderSelectionSummary();
   }
 
   _isTerminalJobStage(stage) {

@@ -152,12 +152,16 @@ button:hover {
   background: var(--secondary-background-color, #f1f5f9);
 }
 button.primary {
-  background: var(--primary-color, #0284c7);
-  color: #ffffff;
-  border-color: var(--primary-color, #0284c7);
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: var(--text-primary-color, #ffffff);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
 }
 button.primary:hover:not(:disabled) {
   opacity: 0.92;
+}
+/* Fixed dark primary only for browsers without color-mix(). */
+@supports not (background: color-mix(in srgb, red 10%, transparent)) {
+  button.primary { background: #0369a1; border-color: #0369a1; }
 }
 button:disabled {
   opacity: 0.55;
