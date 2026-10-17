@@ -179,14 +179,14 @@ const css = `
   background: var(--success-background-color, color-mix(in srgb, var(--success-color, #16a34a) 10%, transparent));
   color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b));
 }
+.binary-hidden {
+  background: var(--secondary-background-color, #f1f5f9);
+  color: color-mix(in srgb, var(--secondary-text-color, #475569) 50%, var(--primary-text-color, #1e293b));
+}
 /* Fixed rgba tint only for browsers without color-mix(); text uses the theme colour. */
 @supports not (background: color-mix(in srgb, red 10%, transparent)) {
   .binary-active { background: rgba(22, 163, 74, 0.16); color: var(--primary-text-color, #1e293b); }
   .binary-hidden { color: var(--primary-text-color, #1e293b); }
-}
-.binary-hidden {
-  background: var(--secondary-background-color, #f1f5f9);
-  color: color-mix(in srgb, var(--secondary-text-color, #475569) 50%, var(--primary-text-color, #1e293b));
 }
 .status-dot-sm {
   width: 6px;
@@ -233,35 +233,40 @@ button:hover {
   background: var(--secondary-background-color, #f1f5f9);
   border-color: var(--divider-color, #9ca3af);
 }
+/* Filled single-CTA button: fill = brand colour darkened 30% (40% on hover) with fixed white
+   text, independent of --text-primary-color. The default HA primary (#03a9f4) gets 5.0:1 (6.4:1
+   on hover); very light brand colours can fall below 4.5:1 (known limitation). The border mixes
+   toward the text colour so the edge keeps >= 3:1 against the card in light and dark themes. */
 button.primary {
   background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
-  color: var(--text-primary-color, #ffffff);
-  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
 }
-button.primary:hover {
-  opacity: 0.92;
-  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 60%, #000);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
 }
 /* Fixed dark primary only for browsers without color-mix(). */
 @supports not (background: color-mix(in srgb, red 10%, transparent)) {
-  button.primary, button.primary:hover { background: #0369a1; border-color: #0369a1; }
+  button.primary { background: #0369a1; border-color: #0284c7; }
+  button.primary:hover:not(:disabled) { background: #075985; border-color: #0284c7; }
 }
 button.danger {
   background: var(--card-background-color, #ffffff);
   color: color-mix(in srgb, var(--error-color, #dc2626) 45%, var(--primary-text-color, #1e293b));
-  border-color: color-mix(in srgb, var(--error-color, #dc2626) 45%, transparent);
+  border-color: color-mix(in srgb, var(--error-color, #dc2626) 70%, var(--primary-text-color, #1e293b));
 }
-button.danger:hover {
+button.danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--error-color, #dc2626) 10%, var(--card-background-color, #ffffff));
-  border-color: var(--error-color, #dc2626);
+  border-color: color-mix(in srgb, var(--error-color, #dc2626) 70%, var(--primary-text-color, #1e293b));
 }
 /* Fixed colours only for browsers without color-mix(). */
 @supports not (background: color-mix(in srgb, red 10%, transparent)) {
-  button.danger { color: var(--primary-text-color, #1e293b); border-color: var(--error-color, #dc2626); }
-  button.danger:hover { background: var(--secondary-background-color, #f1f5f9); }
+  button.danger { color: var(--primary-text-color, #1e293b); border-color: #dc2626; }
+  button.danger:hover:not(:disabled) { background: var(--secondary-background-color, #f1f5f9); border-color: #dc2626; }
 }
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.7;
   cursor: not-allowed;
   pointer-events: none;
 }

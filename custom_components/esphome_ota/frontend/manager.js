@@ -16,6 +16,8 @@ const css = `
   width: 100%;
   container-type: inline-size;
   container-name: manager;
+  /* em in the container queries below must equal rem, so pin the host to the root size. */
+  font-size: 1rem;
   height: var(--esphome-ota-panel-height, 100%);
   min-height: 0;
   overflow: hidden;
@@ -83,13 +85,13 @@ h1 {
   border-radius: 50%;
   background: #94a3b8;
 }
-.status-ready .status-dot { background: var(--success-color, #22c55e); }
+.status-ready .status-dot { background: color-mix(in srgb, var(--success-color, #22c55e) 60%, var(--primary-text-color, #1e293b)); }
 .status-ready { color: color-mix(in srgb, var(--success-color, #16a34a) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--success-color, #22c55e) 14%, transparent); }
-.status-connecting .status-dot, .status-reconnecting .status-dot, .status-waiting .status-dot { background: var(--warning-color, #eab308); }
+.status-connecting .status-dot, .status-reconnecting .status-dot, .status-waiting .status-dot { background: color-mix(in srgb, var(--warning-color, #eab308) 60%, var(--primary-text-color, #1e293b)); }
 .status-connecting, .status-reconnecting, .status-waiting { color: color-mix(in srgb, var(--warning-color, #ca8a04) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--warning-color, #eab308) 14%, transparent); }
-.status-selection_required .status-dot { background: var(--orange-color, #f97316); }
+.status-selection_required .status-dot { background: color-mix(in srgb, var(--orange-color, #f97316) 60%, var(--primary-text-color, #1e293b)); }
 .status-selection_required { color: color-mix(in srgb, var(--orange-color, #ea580c) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--orange-color, #f97316) 14%, transparent); }
-.status-error .status-dot, .status-unsupported .status-dot { background: var(--error-color, #ef4444); }
+.status-error .status-dot, .status-unsupported .status-dot { background: color-mix(in srgb, var(--error-color, #ef4444) 60%, var(--primary-text-color, #1e293b)); }
 .status-error, .status-unsupported { color: color-mix(in srgb, var(--error-color, #dc2626) 45%, var(--primary-text-color, #1e293b)); background: color-mix(in srgb, var(--error-color, #ef4444) 14%, transparent); }
 
 .bottom-notifications {
@@ -136,7 +138,7 @@ h1 {
 .selection-banner select {
   padding: 6px 12px;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--orange-color, #f97316) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-text-color, #1e293b) 55%, transparent);
   background: var(--card-background-color, #ffffff);
   color: var(--primary-text-color, #1e293b);
   font-size: 0.85rem;
@@ -203,19 +205,29 @@ button:hover {
   background: var(--secondary-background-color, #f1f5f9);
 }
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.7;
   cursor: not-allowed;
 }
+/* Filled single-CTA button: fill = brand colour darkened 30% (40% on hover) with fixed white
+   text, independent of --text-primary-color. The default HA primary (#03a9f4) gets 5.0:1 (6.4:1
+   on hover); very light brand colours can fall below 4.5:1 (known limitation). The border mixes
+   toward the text colour so the edge keeps >= 3:1 against the card in light and dark themes. */
 button.primary {
   background: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
-  color: var(--text-primary-color, #ffffff);
-  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, #000);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
 }
-button.primary:hover {
-  opacity: 0.92;
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 60%, #000);
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 85%, var(--primary-text-color, #1e293b));
+}
+.btn-batch.has-selection:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 16%, var(--card-background-color, #ffffff));
 }
 .btn-batch.has-selection {
-  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 60%, var(--divider-color, #cbd5e1));
+  /* Light accent: neutral text, tinted fill and a >= 3:1 border; rows keep the stronger accent. */
+  border-color: color-mix(in srgb, var(--primary-color, #0284c7) 70%, var(--primary-text-color, #1e293b));
+  background: color-mix(in srgb, var(--primary-color, #0284c7) 8%, var(--card-background-color, #ffffff));
 }
 
 .controls {
@@ -563,12 +575,18 @@ label.card-select-wrap {
   .status-error, .status-unsupported { background: rgba(239, 68, 68, 0.16); }
   .selection-banner, .migration-banner { background: var(--card-background-color, #ffffff); border-color: var(--divider-color, #cbd5e1); color: var(--primary-text-color, #1e293b); }
   .migration-banner-title, .migration-banner-desc { color: var(--primary-text-color, #1e293b); }
-  .selection-banner select { border-color: var(--divider-color, #cbd5e1); }
-  button.primary { background: #0369a1; border-color: #0369a1; }
+  .selection-banner select { border-color: var(--secondary-text-color, #64748b); }
+  button.primary { background: #0369a1; border-color: #0284c7; }
+  button.primary:hover:not(:disabled) { background: #075985; border-color: #0284c7; }
+  /* Same specificity as the color-mix dot rules, which become invalid (transparent) here. */
+  .status-ready .status-dot, .status-connecting .status-dot, .status-reconnecting .status-dot,
+  .status-waiting .status-dot, .status-selection_required .status-dot,
+  .status-error .status-dot, .status-unsupported .status-dot { background: currentColor; }
   .card-sub .btn-log-link, .card.row-update .ver-published { color: var(--primary-text-color, #1e293b); }
   .card.row-update .card-actions .btn-build,
-  .card.row-initial .card-actions .btn-build { color: var(--primary-text-color, #1e293b); border-color: var(--primary-color, #0284c7); }
-  .btn-batch.has-selection { border-color: var(--primary-color, #0284c7); }
+  .card.row-initial .card-actions .btn-build { color: var(--primary-text-color, #1e293b); border-color: #0284c7; }
+  .btn-batch.has-selection { border-color: #0284c7; background: var(--card-background-color, #ffffff); }
+  .btn-batch.has-selection:hover:not(:disabled) { background: var(--secondary-background-color, #f1f5f9); }
 }
 .empty-state {
   text-align: center;
@@ -578,10 +596,11 @@ label.card-select-wrap {
 /* Medium widths: when the action buttons no longer fit beside the title and status
    badge, give them their own full-width row (buttons share the width) instead of a ragged
    right-aligned one. */
-@container manager (max-width: 1080px) {
+@container manager (max-width: 67.5em) {
   .header-actions {
     order: 3;
     width: 100%;
+    flex-wrap: wrap;
   }
   .header-actions button {
     flex: 1 1 auto;
@@ -589,7 +608,7 @@ label.card-select-wrap {
     white-space: nowrap;
   }
 }
-@container manager (max-width: 650px) {
+@container manager (max-width: 40.625em) {
   header {
     height: auto;
     min-height: 0;
@@ -673,7 +692,7 @@ label.card-select-wrap {
   .card-actions .slot-details { grid-column: 2; grid-row: 1; }
   .card-actions .slot-primary { grid-column: 3; grid-row: 1; }
 }
-@container manager (max-width: 360px) {
+@container manager (max-width: 22.5em) {
   .header-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1622,9 +1641,9 @@ class EsphomeOtaManager extends HTMLElement {
     if (Number.isNaN(date.getTime())) return "—";
     const options = { year: "numeric", month: "short", day: "numeric" };
     const timeZone = this.hass?.config?.time_zone;
-    if (timeZone) options.timeZone = timeZone;
+    if (timeZone && this.hass?.locale?.time_zone !== "local") options.timeZone = timeZone;
     try {
-      return new Intl.DateTimeFormat(this.hass?.locale?.language || "en", options).format(date);
+      return new Intl.DateTimeFormat(this.hass?.language || this.hass?.locale?.language || "en", options).format(date);
     } catch (_err) {
       return date.toLocaleDateString();
     }
