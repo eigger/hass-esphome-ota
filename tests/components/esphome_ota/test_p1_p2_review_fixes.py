@@ -71,7 +71,9 @@ async def test_issue1_unselected_builder_resolution(hass: HomeAssistant) -> None
     )
     async with aiohttp.ClientSession() as session:
         resolver = BuilderResolver(hass, session, saved_selection=None)
-        with patch.object(resolver.discovery_adapter, "async_discover_all", return_value=[cand]):
+        with patch.object(
+            resolver.discovery_adapter, "async_discover_all", return_value=[cand]
+        ):
             with patch.object(resolver, "_connect_and_probe", return_value=MagicMock()):
                 await resolver.async_resolve()
                 assert resolver.active_candidate is not None
@@ -164,12 +166,7 @@ def test_issue4_xss_escaping_in_frontend() -> None:
     """[P1-4] Verify that frontend components escape diffs, device info, and logs."""
     from pathlib import Path
 
-    base = (
-        Path(__file__).parents[3]
-        / "custom_components"
-        / "esphome_ota"
-        / "frontend"
-    )
+    base = Path(__file__).parents[3] / "custom_components" / "esphome_ota" / "frontend"
     dev_dialog = (base / "device-dialog.js").read_text(encoding="utf-8")
     job_dialog = (base / "job-dialog.js").read_text(encoding="utf-8")
     manager_js = (base / "manager.js").read_text(encoding="utf-8")
@@ -275,7 +272,10 @@ async def test_issue6_sequential_and_concurrent_build_requests(
         # Concurrent request for same device should be rejected
         with pytest.raises(EsphomeOtaError, match="A build job is already active"):
             await runner.async_start_build_pipeline(
-                device=dev, client=client, base_url="https://ha.local", request_id="req-2"
+                device=dev,
+                client=client,
+                base_url="https://ha.local",
+                request_id="req-2",
             )
 
         task1 = runner._active_tasks.get(job1_id)

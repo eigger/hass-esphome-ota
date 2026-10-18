@@ -56,11 +56,17 @@ class BuilderResolver:
 
         candidate = self._choose_candidate()
         if not candidate:
-            if len(self.candidates) > 1 and not (self.saved_selection and self.saved_selection.slug):
+            if len(self.candidates) > 1 and not (
+                self.saved_selection and self.saved_selection.slug
+            ):
                 self.status = STATUS_SELECTION_REQUIRED
-                raise BuilderConnectionError("Multiple Builder candidates found. Selection required.")
+                raise BuilderConnectionError(
+                    "Multiple Builder candidates found. Selection required."
+                )
             self.status = STATUS_WAITING
-            raise BuilderConnectionError("No ESPHome Builder candidate found. Waiting for Builder to start.")
+            raise BuilderConnectionError(
+                "No ESPHome Builder candidate found. Waiting for Builder to start."
+            )
 
         self.status = STATUS_CONNECTING
         client = await self._connect_and_probe(candidate)
@@ -87,7 +93,11 @@ class BuilderResolver:
             # An explicit target was saved, but not found among discovered candidates.
             # Do NOT hijack to another candidate (e.g. esphome-dev).
             # Fall back to hint only if no candidates were discovered at all.
-            if not self.candidates and self.saved_selection.host_hint and self.saved_selection.port_hint:
+            if (
+                not self.candidates
+                and self.saved_selection.host_hint
+                and self.saved_selection.port_hint
+            ):
                 return BuilderCandidate(
                     slug=self.saved_selection.slug,
                     name=self.saved_selection.name,

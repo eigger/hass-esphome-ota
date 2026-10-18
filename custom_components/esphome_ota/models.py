@@ -25,6 +25,10 @@ class BuilderConnectionError(BuilderError):
     """Cannot connect to ESPHome Builder trusted listener."""
 
 
+class BuilderForbiddenError(BuilderConnectionError):
+    """Builder listener answered HTTP 403 (this host is not trusted)."""
+
+
 class BuilderAuthError(BuilderError):
     """Builder listener rejected connection due to authentication requirement."""
 
@@ -148,7 +152,9 @@ class ManagedDevice:
             device_id=data["device_id"],
             configuration=data.get("configuration", data["device_id"]),
             name=data.get("name", data["device_id"]),
-            friendly_name=data.get("friendly_name", data.get("name", data["device_id"])),
+            friendly_name=data.get(
+                "friendly_name", data.get("name", data["device_id"])
+            ),
             token=data.get("token", ""),
             slug=data.get("slug", data.get("configuration", data["device_id"])),
             target_platform=data.get("target_platform", "esp32"),

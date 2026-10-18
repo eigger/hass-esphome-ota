@@ -24,12 +24,9 @@ async def test_discovery_from_esphome_dashboard(hass: HomeAssistant) -> None:
     mock_coord.url = "http://127.0.0.1:6052"
     mock_coord.addon_slug = "5c53de3b_esphome"
 
-    mock_mod = MagicMock()
-    mock_mod.async_get_dashboard = MagicMock(return_value=mock_coord)
-
-    with patch.dict(
-        "sys.modules",
-        {"homeassistant.components.esphome.dashboard": mock_mod},
+    with patch(
+        "homeassistant.components.esphome.dashboard.async_get_dashboard",
+        return_value=mock_coord,
     ):
         adapter = HaDiscoveryAdapter(hass)
         candidates = await adapter.async_discover_from_esphome_dashboard()
@@ -51,7 +48,10 @@ async def test_discovery_from_supervisor_services(hass: HomeAssistant) -> None:
 
     with (
         patch("homeassistant.helpers.hassio.is_hassio", return_value=True),
-        patch("homeassistant.components.hassio.get_supervisor_client", return_value=mock_client),
+        patch(
+            "homeassistant.components.hassio.get_supervisor_client",
+            return_value=mock_client,
+        ),
     ):
         adapter = HaDiscoveryAdapter(hass)
         candidates = await adapter.async_discover_from_supervisor_services()
@@ -79,8 +79,13 @@ async def test_discovery_from_supervisor_addons(hass: HomeAssistant) -> None:
 
     with (
         patch("homeassistant.helpers.hassio.is_hassio", return_value=True),
-        patch("homeassistant.components.hassio.get_addons_info", return_value=addons_info),
-        patch("homeassistant.components.hassio.get_supervisor_client", return_value=MagicMock()),
+        patch(
+            "homeassistant.components.hassio.get_addons_info", return_value=addons_info
+        ),
+        patch(
+            "homeassistant.components.hassio.get_supervisor_client",
+            return_value=MagicMock(),
+        ),
     ):
         adapter = HaDiscoveryAdapter(hass)
         candidates = await adapter.async_discover_from_supervisor_addons()
@@ -98,23 +103,45 @@ async def test_resolver_selection_priorities(
         # 1. No candidates -> waiting
         with patch.object(HaDiscoveryAdapter, "async_discover_all", return_value=[]):
             resolver = BuilderResolver(hass, session)
-            with pytest.raises(BuilderConnectionError, match="No ESPHome Builder candidate found"):
+            with pytest.raises(
+                BuilderConnectionError, match="No ESPHome Builder candidate found"
+            ):
                 await resolver.async_resolve()
             assert resolver.status == "waiting"
 
         # 2. Multiple candidates with no saved selection -> selection_required
-        cand1 = BuilderCandidate(slug="esphome1", name="B1", host="127.0.0.1", port=1111, source="addon")
-        cand2 = BuilderCandidate(slug="esphome2", name="B2", host="127.0.0.1", port=2222, source="addon")
-        with patch.object(HaDiscoveryAdapter, "async_discover_all", return_value=[cand1, cand2]):
+        cand1 = BuilderCandidate(
+            slug="esphome1", name="B1", host="127.0.0.1", port=1111, source="addon"
+        )
+        cand2 = BuilderCandidate(
+            slug="esphome2", name="B2", host="127.0.0.1", port=2222, source="addon"
+        )
+        with patch.object(
+            HaDiscoveryAdapter, "async_discover_all", return_value=[cand1, cand2]
+        ):
             resolver = BuilderResolver(hass, session)
             with pytest.raises(BuilderConnectionError, match="Selection required"):
                 await resolver.async_resolve()
             assert resolver.status == "selection_required"
 
         # 3. Saved selection matches discovered candidate
-        saved = BuilderSelection(slug="esphome_mock", name="Mock", source="saved", host_hint="127.0.0.1", port_hint=mock_builder.port)
-        cand_mock = BuilderCandidate(slug="esphome_mock", name="Mock", host="127.0.0.1", port=mock_builder.port, source="dashboard")
-        with patch.object(HaDiscoveryAdapter, "async_discover_all", return_value=[cand1, cand_mock]):
+        saved = BuilderSelection(
+            slug="esphome_mock",
+            name="Mock",
+            source="saved",
+            host_hint="127.0.0.1",
+            port_hint=mock_builder.port,
+        )
+        cand_mock = BuilderCandidate(
+            slug="esphome_mock",
+            name="Mock",
+            host="127.0.0.1",
+            port=mock_builder.port,
+            source="dashboard",
+        )
+        with patch.object(
+            HaDiscoveryAdapter, "async_discover_all", return_value=[cand1, cand_mock]
+        ):
             resolver = BuilderResolver(hass, session, saved_selection=saved)
             client = await resolver.async_resolve()
             assert resolver.status == "ready"

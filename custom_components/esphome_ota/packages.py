@@ -42,9 +42,7 @@ def generate_inline_ota_package(
         "http_request": {
             "timeout": "60s",
         },
-        "ota": [
-            {"platform": "http_request"}
-        ],
+        "ota": [{"platform": "http_request"}],
         "safe_mode": None,
         "update": [
             {

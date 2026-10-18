@@ -28,7 +28,11 @@ async def test_job_runner_full_pipeline_success(
 
     events: list[tuple[str, dict]] = []
     runner = JobRunner(
-        hass, storage, device_manager, publisher, event_callback=lambda e, d: events.append((e, d))
+        hass,
+        storage,
+        device_manager,
+        publisher,
+        event_callback=lambda e, d: events.append((e, d)),
     )
 
     dev = await device_manager.async_register_or_update(
@@ -95,9 +99,14 @@ async def test_duplicate_request_prevention(
             device=dev, client=client, base_url="https://ha.local", request_id=req_id
         )
 
-        with pytest.raises(EsphomeOtaError, match="Duplicate request already in progress"):
+        with pytest.raises(
+            EsphomeOtaError, match="Duplicate request already in progress"
+        ):
             await runner.async_start_build_pipeline(
-                device=dev, client=client, base_url="https://ha.local", request_id=req_id
+                device=dev,
+                client=client,
+                base_url="https://ha.local",
+                request_id=req_id,
             )
 
         task = runner._active_tasks.get(job_id)

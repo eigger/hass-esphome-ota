@@ -13,12 +13,14 @@ import aiohttp
 from ..const import (
     STREAM_POLL_INTERVAL,
     WS_COMMAND_TIMEOUT,
+    WS_CONNECT_TIMEOUT,
     WS_HEARTBEAT_INTERVAL,
 )
 from ..models import (
     BuilderAuthError,
     BuilderConnectionError,
     BuilderError,
+    BuilderForbiddenError,
     BuilderTimeoutError,
 )
 
@@ -81,19 +83,24 @@ class BuilderConnection:
         _LOGGER.debug("Connecting to ESPHome Builder at %s", url)
 
         try:
-            self._ws = await self.session.ws_connect(
-                url,
-                heartbeat=WS_HEARTBEAT_INTERVAL,
-                max_msg_size=16 * 1024 * 1024,
-            )
+            async with asyncio.timeout(WS_CONNECT_TIMEOUT):
+                self._ws = await self.session.ws_connect(
+                    url,
+                    heartbeat=WS_HEARTBEAT_INTERVAL,
+                    max_msg_size=16 * 1024 * 1024,
+                )
         except aiohttp.WSServerHandshakeError as err:
             if err.status == 403:
-                raise BuilderConnectionError(
+                raise BuilderForbiddenError(
                     f"ESPHome Builder rejected connection (HTTP 403). "
                     f"Host {self.host} may not be recognized as trusted loopback."
                 ) from err
             raise BuilderConnectionError(
                 f"Failed to connect to ESPHome Builder at {url}: HTTP {err.status}"
+            ) from err
+        except TimeoutError as err:
+            raise BuilderConnectionError(
+                f"Timed out connecting to ESPHome Builder at {url}"
             ) from err
         except (aiohttp.ClientError, OSError) as err:
             raise BuilderConnectionError(
@@ -121,20 +128,29 @@ class BuilderConnection:
 
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
+            # The reader re-raises its own cancellation; collect it here while still
+            # propagating a cancellation of the caller itself.
             try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
-            self._reader_task = None
+                await asyncio.gather(self._reader_task, return_exceptions=True)
+            finally:
+                self._reader_task = None
+                await self._close_socket()
+        else:
+            await self._close_socket()
 
-        if self._ws and not self._ws.closed:
-            await self._ws.close()
-            self._ws = None
-
-        # Flush any waiting queues with error
-        for queue in self._queues.values():
-            queue.put_nowait({"error_code": "DISCONNECTED", "details": "Connection closed"})
-        self._queues.clear()
+    async def _close_socket(self) -> None:
+        """Close the socket and fail waiting queues (also when cancelled)."""
+        try:
+            if self._ws and not self._ws.closed:
+                await self._ws.close()
+                self._ws = None
+        finally:
+            # Flush any waiting queues with error
+            for queue in self._queues.values():
+                queue.put_nowait(
+                    {"error_code": "DISCONNECTED", "details": "Connection closed"}
+                )
+            self._queues.clear()
 
     async def _await_server_info(self) -> dict[str, Any]:
         """Wait for the initial unsolicited server info frame."""
@@ -143,7 +159,9 @@ class BuilderConnection:
             return await asyncio.wait_for(queue.get(), timeout=20.0)
         except asyncio.TimeoutError as err:
             await self.disconnect()
-            raise BuilderConnectionError("Timed out waiting for Builder server info") from err
+            raise BuilderConnectionError(
+                "Timed out waiting for Builder server info"
+            ) from err
 
     async def _read_loop(self) -> None:
         """Background loop reading incoming frames and routing to message queues."""
@@ -167,14 +185,19 @@ class BuilderConnection:
                     _LOGGER.debug("Unmatched frame for key '%s': %s", key, payload)
 
         except asyncio.CancelledError:
-            pass
+            raise
         except Exception as err:  # noqa: BLE001
             if not self._closing:
                 _LOGGER.warning("Builder WS connection read loop terminated: %s", err)
         finally:
             self._connected = False
             for q in list(self._queues.values()):
-                q.put_nowait({"error_code": "CONNECTION_LOST", "details": "Builder connection closed"})
+                q.put_nowait(
+                    {
+                        "error_code": "CONNECTION_LOST",
+                        "details": "Builder connection closed",
+                    }
+                )
             if not self._closing and self.on_disconnect:
                 try:
                     self.on_disconnect()
@@ -240,8 +263,12 @@ class BuilderConnection:
                     error_code = payload.get("error_code")
                     details = payload.get("details", "")
                     if error_code in ("CONNECTION_LOST", "DISCONNECTED"):
-                        raise BuilderConnectionError(f"{command_name} failed: Builder connection lost ({details})")
-                    raise BuilderError(f"{command_name} failed: {error_code} {details}".strip())
+                        raise BuilderConnectionError(
+                            f"{command_name} failed: Builder connection lost ({details})"
+                        )
+                    raise BuilderError(
+                        f"{command_name} failed: {error_code} {details}".strip()
+                    )
 
                 yield payload
                 if payload.get("event") == "result" or "result" in payload:
@@ -287,15 +314,15 @@ class BuilderConnection:
             error_code = payload.get("error_code")
             details = payload.get("details", "")
             if error_code in ("CONNECTION_LOST", "DISCONNECTED"):
-                raise BuilderConnectionError(f"{command_name} failed: Builder connection lost ({details})")
+                raise BuilderConnectionError(
+                    f"{command_name} failed: Builder connection lost ({details})"
+                )
             raise BuilderError(f"{command_name} failed: {error_code} {details}".strip())
         return payload.get("result")
 
     def next_backoff_delay(self) -> float:
         """Compute the next reconnection backoff delay with random jitter."""
-        step = BACKOFF_STEPS[
-            min(self._reconnect_backoff_index, len(BACKOFF_STEPS) - 1)
-        ]
+        step = BACKOFF_STEPS[min(self._reconnect_backoff_index, len(BACKOFF_STEPS) - 1)]
         self._reconnect_backoff_index += 1
         jitter = random.uniform(0.8, 1.2)  # noqa: S311
         return step * jitter

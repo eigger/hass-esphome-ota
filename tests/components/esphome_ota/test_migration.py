@@ -280,7 +280,9 @@ packages:
     mock_client = AsyncMock()
     mock_client.get_config.return_value = legacy_device_yaml
 
-    async def mock_update(configuration: str, content: str, expected: str | None = None) -> None:
+    async def mock_update(
+        configuration: str, content: str, expected: str | None = None
+    ) -> None:
         yaml_file.write_text(content, encoding="utf-8")
 
     mock_client.update_config.side_effect = mock_update
@@ -301,7 +303,9 @@ packages:
 
     # Verify CAS was invoked with expected=legacy_device_yaml
     mock_client.update_config.assert_called_once()
-    assert mock_client.update_config.call_args.kwargs.get("expected") == legacy_device_yaml
+    assert (
+        mock_client.update_config.call_args.kwargs.get("expected") == legacy_device_yaml
+    )
 
     # Verify transformed YAML
     updated_yaml = yaml_file.read_text(encoding="utf-8")
@@ -356,7 +360,9 @@ async def test_migration_concurrent_modification_conflict_fails(
     mock_client.get_config.return_value = (
         "esphome:\n  name: livingroom\npackages:\n  ota: !include ota_server/dev.yaml\n"
     )
-    mock_client.update_config.side_effect = ConfigConflictError("CAS conflict: file modified")
+    mock_client.update_config.side_effect = ConfigConflictError(
+        "CAS conflict: file modified"
+    )
 
     migrator_builder = MigrationManager(
         hass, storage, device_manager, publisher, builder_client=mock_client
@@ -374,7 +380,9 @@ async def test_migration_concurrent_modification_conflict_fails(
 
     # 2. Test local disk edit protection when Builder is not connected
     yaml_file = esphome_dir / "livingroom.yaml"
-    initial_yaml = "esphome:\n  name: livingroom\npackages:\n  ota: !include ota_server/dev.yaml\n"
+    initial_yaml = (
+        "esphome:\n  name: livingroom\npackages:\n  ota: !include ota_server/dev.yaml\n"
+    )
     # External editor added a sensor concurrently
     yaml_file.write_text(
         initial_yaml + "\nsensor:\n  - name: AddedConcurrently\n",
@@ -386,7 +394,9 @@ async def test_migration_concurrent_modification_conflict_fails(
     res_local = await migrator_local.async_migrate()
     assert res_local["success"] is False
     assert "livingroom" in res_local["failed_devices"]
-    assert "Builder client is not connected" in res_local["failed_devices"]["livingroom"]
+    assert (
+        "Builder client is not connected" in res_local["failed_devices"]["livingroom"]
+    )
 
     # Verify concurrent edit was NOT overwritten
     current = yaml_file.read_text(encoding="utf-8")
@@ -432,9 +442,13 @@ async def test_migration_partial_device_failure_does_not_mark_failed_devices_as_
         name = "device_a" if "device_a" in cfg else "device_b"
         return f"esphome:\n  name: {name}\npackages:\n  ota: !include ota_server/{name}.yaml\n"
 
-    async def mock_update_config(cfg: str, content: str, expected: str | None = None) -> None:
+    async def mock_update_config(
+        cfg: str, content: str, expected: str | None = None
+    ) -> None:
         if "device_a" in cfg:
-            raise BuilderError("devices/update_config failed: PERMISSION_DENIED Permission denied")
+            raise BuilderError(
+                "devices/update_config failed: PERMISSION_DENIED Permission denied"
+            )
         # device_b succeeds
 
     mock_client.get_config.side_effect = mock_get_config
@@ -468,5 +482,3 @@ async def test_migration_partial_device_failure_does_not_mark_failed_devices_as_
     assert not await storage.async_load_migration()
     preview = await migrator.async_preview()
     assert preview["already_migrated"] is False
-
-

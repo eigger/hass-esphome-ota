@@ -156,7 +156,9 @@ async def test_refresh_entity_triggers_service_call(hass: HomeAssistant) -> None
     monitor.async_unload()
 
 
-async def test_immediate_sync_of_preexisting_installed_version(hass: HomeAssistant) -> None:
+async def test_immediate_sync_of_preexisting_installed_version(
+    hass: HomeAssistant,
+) -> None:
     """Test that an existing update entity in HA states immediately syncs installed version."""
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
@@ -199,7 +201,9 @@ async def test_immediate_sync_of_preexisting_installed_version(hass: HomeAssista
     monitor.async_unload()
 
 
-async def test_state_change_without_published_version_updates_installed(hass: HomeAssistant) -> None:
+async def test_state_change_without_published_version_updates_installed(
+    hass: HomeAssistant,
+) -> None:
     """Test device reporting an installed version without prior publication records it."""
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
@@ -238,7 +242,9 @@ async def test_state_change_without_published_version_updates_installed(hass: Ho
     monitor.async_unload()
 
 
-async def test_entity_platform_and_device_relationship_validation(hass: HomeAssistant) -> None:
+async def test_entity_platform_and_device_relationship_validation(
+    hass: HomeAssistant,
+) -> None:
     """Test entity platform and device relationship validation for update entities."""
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
@@ -277,7 +283,10 @@ async def test_entity_platform_and_device_relationship_validation(hass: HomeAssi
     await monitor.async_setup()
     await hass.async_block_till_done()
 
-    assert monitor.device_manager.get_device("esp_node_0").last_installed_version == "1.0.0"
+    assert (
+        monitor.device_manager.get_device("esp_node_0").last_installed_version
+        == "1.0.0"
+    )
     monitor.async_unload()
 
     entry = MockConfigEntry(domain="esphome", entry_id="esphome_mock_entry")
@@ -307,7 +316,9 @@ async def test_entity_platform_and_device_relationship_validation(hass: HomeAssi
     await monitor2.async_setup()
     await hass.async_block_till_done()
 
-    assert monitor2.device_manager.get_device("esp_node_1").last_installed_version is None
+    assert (
+        monitor2.device_manager.get_device("esp_node_1").last_installed_version is None
+    )
     monitor2.async_unload()
 
     # 3. Generic name "Firmware" belonging to the matching HA device DOES match
@@ -334,7 +345,8 @@ async def test_entity_platform_and_device_relationship_validation(hass: HomeAssi
     await monitor3.async_setup()
     await hass.async_block_till_done()
 
-    assert monitor3.device_manager.get_device("esp_node_1").last_installed_version == "2.5.0"
+    assert (
+        monitor3.device_manager.get_device("esp_node_1").last_installed_version
+        == "2.5.0"
+    )
     monitor3.async_unload()
-
-

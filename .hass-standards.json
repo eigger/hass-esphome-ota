@@ -1,0 +1,15 @@
+{
+  "repository": "eigger/hass-esphome-ota",
+  "default_branch": "main",
+  "domain": "esphome_ota",
+  "hacs": "custom",
+  "release": true,
+  "readmes": [
+    "README.md",
+    "README.ko.md"
+  ],
+  "installation_links": {
+    "README.md": "#installation",
+    "README.ko.md": "#설치"
+  }
+}

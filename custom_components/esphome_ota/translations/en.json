@@ -24,7 +24,8 @@
       "single_instance_allowed": "Only a single ESPHome OTA integration instance is supported."
     },
     "error": {
-      "builder_not_found": "Could not connect to the selected ESPHome Builder."
+      "builder_not_found": "Could not connect to the selected ESPHome Builder.",
+      "invalid_url": "Enter a valid http:// or https:// URL."
     }
   },
   "options": {
@@ -33,8 +34,19 @@
         "title": "ESPHome OTA Options",
         "data": {
           "base_url": "Public Base URL",
-          "auto_cleanup_hours": "Default auto-hide period (hours, 0 = never)"
+          "auto_cleanup_hours": "Default auto-hide period (hours, 0 = never)",
+          "builder_slug": "ESPHome Builder"
         }
+      }
+    },
+    "error": {
+      "invalid_url": "Enter a valid http:// or https:// URL."
+    }
+  },
+  "selector": {
+    "builder_slug": {
+      "options": {
+        "auto": "Auto-detect"
       }
     }
   }

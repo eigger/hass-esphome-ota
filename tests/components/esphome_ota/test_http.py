@@ -63,5 +63,7 @@ async def test_manual_firmware_upload(
             filename="corrupt.bin",
             content_type="application/octet-stream",
         )
-        resp_bad = await client.post("/api/esphome_ota/upload/livingroom", data=form_bad)
+        resp_bad = await client.post(
+            "/api/esphome_ota/upload/livingroom", data=form_bad
+        )
         assert resp_bad.status == 422

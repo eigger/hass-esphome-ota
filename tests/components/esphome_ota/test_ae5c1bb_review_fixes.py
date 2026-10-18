@@ -40,12 +40,15 @@ from tests.components.esphome_ota.conftest import MockBuilderServer
 # Issue 1: Rejection of non-firmware files
 # ---------------------------------------------------------------------------
 
+
 def test_issue1_rejects_zero_filled_binary() -> None:
     """[P1] Verify that a 2KB file of zeros is rejected for ESP32 and ESP8266."""
     zero_blob = b"\x00" * 2048
 
     # ESP32 target with expected chip and reserved version
-    with pytest.raises(BinaryValidationError, match="Invalid firmware binary structure"):
+    with pytest.raises(
+        BinaryValidationError, match="Invalid firmware binary structure"
+    ):
         inspect_binary(
             blob=zero_blob,
             target_platform="esp32",
@@ -54,7 +57,9 @@ def test_issue1_rejects_zero_filled_binary() -> None:
         )
 
     # ESP8266 target
-    with pytest.raises(BinaryValidationError, match="Invalid firmware binary structure"):
+    with pytest.raises(
+        BinaryValidationError, match="Invalid firmware binary structure"
+    ):
         inspect_binary(
             blob=zero_blob,
             target_platform="esp8266",
@@ -64,7 +69,9 @@ def test_issue1_rejects_zero_filled_binary() -> None:
 
     # Text file > 1KB
     text_blob = b"Hello world! This is not a binary image." * 40
-    with pytest.raises(BinaryValidationError, match="Invalid firmware binary structure"):
+    with pytest.raises(
+        BinaryValidationError, match="Invalid firmware binary structure"
+    ):
         inspect_binary(
             blob=text_blob,
             target_platform="esp32",
@@ -129,6 +136,7 @@ async def test_issue1_manual_upload_rejects_zero_filled_file(
 # Issue 2: Integration unload cleans up active tracking without remote builder cancellation
 # ---------------------------------------------------------------------------
 
+
 async def test_issue2_unload_stops_pipeline_without_cancelling_builder(
     hass: HomeAssistant,
     mock_builder: MockBuilderServer,
@@ -162,7 +170,9 @@ async def test_issue2_unload_stops_pipeline_without_cancelling_builder(
             compile_started.set()
             await asyncio.sleep(10)
 
-        with patch.object(client, "wait_for_compile_completion", side_effect=_slow_wait):
+        with patch.object(
+            client, "wait_for_compile_completion", side_effect=_slow_wait
+        ):
             job_id = await runner.async_start_build_pipeline(
                 device=dev,
                 client=client,
@@ -218,7 +228,9 @@ async def test_issue2_manual_cancel_does_cancel_builder_job(
             compile_started.set()
             await asyncio.sleep(10)
 
-        with patch.object(client, "wait_for_compile_completion", side_effect=_slow_wait):
+        with patch.object(
+            client, "wait_for_compile_completion", side_effect=_slow_wait
+        ):
             job_id = await runner.async_start_build_pipeline(
                 device=dev,
                 client=client,
@@ -241,6 +253,7 @@ async def test_issue2_manual_cancel_does_cancel_builder_job(
 # ---------------------------------------------------------------------------
 # Issue 3: Separating version ownership and OTA patch updating
 # ---------------------------------------------------------------------------
+
 
 async def test_issue3_own_project_version_preserves_version_and_updates_ota_config(
     hass: HomeAssistant,

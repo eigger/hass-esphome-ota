@@ -10,6 +10,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .publisher import async_path_is_file
+from .redaction import install_redaction
 from .config_patch import apply_ota_patch
 from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
@@ -19,6 +21,7 @@ from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 class MigrationManager:
@@ -60,7 +63,9 @@ class MigrationManager:
         registered_data: dict[str, Any] = {}
         if legacy_reg_path.is_file():
             try:
-                registered_data = json.loads(legacy_reg_path.read_text(encoding="utf-8"))
+                registered_data = json.loads(
+                    legacy_reg_path.read_text(encoding="utf-8")
+                )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning("Failed to read legacy registered.json: %s", err)
 
@@ -100,7 +105,9 @@ class MigrationManager:
             try:
                 registered = json.loads(legacy_reg_path.read_text(encoding="utf-8"))
             except Exception as err:  # noqa: BLE001
-                _LOGGER.warning("Could not read legacy registry during migration: %s", err)
+                _LOGGER.warning(
+                    "Could not read legacy registry during migration: %s", err
+                )
 
         migrated_artifacts: list[str] = []
 
@@ -135,7 +142,9 @@ class MigrationManager:
 
     async def async_migrate(self) -> dict[str, Any]:
         """Execute legacy migration and update storage."""
-        sync_result = await self.hass.async_add_executor_job(self._execute_migration_sync)
+        sync_result = await self.hass.async_add_executor_job(
+            self._execute_migration_sync
+        )
         migrated_artifacts: list[str] = sync_result.get("migrated_artifacts", [])
 
         # Reload devices in device_manager, matching Builder YAML when possible
@@ -148,7 +157,7 @@ class MigrationManager:
         failed_devices: dict[str, str] = {}
         migrated_yaml_configs: list[str] = []
 
-        if legacy_reg_path.is_file():
+        if await async_path_is_file(self.hass, legacy_reg_path):
             try:
                 content = await self.hass.async_add_executor_job(
                     legacy_reg_path.read_text, "utf-8"
@@ -183,7 +192,9 @@ class MigrationManager:
                             node,
                             configuration,
                         )
-                        failed_devices[node] = f"Configuration {configuration} already claimed"
+                        failed_devices[node] = (
+                            f"Configuration {configuration} already claimed"
+                        )
                         continue
                     claimed_configs.add(configuration)
 
@@ -205,7 +216,9 @@ class MigrationManager:
                                 else:
                                     raise
                         else:
-                            is_file = await self.hass.async_add_executor_job(cfg_path.is_file)
+                            is_file = await self.hass.async_add_executor_job(
+                                cfg_path.is_file
+                            )
                             if is_file:
                                 orig_yaml = await self.hass.async_add_executor_job(
                                     cfg_path.read_text, "utf-8"
@@ -238,14 +251,13 @@ class MigrationManager:
                         # Drop a previous bare-node orphan if we resolved to a different stem
                         if device_id != node and self.device_manager.get_device(node):
                             orphan = self.device_manager.get_device(node)
-                            if orphan and orphan.configuration in {f"{node}.yaml", node}:
+                            if orphan and orphan.configuration in {
+                                f"{node}.yaml",
+                                node,
+                            }:
                                 await self.device_manager.async_remove_device(node)
 
-                        plat = (
-                            raw.get("target_platform", "esp32")
-                            if raw
-                            else "esp32"
-                        )
+                        plat = raw.get("target_platform", "esp32") if raw else "esp32"
                         await self.device_manager.async_register_or_update(
                             device_id=device_id,
                             configuration=configuration,
@@ -275,7 +287,9 @@ class MigrationManager:
 
         if failed_devices:
             result["failed_devices"] = failed_devices
-            result["error"] = f"Failed migrating {len(failed_devices)} device(s): {', '.join(failed_devices.keys())}"
+            result["error"] = (
+                f"Failed migrating {len(failed_devices)} device(s): {', '.join(failed_devices.keys())}"
+            )
 
         if result["success"]:
             await self.storage.async_save_migration(

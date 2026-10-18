@@ -13,6 +13,7 @@ import re
 
 from homeassistant.core import HomeAssistant
 
+from .redaction import install_redaction
 from .builder.client import BuilderClient
 from .config_patch import (
     apply_ota_patch,
@@ -50,6 +51,7 @@ from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 def _is_unresolved_version(version: str | None) -> bool:
@@ -156,7 +158,9 @@ class JobRunner:
         return self.monitor.cleanup_hours if self.monitor else 12
 
     def _job_cleanup_hours(self, job: PipelineJob, device: ManagedDevice) -> int:
-        return int(job.checkpoint.get("cleanup_hours", self._publication_cleanup_hours(device)))
+        return int(
+            job.checkpoint.get("cleanup_hours", self._publication_cleanup_hours(device))
+        )
 
     @staticmethod
     def _job_auto_hide(job: PipelineJob, device: ManagedDevice) -> bool:
@@ -242,7 +246,9 @@ class JobRunner:
             if cleanup_hours is None
             else cleanup_hours
         )
-        job.checkpoint["auto_hide"] = device.auto_hide if auto_hide is None else auto_hide
+        job.checkpoint["auto_hide"] = (
+            device.auto_hide if auto_hide is None else auto_hide
+        )
         self._active_jobs[job_id] = job
         await self.storage.async_save_jobs(self._active_jobs)
         self._notify_job_update(job)
@@ -495,7 +501,9 @@ class JobRunner:
                 # Record successful publish in storage and devices
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version, published.expires_at,
+                    device.device_id,
+                    published.version,
+                    published.expires_at,
                     published.published_at,
                 )
 
@@ -830,7 +838,9 @@ class JobRunner:
 
                 await self.storage.async_save_artifact(device.device_id, published)
                 await self.device_manager.async_mark_published(
-                    device.device_id, published.version, published.expires_at,
+                    device.device_id,
+                    published.version,
+                    published.expires_at,
                     published.published_at,
                 )
 
@@ -941,7 +951,9 @@ class JobRunner:
         )
         await self.storage.async_save_artifact(device.device_id, published)
         await self.device_manager.async_mark_published(
-            device.device_id, published.version, published.expires_at,
+            device.device_id,
+            published.version,
+            published.expires_at,
             published.published_at,
         )
 

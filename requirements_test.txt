@@ -1,4 +1,4 @@
-# Test environment, pinned so CI is reproducible.
-pytest-homeassistant-custom-component==0.13.366
-pytest-timeout==2.4.0
-home-assistant-frontend
+# Current test environment (support minimum is declared separately in hacs.json).
+# pytest-timeout is pinned by the plugin.
+homeassistant==2026.10.2
+pytest-homeassistant-custom-component==0.13.373

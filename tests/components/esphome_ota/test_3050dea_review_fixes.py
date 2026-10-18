@@ -71,7 +71,9 @@ async def test_publish_cancellation_during_replacement_restores_prior_files(
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_rollback_test")
 
     old_blob = _make_valid_esp32_bin("1.0.0")
-    old_info = inspect_binary(old_blob, target_platform="esp32", reserved_version="1.0.0")
+    old_info = inspect_binary(
+        old_blob, target_platform="esp32", reserved_version="1.0.0"
+    )
     artifact = await publisher.async_publish(
         device_id="dev_rollback",
         configuration="dev_rollback.yaml",
@@ -85,7 +87,9 @@ async def test_publish_cancellation_during_replacement_restores_prior_files(
     pub_manifest = Path(artifact.public_manifest_path)
 
     new_blob = _make_valid_esp32_bin("2.0.0")
-    new_info = inspect_binary(new_blob, target_platform="esp32", reserved_version="2.0.0")
+    new_info = inspect_binary(
+        new_blob, target_platform="esp32", reserved_version="2.0.0"
+    )
 
     # Simulate cancellation right after binary replacement, before manifest replacement
     call_count = 0
@@ -200,7 +204,9 @@ async def test_manager_unloaded_during_reconnect_does_not_reopen_connection(
                 unloaded = True
                 await manager.async_unload()
 
-        with patch.object(manager.resolver, "async_disconnect", side_effect=disconnect_and_unload):
+        with patch.object(
+            manager.resolver, "async_disconnect", side_effect=disconnect_and_unload
+        ):
             await manager.async_reconnect()
 
         # Manager is unloaded, active_client is None, and it did not reopen a connection

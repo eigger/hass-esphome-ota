@@ -98,7 +98,12 @@ async def test_websocket_api_commands(
 
         # 7. set_token
         await ws.send_json(
-            {"id": 7, "type": "esphome_ota/set_token", "device_id": "livingroom", "token": "custom_tok_123"}
+            {
+                "id": 7,
+                "type": "esphome_ota/set_token",
+                "device_id": "livingroom",
+                "token": "custom_tok_123",
+            }
         )
         msg = await ws.receive_json()
         while msg.get("type") == "event":
@@ -174,7 +179,9 @@ async def test_remove_ota_builder_conflict_or_timeout_must_fail(
         )
 
         mock_client = AsyncMock()
-        mock_client.get_config.return_value = "packages:\n  esphome_ota:\n    ota_slug: abc\n"
+        mock_client.get_config.return_value = (
+            "packages:\n  esphome_ota:\n    ota_slug: abc\n"
+        )
         from custom_components.esphome_ota.models import (
             BuilderError,
             BuilderTimeoutError,
@@ -335,6 +342,7 @@ async def test_set_token_syncs_yaml_and_republishes(
 
         # Mock artifact in storage
         from custom_components.esphome_ota.models import PublishedArtifact
+
         art = PublishedArtifact(
             device_id="esp-tab",
             configuration="esp-tab.yaml",
@@ -380,7 +388,3 @@ async def test_set_token_syncs_yaml_and_republishes(
         artifacts = await manager.storage.async_load_artifacts()
         assert artifacts["esp-tab"].public_bin_path == str(new_public_bin)
         await ws.close()
-
-
-
-

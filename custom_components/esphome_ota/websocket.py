@@ -14,9 +14,16 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.loader import async_get_integration
 
+from .redaction import install_redaction
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
 from .firmware import inspect_binary
+from .publisher import (
+    async_any_path_exists,
+    async_path_exists,
+    async_path_is_file,
+    async_unlink_paths,
+)
 from .models import (
     BuilderConnectionError,
     BuilderTimeoutError,
@@ -24,6 +31,7 @@ from .models import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
@@ -121,7 +129,9 @@ async def ws_status(
     {
         vol.Required("type"): "esphome_ota/set_publication_policy",
         vol.Required("device_id"): str,
-        vol.Required("cleanup_hours"): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+        vol.Required("cleanup_hours"): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=168)
+        ),
         vol.Required("auto_hide"): bool,
         vol.Optional("save_as_default", default=False): bool,
     }
@@ -152,7 +162,9 @@ async def ws_set_publication_policy(
             dev.publication_cleanup_hours = cleanup_hours
             dev.auto_hide = msg["auto_hide"]
             dev.updated_at = datetime.now(timezone.utc).isoformat()
-            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+            await manager.storage.async_save_devices(
+                manager.device_manager._managed_devices
+            )
         if art:
             # The artifact-store lock serializes this policy update with expiry
             # transitions while preserving whichever visibility state won.
@@ -165,7 +177,9 @@ async def ws_set_publication_policy(
             )
             if not latest:
                 connection.send_error(
-                    msg["id"], "publication_changed", "The publication changed; reload and try again."
+                    msg["id"],
+                    "publication_changed",
+                    "The publication changed; reload and try again.",
                 )
                 return
             if manager.monitor:
@@ -181,9 +195,13 @@ async def ws_set_publication_policy(
                     manager.monitor.cancel_cleanup(device_id)
         if msg.get("save_as_default") or art:
             dev.expires_at = expires_at
-            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+            await manager.storage.async_save_devices(
+                manager.device_manager._managed_devices
+            )
     connection.send_result(msg["id"], {"success": True, "expires_at": expires_at})
-    manager._dispatch_event("devices_updated", {"devices": manager.device_manager.list_all()})
+    manager._dispatch_event(
+        "devices_updated", {"devices": manager.device_manager.list_all()}
+    )
 
 
 @websocket_api.require_admin
@@ -354,7 +372,9 @@ async def ws_apply_ota(
         vol.Required("device_id"): str,
         vol.Optional("request_id"): str,
         vol.Optional("target_version"): str,
-        vol.Optional("cleanup_hours"): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+        vol.Optional("cleanup_hours"): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=168)
+        ),
         vol.Optional("auto_hide"): bool,
     }
 )
@@ -551,9 +571,9 @@ async def ws_deactivate(
             if art and art.public_bin_path
             else manager.publisher.www_dir / f"{dev.slug}.ota.bin"
         )
-        if not public_bin.exists():
+        if not await async_path_exists(hass, public_bin):
             public_bin = manager.publisher.www_dir / f"{dev.slug}.ota.bin"
-        is_private = removed or not public_bin.exists()
+        is_private = removed or not await async_path_exists(hass, public_bin)
         if is_private and manager.monitor:
             manager.monitor.cancel_cleanup(device_id)
         if art and is_private:
@@ -562,7 +582,9 @@ async def ws_deactivate(
             await manager.storage.async_save_artifact(device_id, art)
         if is_private:
             dev.expires_at = None
-            await manager.storage.async_save_devices(manager.device_manager._managed_devices)
+            await manager.storage.async_save_devices(
+                manager.device_manager._managed_devices
+            )
     connection.send_result(msg["id"], {"success": True, "removed": removed})
     manager._dispatch_event(
         "devices_updated",
@@ -636,21 +658,19 @@ async def ws_set_token(
                 new_ota_manifest_path = (
                     manager.publisher.www_dir / f"{new_slug}.ota.json"
                 )
-                if any(
-                    path.exists()
-                    for path in (
-                        new_binary_path,
-                        new_md5_path,
-                        new_manifest_path,
-                        new_ota_manifest_path,
-                    )
+                if await async_any_path_exists(
+                    hass,
+                    new_binary_path,
+                    new_md5_path,
+                    new_manifest_path,
+                    new_ota_manifest_path,
                 ):
                     raise RuntimeError(
                         f"The requested public slug '{new_slug}' already has published files; choose a different token."
                     )
-                old_public_state_exists = artifact is not None or any(
-                    path.exists()
-                    for path in (
+                old_public_state_exists = artifact is not None or (
+                    await async_any_path_exists(
+                        hass,
                         old_binary_path,
                         manager.publisher.www_dir / f"{old_slug}.ota.bin.md5",
                         manager.publisher.www_dir / f"{old_slug}.json",
@@ -662,7 +682,7 @@ async def ws_set_token(
                         "Reconnect the ESPHome Builder before changing this token; "
                         "an existing firmware artifact or public URL must be synchronized."
                     )
-                if old_binary_path.is_file():
+                if await async_path_is_file(hass, old_binary_path):
                     if not artifact:
                         raise RuntimeError(
                             f"The current public slug '{old_slug}' has no stored artifact record; refusing to rotate the token."
@@ -708,7 +728,11 @@ async def ws_set_token(
                         configuration, updated_yaml, expected=original_yaml
                     )
 
-            if old_slug != new_slug and artifact and old_binary_path.is_file():
+            if (
+                old_slug != new_slug
+                and artifact
+                and await async_path_is_file(hass, old_binary_path)
+            ):
                 cleanup_hours = (
                     artifact.cleanup_hours
                     if artifact.cleanup_hours is not None
@@ -772,11 +796,10 @@ async def ws_set_token(
             # Retire stale manifests only after the new state has been committed.
             if old_slug != new_slug:
                 try:
-                    (manager.publisher.www_dir / f"{old_slug}.json").unlink(
-                        missing_ok=True
-                    )
-                    (manager.publisher.www_dir / f"{old_slug}.ota.json").unlink(
-                        missing_ok=True
+                    await async_unlink_paths(
+                        hass,
+                        manager.publisher.www_dir / f"{old_slug}.json",
+                        manager.publisher.www_dir / f"{old_slug}.ota.json",
                     )
                 except OSError as cleanup_err:
                     _LOGGER.warning(
@@ -787,11 +810,10 @@ async def ws_set_token(
             if new_binary_published:
                 try:
                     await manager.publisher.async_deactivate(new_slug)
-                    (manager.publisher.www_dir / f"{new_slug}.json").unlink(
-                        missing_ok=True
-                    )
-                    (manager.publisher.www_dir / f"{new_slug}.ota.json").unlink(
-                        missing_ok=True
+                    await async_unlink_paths(
+                        hass,
+                        manager.publisher.www_dir / f"{new_slug}.json",
+                        manager.publisher.www_dir / f"{new_slug}.ota.json",
                     )
                     if artifact:
                         await manager.storage.async_save_artifact(
@@ -845,8 +867,20 @@ async def ws_set_token(
                             clean_dev_id,
                             old_slug,
                             artifact_id=restored_artifact_id,
-                            expires_at=(restored_old_artifact.expires_at if restored_old_artifact else artifact.expires_at if artifact else None),
-                            cleanup_hours=(restored_old_artifact.cleanup_hours if restored_old_artifact else artifact.cleanup_hours if artifact else None),
+                            expires_at=(
+                                restored_old_artifact.expires_at
+                                if restored_old_artifact
+                                else artifact.expires_at
+                                if artifact
+                                else None
+                            ),
+                            cleanup_hours=(
+                                restored_old_artifact.cleanup_hours
+                                if restored_old_artifact
+                                else artifact.cleanup_hours
+                                if artifact
+                                else None
+                            ),
                         )
                     else:
                         manager.monitor.cancel_cleanup(clean_dev_id)

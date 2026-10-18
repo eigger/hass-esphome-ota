@@ -1,117 +1,70 @@
 # ESPHome OTA for Home Assistant
 
-[![HACS Custom Integration](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-124%20Passed-brightgreen.svg)]()
+<!-- hass-standards:badges:start -->
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square)](#installation)
+[![Release](https://img.shields.io/github/v/release/eigger/hass-esphome-ota?style=flat-square)](https://github.com/eigger/hass-esphome-ota/releases)
+[![Home Assistant minimum](https://img.shields.io/badge/HA-%E2%89%A5%202024.1.0-41BDF5?style=flat-square)](hacs.json)
+[![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-esphome-ota/tests.yml?branch=main&style=flat-square&label=Tests)](https://github.com/eigger/hass-esphome-ota/actions/workflows/tests.yml)
+[![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-esphome-ota/validate.yml?branch=main&style=flat-square&label=Validate)](https://github.com/eigger/hass-esphome-ota/actions/workflows/validate.yml)
+[![License](https://img.shields.io/github/license/eigger/hass-esphome-ota?style=flat-square)](LICENSE)
+[![Analytics reporting installs](https://img.shields.io/badge/dynamic/json?style=flat-square&color=41BDF5&label=Usage&query=%24.esphome_ota.total&url=https%3A%2F%2Fanalytics.home-assistant.io%2Fcustom_integrations.json)](https://analytics.home-assistant.io/)
+<!-- hass-standards:badges:end -->
 
-[한국어 문서 (README.ko.md)](README.ko.md)
+**English** | [한국어](README.ko.md)
 
-**ESPHome OTA** is a Home Assistant custom component designed to streamline remote HTTP firmware builds and publication for ESPHome devices. It automatically connects to the **ESPHome Device Builder** add-on trusted loopback listener within Home Assistant OS—eliminating the need for open public ports, `leave_front_door_open`, or manual login tokens.
+**ESPHome OTA** is a Home Assistant custom integration (HACS) for building and publishing ESPHome firmware over HTTP OTA. It connects to the **ESPHome Device Builder** add-on's trusted loopback listener inside Home Assistant OS, so no public ports, `leave_front_door_open`, or login tokens are needed. It is a HACS custom integration, not an official Home Assistant Core integration.
 
----
+## Supported features
 
-## Key Features
+- Automatic, zero-config discovery of the ESPHome Builder add-on and a live device list.
+- Safe, diff-based YAML preparation (`packages.esphome_ota`) that preserves `!secret`, `!include`, and comments.
+- Compile, verify, and publish pipeline with live logs, binary integrity checks, and atomic publishing to `/local/esphome_ota/`.
+- Sidebar panel with batch builds, job cancellation, and first-install guidance; manual firmware upload; import from the legacy add-on.
 
-- **Automatic Zero-Config Builder Discovery**: Discovers running ESPHome Builder add-ons and services on HA loopback without requiring manual URL, port, or dashboard tokens.
-- **Direct Device Inventory Synchronization**: Displays devices known to ESPHome Builder in real time without scanning local directories or manual registration forms.
-- **Safe YAML Configuration Diff**: Injects managed `packages.esphome_ota` configuration via Compare-And-Swap (CAS), preserving existing custom code, `!secret`, `!include`, and comments.
-- **Robust Compile & Publish Pipeline**:
-  - Triggers compilation via Builder API and streams output live.
-  - Explicit completion validation (rejects `unknown` or silent stream closures).
-  - Single-use token downloads directly to private artifact storage.
-  - Binary integrity inspection: chip family validation (`esp_image_header_t`), GCC build times, framework and project boot versions.
-  - Atomic publishing with cache-busting headers (`?v=<md5>`) to `/local/esphome_ota/`.
-- **First-Time Install Guidance**: Clearly distinguishes between firmware publication and actual device installation, guiding users when an initial USB or local OTA flash is required.
-- **Native Custom Sidebar Panel**:
-  - Responsive, modern dashboard adhering to Home Assistant theme variables and dark mode.
-  - Real-time WebSocket subscription for instant status, device, and job progress updates.
-  - Live log streaming terminal and job cancellation.
-  - Multi-device batch building and publishing.
-- **Legacy Add-on Data Migration**: Seamlessly imports `registered.json`, device wrappers, tokens, and existing binaries from the legacy ESPHome OTA Publisher add-on.
-- **Multipart Manual Upload View**: Secure authenticated HTTP endpoint for manual firmware uploads up to 16 MiB.
-- **Privacy-Preserving Diagnostics**: Redacts secret tokens, URLs, and confidential YAML from diagnostic dumps.
+More detail and the architecture overview: [docs/features.md](docs/features.md).
 
----
+## Requirements
 
-## Architecture Overview
-
-```text
-[ HA Sidebar Panel ]
-       │  HA Admin WebSocket API
-       ▼
- [ OtaManager ] ──► [ BuilderResolver ] ──► Loopback WS/HTTP (127.0.0.1:<port>)
-       │                                     └─► ESPHome Device Builder
-       ├──────────► [ DeviceManager ]
-       ├──────────► [ JobRunner ]
-       │                 └─► Compile -> Checkpoint -> Download -> Verify
-       ├──────────► [ ArtifactPublisher ]
-       │                 ├─► Private Archive: /config/esphome_ota/firmware/
-       │                 └─► Public Release:  /config/www/esphome_ota/
-       └──────────► [ InstallationMonitor ] ◄── HA Update Entities
-```
-
----
+- Home Assistant with the ESPHome Device Builder add-on (Home Assistant OS / Supervised).
+- `hacs.json` declares Home Assistant 2024.1.0 as the minimum, but the code currently needs a newer release (see [docs/development.md](docs/development.md#verified-environments)). CI verifies Home Assistant 2026.10.2.
+- A Base URL that your ESPHome devices can reach.
 
 ## Installation
 
-### Method 1: Via HACS (Recommended)
-1. Open HACS in your Home Assistant sidebar.
-2. Select **Integrations** > **Custom repositories** (three dots in top right).
-3. Add this repository URL (`https://github.com/eigger/hass-esphome-ota`) with category **Integration**.
-4. Search for **ESPHome OTA** and click **Download**.
-5. Restart Home Assistant.
+1. In HACS open **Custom repositories**, add `https://github.com/eigger/hass-esphome-ota` as category **Integration**.
+2. Download **ESPHome OTA** and restart Home Assistant.
+3. Go to **Settings** > **Devices & Services** > **Add Integration** and select **ESPHome OTA**.
 
-### Method 2: Manual Installation
-1. Clone or download this repository.
-2. Copy `custom_components/esphome_ota` to your Home Assistant `<config>/custom_components/` directory:
-   ```bash
-   cp -r custom_components/esphome_ota /config/custom_components/
-   ```
-3. Restart Home Assistant.
+Manual installation: copy `custom_components/esphome_ota` into `<config>/custom_components/` and restart. To remove, delete the integration entry, then that folder (and, if no longer needed, the published firmware in `www/esphome_ota/` and the private archive `/config/esphome_ota/firmware/`; neither is removed automatically).
 
----
+## Quick start
 
-## Quick Start & Workflow
+1. After adding the integration the Builder is discovered automatically; confirm and save the Base URL. Then open **ESPHome OTA** in the sidebar; devices known to the Builder are listed.
+2. Click **Prepare OTA** on a device, review the YAML diff, and click **Apply to YAML**.
+3. Click **Build & Publish** and watch the live log; the manifest and binary are published to `/local/esphome_ota/`.
+4. Devices without HTTP OTA need a one-time USB or local OTA flash; later updates can be installed remotely through the Home Assistant Update entity over HTTP OTA.
 
-1. **Add Integration**:
-   - Go to **Settings** > **Devices & Services** > **Add Integration**.
-   - Search for **ESPHome OTA**.
-   - The integration will automatically discover your ESPHome Builder add-on. Confirm your public Home Assistant Base URL.
-2. **Access Panel**:
-   - Open **ESPHome OTA** from the sidebar.
-   - Devices managed by ESPHome Builder are listed automatically.
-3. **Prepare Device**:
-   - Click **Prepare OTA** on a device card.
-   - Review the proposed YAML diff and click **Apply to YAML**.
-4. **Build & Publish**:
-   - Click **Build & Publish**.
-   - View live compilation progress in the terminal dialog.
-   - Once published, your device's manifest and binary are deployed to `/local/esphome_ota/`.
-5. **Initial Install (If Needed)**:
-   - For devices that do not yet have HTTP OTA running, flash the newly built firmware once via USB or local OTA. Subsequent updates will install over HTTP OTA automatically.
+## Important limitations
 
----
+- Publishing firmware is not the same as installing it on a device; the panel reports them separately.
+- Discovering a device never edits YAML or starts a build on its own.
+- Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is covered only by the manual procedure in [docs/validation.ko.md](docs/validation.ko.md) (Korean).
 
-## Legacy Migration
+## Legacy migration
 
-If you are migrating from the previous ESPHome OTA Publisher add-on:
-1. Open the **ESPHome OTA** panel.
-2. Click **Import from Legacy Add-on**.
-3. The migration tool reads `esphome/ota_server/registered.json`, copies existing binaries from `www/esphome_ota/` into private storage, and preserves all secret tokens and device slugs.
-4. Stop or uninstall the legacy add-on once migration completes.
+Coming from the ESPHome OTA Publisher add-on? Use **Import from Legacy Add-on** at the top right of the panel and review the preview of devices and binaries. It reads `esphome/ota_server/registered.json`, copies binaries from `www/esphome_ota/` into private storage, and keeps tokens and device slugs. Stop or uninstall the add-on afterwards.
 
----
+## Documentation
 
-## Validation & Testing
+- [Features and architecture](docs/features.md)
+- [Development and testing](docs/development.md)
+- [Design notes (Korean)](docs/architecture.ko.md)
+- [Live validation on HA OS (Korean)](docs/validation.ko.md)
 
-Run the full automated test suite with pytest:
-```bash
-pytest tests/
-```
-For detailed live validation procedures in Home Assistant OS, see [docs/validation.ko.md](docs/validation.ko.md).
+## Support
 
----
+Report bugs and request features through [GitHub Issues](https://github.com/eigger/hass-esphome-ota/issues). GitHub Discussions is not enabled for this repository.
 
 ## License
 
-This project is licensed under the MIT License.
+Released under the [MIT License](LICENSE).

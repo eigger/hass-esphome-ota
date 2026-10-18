@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -15,11 +15,13 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .redaction import install_redaction, mask_slug
 from .const import DEFAULT_AUTO_CLEANUP_HOURS
 from .devices import DeviceManager
-from .publisher import ArtifactPublisher
+from .publisher import ArtifactPublisher, async_path_exists
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 class InstallationMonitor:
@@ -42,6 +44,17 @@ class InstallationMonitor:
         self._monitored_entities: set[str] = set()
         self._cleanup_timers: dict[str, asyncio.TimerHandle] = {}
         self._cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._tasks: set[asyncio.Task[Any]] = set()
+        self._unloaded = False
+
+    def _track_task(self, coro: Coroutine[Any, Any, Any]) -> None:
+        """Run a coroutine as a task that is cancelled on unload."""
+        if self._unloaded:
+            coro.close()
+            return
+        task = self.hass.async_create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def async_setup(self) -> None:
         """Discover matching Update entities, listen for new entities, and restore cleanup timers."""
@@ -50,7 +63,7 @@ class InstallationMonitor:
         # Listen for new or updated entities in the entity registry
         @callback
         def _on_entity_registry_updated(event: Event) -> None:
-            self.hass.async_create_task(self.async_refresh_monitoring())
+            self._track_task(self.async_refresh_monitoring())
 
         unsub_er = self.hass.bus.async_listen(
             er.EVENT_ENTITY_REGISTRY_UPDATED, _on_entity_registry_updated
@@ -69,8 +82,12 @@ class InstallationMonitor:
                     if art.cleanup_hours is None:
                         art.cleanup_hours = self.cleanup_hours
                     if art.expires_at is None and art.cleanup_hours > 0:
-                        art.expires_at = (pub_dt + timedelta(hours=art.cleanup_hours)).isoformat()
-                    await self.device_manager.storage.async_save_artifact(art.device_id, art)
+                        art.expires_at = (
+                            pub_dt + timedelta(hours=art.cleanup_hours)
+                        ).isoformat()
+                    await self.device_manager.storage.async_save_artifact(
+                        art.device_id, art
+                    )
                     dev = self.device_manager.get_device(art.device_id)
                     if dev and dev.expires_at != art.expires_at:
                         dev.expires_at = art.expires_at
@@ -108,6 +125,8 @@ class InstallationMonitor:
 
     async def async_refresh_monitoring(self) -> None:
         """Scan devices and attach listeners to any newly discovered Update entities."""
+        if self._unloaded:
+            return
         ent_reg = er.async_get(self.hass)
         dev_reg = dr.async_get(self.hass)
         devices = self.device_manager.list_all()
@@ -145,15 +164,11 @@ class InstallationMonitor:
             # Pass B: Match via device name if no identifier matched directly
             if not matching_ha_device_id:
                 for ha_dev in dev_reg.devices:
-                    if (
-                        ha_dev.name
-                        and ha_dev.name.lower()
-                        in (
-                            dev_name.lower(),
-                            norm_name,
-                            dev_friendly.lower(),
-                            norm_title,
-                        )
+                    if ha_dev.name and ha_dev.name.lower() in (
+                        dev_name.lower(),
+                        norm_name,
+                        dev_friendly.lower(),
+                        norm_title,
                     ):
                         # Avoid matching a device whose identifier explicitly belongs to a different node
                         has_conflicting_ident = False
@@ -225,12 +240,14 @@ class InstallationMonitor:
                     f"update.{norm_name}_update",
                 ]
                 if norm_title and norm_title != norm_name:
-                    candidate_eids.extend([
-                        f"update.{norm_title}",
-                        f"update.{norm_title}_firmware",
-                        f"update.{norm_title}_ota_update",
-                        f"update.{norm_title}_update",
-                    ])
+                    candidate_eids.extend(
+                        [
+                            f"update.{norm_title}",
+                            f"update.{norm_title}_firmware",
+                            f"update.{norm_title}_ota_update",
+                            f"update.{norm_title}_update",
+                        ]
+                    )
 
                 for cand in candidate_eids:
                     ent = ent_reg.async_get(cand)
@@ -283,7 +300,10 @@ class InstallationMonitor:
                             matched_entity_id = entity.entity_id
                             break
                         # Generic common names like "Firmware" ONLY if confirmed attached to matching HA device
-                        if matching_ha_device_id and entity.device_id == matching_ha_device_id:
+                        if (
+                            matching_ha_device_id
+                            and entity.device_id == matching_ha_device_id
+                        ):
                             if orig in ("firmware", "firmware update", "ota update"):
                                 matched_entity_id = entity.entity_id
                                 break
@@ -399,7 +419,9 @@ class InstallationMonitor:
                 async def _mark_and_notify_verified() -> None:
                     async with self.device_manager.get_lock(device_id):
                         current_dev = self.device_manager.get_device(device_id)
-                        artifacts = await self.device_manager.storage.async_load_artifacts()
+                        artifacts = (
+                            await self.device_manager.storage.async_load_artifacts()
+                        )
                         art = artifacts.get(device_id)
                         # The state event may have been queued just before a new
                         # publication completed. Only act on the artifact that
@@ -413,10 +435,16 @@ class InstallationMonitor:
                             return
                         publication_id = art.published_at if art else None
                         await self.device_manager.async_mark_installed(
-                            device_id, installed_version,
+                            device_id,
+                            installed_version,
                             datetime.now(timezone.utc).isoformat(),
                         )
-                        if current_dev.auto_hide and art and art.is_public and publication_id:
+                        if (
+                            current_dev.auto_hide
+                            and art
+                            and art.is_public
+                            and publication_id
+                        ):
                             did_deactivate = await self._async_deactivate_artifact(
                                 device_id,
                                 current_dev.slug,
@@ -463,7 +491,8 @@ class InstallationMonitor:
 
                 async def _mark_and_notify_updated() -> None:
                     await self.device_manager.async_mark_installed(
-                        device_id, installed_version,
+                        device_id,
+                        installed_version,
                         datetime.now(timezone.utc).isoformat(),
                     )
                     if self.event_callback:
@@ -488,6 +517,8 @@ class InstallationMonitor:
     ) -> None:
         """Schedule automatic public binary deactivation after expiry period."""
         self.cancel_cleanup(device_id)
+        if self._unloaded:
+            return
 
         target_artifact_id = artifact_id
         if target_artifact_id is None:
@@ -499,7 +530,9 @@ class InstallationMonitor:
                 expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
             delay_seconds = (expiry_dt - datetime.now(timezone.utc)).total_seconds()
         if delay_seconds is None:
-            resolved_hours = self.cleanup_hours if cleanup_hours is None else cleanup_hours
+            resolved_hours = (
+                self.cleanup_hours if cleanup_hours is None else cleanup_hours
+            )
             if resolved_hours <= 0:
                 return
             delay = max(0.0, float(resolved_hours * 3600))
@@ -511,7 +544,7 @@ class InstallationMonitor:
             _LOGGER.info(
                 "Running automatic cleanup for %s (slug=%s, target_artifact=%s)",
                 device_id,
-                slug,
+                mask_slug(slug),
                 target_artifact_id,
             )
 
@@ -568,21 +601,23 @@ class InstallationMonitor:
             async with self.publisher._get_slug_lock(slug):
                 is_private = await self._deactivate_if_file_matches(slug, artifact_id)
             if is_private and self.event_callback:
-                self.event_callback("devices_updated", {"devices": self.device_manager.list_all()})
+                self.event_callback(
+                    "devices_updated", {"devices": self.device_manager.list_all()}
+                )
             return is_private
         public_bin = (
             Path(art.public_bin_path)
             if art.public_bin_path
             else self.publisher.www_dir / f"{slug}.ota.bin"
         )
-        if not public_bin.exists():
+        if not await async_path_exists(self.hass, public_bin):
             public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
 
         async def _deactivate_if_still_current() -> bool:
             removed = await self.publisher.async_deactivate_with_slug_lock_held(
                 slug, expected_artifact_id=artifact_id
             )
-            return removed or not public_bin.exists()
+            return removed or not await async_path_exists(self.hass, public_bin)
 
         if art.is_public:
             # Lock order matches publication: slug first, then artifact store.
@@ -603,10 +638,14 @@ class InstallationMonitor:
             if self.event_callback:
                 # Notify immediately after removing the public file; metadata
                 # cleanup below can wait for a build's device lock.
-                self.event_callback("devices_updated", {"devices": self.device_manager.list_all()})
+                self.event_callback(
+                    "devices_updated", {"devices": self.device_manager.list_all()}
+                )
 
             async def _clear_expiry_if_still_current() -> None:
-                current_artifacts = await self.device_manager.storage.async_load_artifacts()
+                current_artifacts = (
+                    await self.device_manager.storage.async_load_artifacts()
+                )
                 current_art = current_artifacts.get(device_id)
                 dev = self.device_manager.get_device(device_id)
                 if (
@@ -640,7 +679,7 @@ class InstallationMonitor:
             slug, expected_artifact_id=artifact_id
         )
         public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
-        return removed or not public_bin.exists()
+        return removed or not await async_path_exists(self.hass, public_bin)
 
     def cancel_cleanup(self, device_id: str) -> None:
         """Cancel any scheduled cleanup timer for a device."""
@@ -652,7 +691,11 @@ class InstallationMonitor:
             task.cancel()
 
     def async_unload(self) -> None:
-        """Clean up all listeners and timers on unload."""
+        """Clean up all listeners, timers and tasks on unload."""
+        self._unloaded = True
+        for tracked in list(self._tasks):
+            tracked.cancel()
+        self._tasks.clear()
         for unsub in self._unsub_listeners:
             unsub()
         self._unsub_listeners.clear()

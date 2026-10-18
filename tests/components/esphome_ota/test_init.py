@@ -56,7 +56,10 @@ async def test_update_options_reloads_entry(
 
         hass.config_entries.async_update_entry(
             mock_config_entry,
-            options={"base_url": "https://new-url.duckdns.org", "auto_cleanup_hours": 24},
+            options={
+                "base_url": "https://new-url.duckdns.org",
+                "auto_cleanup_hours": 24,
+            },
         )
         await hass.async_block_till_done()
 

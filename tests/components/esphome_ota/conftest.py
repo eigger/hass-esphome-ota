@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,6 +28,19 @@ def auto_enable_custom_integrations(request: pytest.FixtureRequest) -> None:
     """Enable custom integrations in Home Assistant test environment."""
     if "hass" in request.fixturenames:
         request.getfixturevalue("enable_custom_integrations")
+
+
+@pytest.fixture(autouse=True)
+def clean_public_www_dir(request: pytest.FixtureRequest) -> Generator[None, None, None]:
+    """Keep published files from leaking between tests (the config dir is shared)."""
+    if "hass" not in request.fixturenames:
+        yield
+        return
+    hass = request.getfixturevalue("hass")
+    www = Path(hass.config.path("www"))
+    shutil.rmtree(www, ignore_errors=True)
+    yield
+    shutil.rmtree(www, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
@@ -254,7 +269,9 @@ class MockBuilderServer:
                         "status": jdata.get("status"),
                         "type": jdata.get("type", "compile"),
                         "job_type": jdata.get("job_type", jdata.get("type", "compile")),
-                        "created_at": jdata.get("created_at", datetime.now(timezone.utc).isoformat()),
+                        "created_at": jdata.get(
+                            "created_at", datetime.now(timezone.utc).isoformat()
+                        ),
                     }
                     for jid, jdata in self.jobs.items()
                 ]

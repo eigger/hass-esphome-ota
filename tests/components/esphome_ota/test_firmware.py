@@ -141,4 +141,3 @@ def test_inspect_binary_esp32_variant_compatibility() -> None:
     # Specific variant mismatch should still fail (e.g. expected ESP32-S3 but binary is ESP32-P4)
     with pytest.raises(BinaryValidationError, match="Chip family mismatch"):
         inspect_binary(blob=blob_p4, target_platform="esp32", expected_chip="ESP32-S3")
-
