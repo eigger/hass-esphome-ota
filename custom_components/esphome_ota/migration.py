@@ -10,6 +10,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .publisher import async_path_is_file
+from .redaction import install_redaction
 from .config_patch import apply_ota_patch
 from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
@@ -19,6 +21,7 @@ from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 class MigrationManager:
@@ -154,7 +157,7 @@ class MigrationManager:
         failed_devices: dict[str, str] = {}
         migrated_yaml_configs: list[str] = []
 
-        if legacy_reg_path.is_file():
+        if await async_path_is_file(self.hass, legacy_reg_path):
             try:
                 content = await self.hass.async_add_executor_job(
                     legacy_reg_path.read_text, "utf-8"

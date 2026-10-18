@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -15,11 +15,13 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
+from .redaction import install_redaction, mask_slug
 from .const import DEFAULT_AUTO_CLEANUP_HOURS
 from .devices import DeviceManager
-from .publisher import ArtifactPublisher
+from .publisher import ArtifactPublisher, async_path_exists
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 class InstallationMonitor:
@@ -42,6 +44,17 @@ class InstallationMonitor:
         self._monitored_entities: set[str] = set()
         self._cleanup_timers: dict[str, asyncio.TimerHandle] = {}
         self._cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._tasks: set[asyncio.Task[Any]] = set()
+        self._unloaded = False
+
+    def _track_task(self, coro: Coroutine[Any, Any, Any]) -> None:
+        """Run a coroutine as a task that is cancelled on unload."""
+        if self._unloaded:
+            coro.close()
+            return
+        task = self.hass.async_create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def async_setup(self) -> None:
         """Discover matching Update entities, listen for new entities, and restore cleanup timers."""
@@ -50,7 +63,7 @@ class InstallationMonitor:
         # Listen for new or updated entities in the entity registry
         @callback
         def _on_entity_registry_updated(event: Event) -> None:
-            self.hass.async_create_task(self.async_refresh_monitoring())
+            self._track_task(self.async_refresh_monitoring())
 
         unsub_er = self.hass.bus.async_listen(
             er.EVENT_ENTITY_REGISTRY_UPDATED, _on_entity_registry_updated
@@ -112,6 +125,8 @@ class InstallationMonitor:
 
     async def async_refresh_monitoring(self) -> None:
         """Scan devices and attach listeners to any newly discovered Update entities."""
+        if self._unloaded:
+            return
         ent_reg = er.async_get(self.hass)
         dev_reg = dr.async_get(self.hass)
         devices = self.device_manager.list_all()
@@ -502,6 +517,8 @@ class InstallationMonitor:
     ) -> None:
         """Schedule automatic public binary deactivation after expiry period."""
         self.cancel_cleanup(device_id)
+        if self._unloaded:
+            return
 
         target_artifact_id = artifact_id
         if target_artifact_id is None:
@@ -527,7 +544,7 @@ class InstallationMonitor:
             _LOGGER.info(
                 "Running automatic cleanup for %s (slug=%s, target_artifact=%s)",
                 device_id,
-                slug,
+                mask_slug(slug),
                 target_artifact_id,
             )
 
@@ -593,14 +610,14 @@ class InstallationMonitor:
             if art.public_bin_path
             else self.publisher.www_dir / f"{slug}.ota.bin"
         )
-        if not public_bin.exists():
+        if not await async_path_exists(self.hass, public_bin):
             public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
 
         async def _deactivate_if_still_current() -> bool:
             removed = await self.publisher.async_deactivate_with_slug_lock_held(
                 slug, expected_artifact_id=artifact_id
             )
-            return removed or not public_bin.exists()
+            return removed or not await async_path_exists(self.hass, public_bin)
 
         if art.is_public:
             # Lock order matches publication: slug first, then artifact store.
@@ -662,7 +679,7 @@ class InstallationMonitor:
             slug, expected_artifact_id=artifact_id
         )
         public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
-        return removed or not public_bin.exists()
+        return removed or not await async_path_exists(self.hass, public_bin)
 
     def cancel_cleanup(self, device_id: str) -> None:
         """Cancel any scheduled cleanup timer for a device."""
@@ -674,7 +691,11 @@ class InstallationMonitor:
             task.cancel()
 
     def async_unload(self) -> None:
-        """Clean up all listeners and timers on unload."""
+        """Clean up all listeners, timers and tasks on unload."""
+        self._unloaded = True
+        for tracked in list(self._tasks):
+            tracked.cancel()
+        self._tasks.clear()
         for unsub in self._unsub_listeners:
             unsub()
         self._unsub_listeners.clear()

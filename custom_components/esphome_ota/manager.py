@@ -12,30 +12,37 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .redaction import install_redaction
 from .builder.client import BuilderClient
 from .builder.resolver import BuilderResolver
 from .const import (
     CONF_AUTO_CLEANUP_HOURS,
     CONF_BASE_URL,
+    CONF_BUILDER_HOST,
     CONF_BUILDER_NAME,
+    CONF_BUILDER_PORT,
     CONF_BUILDER_SLUG,
     DEFAULT_AUTO_CLEANUP_HOURS,
     DEFAULT_PUBLISH_DIR,
     STATUS_RECONNECTING,
+    STATUS_SELECTION_REQUIRED,
 )
 from .devices import DeviceManager
-from .http import FirmwareUploadView
 from .jobs import JobRunner
 from .migration import MigrationManager
-from .models import BuilderSelection
+from .models import BuilderAuthError, BuilderForbiddenError, BuilderSelection
 from .monitor import InstallationMonitor
 from .panel import PanelManager
 from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 BACKOFF_STEPS = [2, 5, 10, 30, 60]
+# Failures that need user action (Builder requires auth, several Builders and none
+# selected) are re-checked rarely instead of hammering the Builder every minute.
+PERMANENT_FAILURE_INTERVAL = 600
 
 
 class OtaManager:
@@ -69,11 +76,11 @@ class OtaManager:
                 or entry.data.get(CONF_BUILDER_NAME)
                 or slug
             )
-            host_hint = entry.options.get("builder_host") or entry.data.get(
-                "builder_host", ""
+            host_hint = entry.options.get(CONF_BUILDER_HOST) or entry.data.get(
+                CONF_BUILDER_HOST, ""
             )
-            port_hint = entry.options.get("builder_port") or entry.data.get(
-                "builder_port", 0
+            port_hint = entry.options.get(CONF_BUILDER_PORT) or entry.data.get(
+                CONF_BUILDER_PORT, 0
             )
             saved_selection = BuilderSelection(
                 slug=slug,
@@ -112,13 +119,14 @@ class OtaManager:
             resolver=self.resolver,
         )
         self.panel_manager = PanelManager(hass)
-        self.upload_view = FirmwareUploadView(hass, self)
 
         self._subscribers: list[Callable[[str, dict[str, Any]], None]] = []
         self._refresh_task: asyncio.Task[None] | None = None
         self._reconnect_task: asyncio.Task[None] | None = None
         self._unloaded = False
+        self.ready = False
         self._reconnect_backoff_index = 0
+        self._permanent_failure = False
         self._suppress_reload_count = 0
 
     def should_suppress_reload(self) -> bool:
@@ -172,7 +180,25 @@ class OtaManager:
             return
         if self._reconnect_task and not self._reconnect_task.done():
             return
-        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+        self._reconnect_task = self.entry.async_create_background_task(
+            self.hass, self._reconnect_loop(), "esphome_ota_reconnect"
+        )
+
+    def _note_connect_failure(self, err: Exception) -> None:
+        """Remember whether a failure needs user action rather than a quick retry."""
+        self._permanent_failure = (
+            isinstance(err, (BuilderAuthError, BuilderForbiddenError))
+            or self.resolver.status == STATUS_SELECTION_REQUIRED
+        )
+
+    async def _cancel_reconnect_task(self) -> None:
+        """Cancel the reconnect loop and wait until it has finished."""
+        task = self._reconnect_task
+        self._reconnect_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
     async def _reconnect_loop(self) -> None:
         """Repeatedly attempt re-discovery and re-connection with backoff and jitter."""
@@ -183,18 +209,20 @@ class OtaManager:
             ):
                 return
 
-            delay = BACKOFF_STEPS[
-                min(self._reconnect_backoff_index, len(BACKOFF_STEPS) - 1)
-            ] * random.uniform(0.8, 1.2)
+            base_delay = (
+                PERMANENT_FAILURE_INTERVAL
+                if self._permanent_failure
+                else BACKOFF_STEPS[
+                    min(self._reconnect_backoff_index, len(BACKOFF_STEPS) - 1)
+                ]
+            )
+            delay = base_delay * random.uniform(0.8, 1.2)
             self._reconnect_backoff_index += 1
             _LOGGER.debug(
                 "Waiting %.1fs before retrying ESPHome Builder connection...", delay
             )
 
-            try:
-                await asyncio.sleep(delay)
-            except asyncio.CancelledError:
-                return
+            await asyncio.sleep(delay)
 
             if self._unloaded:
                 return
@@ -211,6 +239,7 @@ class OtaManager:
                     return
                 self.device_manager.update_builder_devices(devices)
                 self._reconnect_backoff_index = 0
+                self._permanent_failure = False
                 _LOGGER.info(
                     "Successfully reconnected to ESPHome Builder (%s)",
                     self.resolver.active_candidate.slug
@@ -251,6 +280,7 @@ class OtaManager:
             except Exception as err:  # noqa: BLE001
                 if self._unloaded:
                     return
+                self._note_connect_failure(err)
                 _LOGGER.debug("Builder reconnect attempt failed: %s", err)
 
                 self._dispatch_event(
@@ -278,14 +308,7 @@ class OtaManager:
         await self.device_manager.async_load()
         await self.job_runner.async_load()
 
-        # 2. Register HTTP view and custom panel
-        if getattr(self.hass, "http", None) is not None:
-            try:
-                self.hass.http.register_view(self.upload_view)
-            except (RuntimeError, ValueError) as err:
-                _LOGGER.debug(
-                    "HTTP upload view already registered or router frozen: %s", err
-                )
+        # 2. Register custom panel (the upload view is registered once in async_setup)
         await self.panel_manager.async_register()
 
         # 3. Attempt Builder resolution & initial device refresh
@@ -296,19 +319,20 @@ class OtaManager:
             self.device_manager.update_builder_devices(devices)
             await self.job_runner.async_resume_jobs(client, self.base_url)
         except Exception as err:  # noqa: BLE001
+            self._note_connect_failure(err)
             _LOGGER.warning("Initial ESPHome Builder connection deferred: %s", err)
             self._start_reconnect_loop()
 
         # 4. Start installation monitor
         await self.monitor.async_setup()
+        self.ready = True
 
     async def async_unload(self) -> None:
         """Clean up resources on integration unload."""
         self._unloaded = True
         self._suppress_reload_count = 0
         self.publisher.async_unload()
-        if self._reconnect_task and not self._reconnect_task.done():
-            self._reconnect_task.cancel()
+        await self._cancel_reconnect_task()
         await self.job_runner.async_unload()
         self.monitor.async_unload()
         self.panel_manager.async_unregister()
@@ -337,15 +361,15 @@ class OtaManager:
             new_data[CONF_BUILDER_SLUG] = slug
             new_data[CONF_BUILDER_NAME] = name
             if host_hint:
-                new_data["builder_host"] = host_hint
+                new_data[CONF_BUILDER_HOST] = host_hint
             if port_hint:
-                new_data["builder_port"] = port_hint
+                new_data[CONF_BUILDER_PORT] = port_hint
             new_options[CONF_BUILDER_SLUG] = slug
             new_options[CONF_BUILDER_NAME] = name
             if host_hint:
-                new_options["builder_host"] = host_hint
+                new_options[CONF_BUILDER_HOST] = host_hint
             if port_hint:
-                new_options["builder_port"] = port_hint
+                new_options[CONF_BUILDER_PORT] = port_hint
             self.resolver.saved_selection = BuilderSelection(
                 slug=slug,
                 name=name,
@@ -356,12 +380,12 @@ class OtaManager:
         else:
             new_data.pop(CONF_BUILDER_SLUG, None)
             new_data.pop(CONF_BUILDER_NAME, None)
-            new_data.pop("builder_host", None)
-            new_data.pop("builder_port", None)
+            new_data.pop(CONF_BUILDER_HOST, None)
+            new_data.pop(CONF_BUILDER_PORT, None)
             new_options.pop(CONF_BUILDER_SLUG, None)
             new_options.pop(CONF_BUILDER_NAME, None)
-            new_options.pop("builder_host", None)
-            new_options.pop("builder_port", None)
+            new_options.pop(CONF_BUILDER_HOST, None)
+            new_options.pop(CONF_BUILDER_PORT, None)
             self.resolver.saved_selection = None
 
         self._suppress_reload_count += 1
@@ -386,9 +410,9 @@ class OtaManager:
         """Trigger manual re-discovery and re-connection to Builder."""
         if self._unloaded:
             return
-        if self._reconnect_task and not self._reconnect_task.done():
-            self._reconnect_task.cancel()
+        await self._cancel_reconnect_task()
         self._reconnect_backoff_index = 0
+        self._permanent_failure = False
         await self.resolver.async_disconnect()
         if self._unloaded:
             return
@@ -435,6 +459,7 @@ class OtaManager:
         except Exception as err:
             if self._unloaded:
                 return
+            self._note_connect_failure(err)
             _LOGGER.warning("Manual reconnect attempt failed: %s", err)
             self._dispatch_event(
                 "status_changed",

@@ -24,7 +24,8 @@
       "single_instance_allowed": "ESPHome OTA는 단일 인스턴스만 구성할 수 있습니다."
     },
     "error": {
-      "builder_not_found": "선택한 ESPHome Builder에 연결할 수 없습니다."
+      "builder_not_found": "선택한 ESPHome Builder에 연결할 수 없습니다.",
+      "invalid_url": "유효한 http:// 또는 https:// 주소를 입력하세요."
     }
   },
   "options": {
@@ -33,8 +34,19 @@
         "title": "ESPHome OTA 옵션",
         "data": {
           "base_url": "외부 접속 URL (Base URL)",
-          "auto_cleanup_hours": "기본 자동 비공개 시간 (시간, 0 = 사용 안 함)"
+          "auto_cleanup_hours": "기본 자동 비공개 시간 (시간, 0 = 사용 안 함)",
+          "builder_slug": "ESPHome Builder"
         }
+      }
+    },
+    "error": {
+      "invalid_url": "유효한 http:// 또는 https:// 주소를 입력하세요."
+    }
+  },
+  "selector": {
+    "builder_slug": {
+      "options": {
+        "auto": "자동 감지"
       }
     }
   }

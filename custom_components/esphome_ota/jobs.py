@@ -13,6 +13,7 @@ import re
 
 from homeassistant.core import HomeAssistant
 
+from .redaction import install_redaction
 from .builder.client import BuilderClient
 from .config_patch import (
     apply_ota_patch,
@@ -50,6 +51,7 @@ from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 def _is_unresolved_version(version: str | None) -> bool:

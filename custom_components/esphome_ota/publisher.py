@@ -19,8 +19,35 @@ from homeassistant.core import HomeAssistant
 from .const import DEFAULT_AUTO_CLEANUP_HOURS, DEFAULT_PUBLISH_DIR
 from .firmware import BinaryInfo
 from .models import EsphomeOtaError, PublishedArtifact
+from .redaction import install_redaction, mask_slug
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
+
+
+async def async_path_exists(hass: HomeAssistant, path: Path) -> bool:
+    """Check ``path.exists()`` without blocking the event loop."""
+    return await hass.async_add_executor_job(path.exists)
+
+
+async def async_path_is_file(hass: HomeAssistant, path: Path) -> bool:
+    """Check ``path.is_file()`` without blocking the event loop."""
+    return await hass.async_add_executor_job(path.is_file)
+
+
+async def async_any_path_exists(hass: HomeAssistant, *paths: Path) -> bool:
+    """Check whether any of ``paths`` exists in a single executor job."""
+    return await hass.async_add_executor_job(lambda: any(p.exists() for p in paths))
+
+
+def _unlink_all(paths: tuple[Path, ...]) -> None:
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
+async def async_unlink_paths(hass: HomeAssistant, *paths: Path) -> None:
+    """Remove files (ignoring missing ones) without blocking the event loop."""
+    await hass.async_add_executor_job(_unlink_all, paths)
 
 
 class ArtifactPublisher:
@@ -252,7 +279,7 @@ class ArtifactPublisher:
         _LOGGER.info(
             "Published firmware for %s (slug=%s, version=%s, chip=%s, size=%d bytes)",
             configuration,
-            slug,
+            mask_slug(slug),
             version,
             chip_family,
             len(blob),
@@ -342,7 +369,8 @@ class ArtifactPublisher:
         with self._get_sync_slug_lock(slug):
             if self._unloaded:
                 _LOGGER.info(
-                    "Skipping deactivation for %s: publisher is unloaded", slug
+                    "Skipping deactivation for %s: publisher is unloaded",
+                    mask_slug(slug),
                 )
                 return False
 
@@ -374,7 +402,7 @@ class ArtifactPublisher:
                     except (OSError, json.JSONDecodeError) as err:
                         _LOGGER.warning(
                             "Error reading manifest for %s during deactivation: %s",
-                            slug,
+                            mask_slug(slug),
                             err,
                         )
                 else:
@@ -385,7 +413,7 @@ class ArtifactPublisher:
                 if not matches:
                     _LOGGER.info(
                         "Skipping deactivation for %s: active publication does not match expected %s",
-                        slug,
+                        mask_slug(slug),
                         expected_artifact_id,
                     )
                     return False
@@ -408,12 +436,15 @@ class ArtifactPublisher:
     ) -> bool:
         """Remove public binary from /local."""
         if self._unloaded:
-            _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+            _LOGGER.info(
+                "Skipping deactivation for %s: publisher is unloaded", mask_slug(slug)
+            )
             return False
         async with self._get_slug_lock(slug):
             if self._unloaded:
                 _LOGGER.info(
-                    "Skipping deactivation for %s: publisher is unloaded", slug
+                    "Skipping deactivation for %s: publisher is unloaded",
+                    mask_slug(slug),
                 )
                 return False
             return await self.hass.async_add_executor_job(
@@ -425,7 +456,9 @@ class ArtifactPublisher:
     ) -> bool:
         """Deactivate while the caller holds this slug's async lock."""
         if self._unloaded:
-            _LOGGER.info("Skipping deactivation for %s: publisher is unloaded", slug)
+            _LOGGER.info(
+                "Skipping deactivation for %s: publisher is unloaded", mask_slug(slug)
+            )
             return False
         return await self.hass.async_add_executor_job(
             self._deactivate_sync, slug, expected_artifact_id

@@ -27,6 +27,7 @@ from custom_components.esphome_ota.config_patch import (
     own_project_version,
 )
 from custom_components.esphome_ota.const import (
+    DOMAIN,
     STAGE_BUILDING,
     STAGE_CANCELLED,
     STAGE_FAILED,
@@ -450,7 +451,8 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
         def _dispatch_event(self, name: str, payload: dict) -> None:
             events.append((name, payload))
 
-    view = FirmwareUploadView(hass, FakeManager())  # type: ignore[arg-type]
+    hass.data[DOMAIN] = {"manager": FakeManager()}
+    view = FirmwareUploadView(hass)
 
     valid_blob = mock_builder.binary_blob
 
