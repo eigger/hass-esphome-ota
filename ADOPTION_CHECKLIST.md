@@ -8,18 +8,18 @@
 |---|---|
 | 통합 리포 / 실제 기본 브랜치 | eigger/hass-esphome-ota / main |
 | domain / 구현 경로 | esphome_ota / custom_components/esphome_ota |
-| 검토 대상 통합 커밋 / 채택 PR | main `c2d6f90` 기준 브랜치 chore/adopt-hass-repo-standards / PR 생성 후 기록 |
+| 검토 대상 통합 커밋 / 채택 PR | main `c2d6f90` 기준 브랜치 chore/adopt-hass-repo-standards / [PR #29](https://github.com/eigger/hass-esphome-ota/pull/29) (HA 동작 결함 수정은 [PR #30](https://github.com/eigger/hass-esphome-ota/pull/30)으로 같은 브랜치에 스쿼시 병합) |
 | 검토한 표준 전체 커밋 SHA | `ba9f3fad8b635c163fb44a4e91b1833cc4ab47b4` (STANDARDS.md와 일치) |
 | 검토일 / 조율 담당 | 2026-10-18 / 메인 에이전트 |
 | 구현 서브 에이전트 / 독립 리뷰·검증 서브 에이전트 | 없음(메인 직접 구현, 예외) / Opus 서브 에이전트 |
-| 중앙 현황표 반영일 / 기록 | 미등록 — 중앙 리포 미수정 |
+| 중앙 현황표 반영일 / 기록 | 2026-10-18 / [중앙 현황표 행](https://github.com/eigger/hass-repo-standards/blob/main/docs/adoption-status.md) (#29 병합 직후 갱신) |
 | 변경 전 지원 최소 HA / 근거 파일 | 2024.1.0 / hacs.json |
 | 유지·변경할 지원 최소 / 근거·승인 | 유지(변경 없음). 상향은 별도 승인 필요 |
 | current 테스트 HA / 호환 Python·플러그인 | 2026.10.2 / 3.14 / 0.13.373 |
 | 최소 테스트 HA / 호환 Python·플러그인 | 구성 불가 — TEST-04 예외 |
 | profile / 테스트 경로 | integration / ha, `tests/components/esphome_ota/` |
 | 이전 검토 기록 | 최초 검토 |
-| 채택 판정 | **이관 진행 중** (필수 TODO: 원격 CI·HACS/brand·HA 동작 규칙 미검토·중앙 표; 예외 2건) |
+| 채택 판정 | **예외 포함** (필수 EXCEPTION 2건: GOV-05, TEST-04/HACS-01; 권장 HA-03 일부 미채택 — 후속) |
 
 상태: `TODO` = 미확인·미충족, `PASS` = 근거로 확인, `EXCEPTION` = 적용 대상의 기록된 예외, `N/A` = 적용 조건에 해당 없음. 모든 항목은 미확인으로 시작합니다. `TODO`를 해당 없음으로 처리하지 않습니다. 묶은 규칙의 결과가 다르면 행을 나눕니다. 권장 항목은 별도로 표시했으며 미채택 이유를 기록합니다.
 
@@ -28,8 +28,8 @@
 | 규칙 ID | 확인 항목 | 상태 | 근거 / 남은 작업 |
 |---|---|---|---|
 | GOV-01, GOV-02 | `STANDARDS.md`에 표준 SHA·profile·실제 기본 브랜치·예외 기록, workflow/action은 검토 SHA로 고정 | PASS | STANDARDS.md, workflow `@ba9f3fad…` 전체 SHA 고정 |
-| GOV-03 | 새 표준 채택 변경의 영향·이관 방법과 명시적 채택 PR 확인. 규칙 자체를 변경하면 공통 CHANGELOG 기록 | TODO | 채택 PR 생성 후 링크 기록; 표준 규칙 변경 없음 |
-| GOV-04 | 중앙 표에 작업 시작·단계 변경·종료 상태, 담당·적용 내용·검증/리뷰 근거·남은 작업 갱신, 타 리포 기록 보존 | TODO | 중앙 리포 미수정 — 해당 행을 `진행 중`(PR 열림)으로 갱신 필요 |
+| GOV-03 | 새 표준 채택 변경의 영향·이관 방법과 명시적 채택 PR 확인. 규칙 자체를 변경하면 공통 CHANGELOG 기록 | PASS | 명시적 채택 [PR #29](https://github.com/eigger/hass-esphome-ota/pull/29); 표준 규칙 자체 변경 없음(CHANGELOG 기록 불필요) |
+| GOV-04 | 중앙 표에 작업 시작·단계 변경·종료 상태, 담당·적용 내용·검증/리뷰 근거·남은 작업 갱신, 타 리포 기록 보존 | PASS | 중앙 `docs/adoption-status.md`의 hass-esphome-ota 행만 갱신(타 행 보존), #29 병합 후 `예외 포함`으로 기록 |
 | GOV-05 | 구현과 독립 리뷰·검증을 별도 서브 에이전트에게 위임, 지적 수정·재검증 및 결과 취합 | EXCEPTION | 사용자 지시로 구현은 메인 에이전트, 리뷰만 Opus 서브 에이전트(STANDARDS.md 예외). 리뷰 지적 수정 후 재검증은 아래 기록 |
 | HA-01, HA-13 | `custom_components/<domain>/`와 domain 일치, 필요한 모듈·공개 API·생명주기는 Core 대응 구조 | PASS | `custom_components/esphome_ota/`, manifest `domain: esphome_ota` |
 | HA-02 | manifest 필드·정렬·동작 선언 확인, 공식 품질 등급 자가 표기 없음 | PASS | manifest 필드(dependencies, after_dependencies, config_flow, iot_class) 확인; 품질 등급 자가 표기 없음. Hassfest 결과는 CI 대기 |
@@ -69,11 +69,11 @@
 | 규칙 ID | 확인 항목 | 상태 | 근거 / 남은 작업 |
 |---|---|---|---|
 | HACS-01, HACS-02 | 루트 README/LICENSE/hacs.json, 검증한 최소 HA, 실제 배포 구조와 필요한 옵션 일치 | PASS | 루트 README/LICENSE/hacs.json, `custom_components/esphome_ota`, `content_in_root: false` (최소 HA 값은 예외) |
-| HACS-03, HACS-05 | Default 여부는 목록 근거로 확인, [로컬 brand/icon.png 또는 원격 brands 근거](https://github.com/eigger/hass-repo-standards/blob/main/docs/hacs.md)와 HACS/Hassfest 실제 실행, ignore는 이유·해제 조건 기록 | TODO | brand/icon.png를 256×256으로 교체(기존 128px를 LANCZOS 업스케일, brand/README.md 기록; 원본 재export 권장). HACS·Hassfest 실행은 원격 CI 대기 |
+| HACS-03, HACS-05 | Default 여부는 목록 근거로 확인, [로컬 brand/icon.png 또는 원격 brands 근거](https://github.com/eigger/hass-repo-standards/blob/main/docs/hacs.md)와 HACS/Hassfest 실제 실행, ignore는 이유·해제 조건 기록 | PASS | brand/icon.png를 256×256으로 교체(기존 128px를 LANCZOS 업스케일, brand/README.md 기록; 원본 재export 권장). 원격 [Validate](https://github.com/eigger/hass-esphome-ota/actions/runs/39096290040) 성공(HACS·Hassfest) |
 | HACS-06 (권장) | description·topics·issue 경로·brands 및 사용하는 HACS 필드 지원 확인 | PASS | `gh repo view`: description·topics·Issues 설정 확인 |
 | CI-01, CI-02 | Validate/Python Tests 공통화, 확장 job 유지, PR·실제 기본 브랜치 push·dispatch 및 필요한 schedule | PASS | tests.yml/validate.yml: PR, main push, dispatch, validate schedule |
 | CI-03, CI-05, CI-08 | 최소 권한·checkout 자격증명 비보존·timeout·concurrency, full SHA·갱신 관리, 비신뢰 입력·secrets 경계 | PASS | `permissions: contents: read`, concurrency, 공통 workflow가 checkout 자격증명 비보존·timeout 설정, SHA 고정, 비신뢰 입력 없음 |
-| CI-04, CI-07, CI-12 | 실패를 숨기지 않는 실제 `ha` 필수 테스트, 버전별 환경·cache·Ruff 설정과 required checks 이름 확인 | TODO | 원격 CI 실행 후 기록; branch protection 미조회 |
+| CI-04, CI-07, CI-12 | 실패를 숨기지 않는 실제 `ha` 필수 테스트, 버전별 환경·cache·Ruff 설정과 required checks 이름 확인 | PASS | 원격 [Tests](https://github.com/eigger/hass-esphome-ota/actions/runs/39096289938)(current Python 3.14, 실제 `ha` 테스트)·[Validate](https://github.com/eigger/hass-esphome-ota/actions/runs/39096290040) 성공(PR #29 head `6463244`). main은 branch protection·ruleset 없음(404/0건) — required checks 미설정, 설정 변경은 하지 않음 |
 | DEP-03, DEP-04, CI-09 | updater의 선택 package·연산자/extras/marker 보존, 안정 버전·major 정책, 실제 기본 브랜치·단일 bot branch·PR만 제안 | N/A | 외부 의존성 없어 update_dependencies.yml 미도입; Dependabot(actions, pip HA 묶음)만 사용 |
 | CI-09, CI-10, DEP-08 | 변경 tree의 새 하한·실제 HA 검증 후 PR 동기화, 실패 시 중단·변경 없음 시 기존 PR 정리, 후속 required checks 충족 방식 확인 | N/A | updater 미도입 |
 
@@ -88,7 +88,7 @@
 | DOC-07, HA-12 | 기기별 깨우기·인증·타 앱 연결·전송 제약, 실제 검증 경로와 미검증 범위, 공개 문제 로그 비식별화 | N/A | BLE 기기 미사용(HA-12 로그 비식별화는 위 HA-11 행에서 TODO) |
 | HACS-04, REL-01, REL-02, REL-03, CI-11 | 통합 릴리스 시 같은 검증 commit/tag·manifest 버전·산출물·권한, 사용자 영향·지원 변경·제한 안내 | N/A | 이번 적용으로 릴리스하지 않음 |
 | REL-04 | 이전/중단 시 README 상단 경로·유지보수 상태·재등록 여부, 자동 이전으로 오인하지 않는 안내 | N/A | 이전·중단 상태 아님 |
-| REL-05 (권장) | 의존성/HA API 변경과 기능 변경 분리, 표준 변경은 명시적 채택 PR로 반영 | TODO | 포맷 변경과 표준 채택을 한 PR에 포함 — 필요하면 포맷 커밋 분리(커밋은 단일). 채택 PR로 명시 |
+| REL-05 (권장) | 의존성/HA API 변경과 기능 변경 분리, 표준 변경은 명시적 채택 PR로 반영 | PASS | 표준 채택은 PR #29로 명시, 포맷 변경은 AST 동일, HA 동작 결함 수정은 별도 PR #30으로 분리 |
 
 ## 예외와 남은 작업
 
@@ -102,9 +102,7 @@
 | 규칙 ID / TODO | 남은 작업 | 완료 근거 |
 |---|---|---|
 | TEST-04 | 지원 최소 결정(상향 또는 호환 코드) 후 정확한 최소 job 추가 | 사용자 승인 + CI |
-| HACS-03/05, CI-04/07/12 | PR의 Tests·Validate 결과·brand 검사·required checks 확인 | CI run 링크 |
-| HA-03/04/05/06/11/12 | Opus 감사에서 발견된 결함 11건(High 3: upload view 재등록, 부분 setup 정리, 로그의 토큰 slug) 별도 후속 PR로 수정 | 후속 PR·테스트 |
-| GOV-03/04 | 채택 PR 링크, 중앙 현황표 행 갱신 | PR·중앙 커밋 |
+| HA-03 (권장) | websocket/http 게시·롤백 로직 중복 및 모듈 간 private 속성 접근 정리, `DeviceManager.list_all()`의 기기별 `is_file()`(이벤트 루프) 제거 | 후속 PR·테스트 |
 
 CI 성공만으로 실물 기기 검증을 주장하지 않습니다. 실물 검증은 수행하지 않았습니다.
 
