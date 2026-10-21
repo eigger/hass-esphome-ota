@@ -24,6 +24,15 @@ _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
 
 
+def _identifier_values(identifiers: Any) -> list[str]:
+    """Return the id part of device identifiers, tolerating non-pair tuples."""
+    values: list[str] = []
+    for identifier in identifiers or ():
+        if isinstance(identifier, (tuple, list)) and len(identifier) >= 2:
+            values.append(str(identifier[1]))
+    return values
+
+
 class InstallationMonitor:
     """Monitors Home Assistant Update entity states and handles automatic firmware deactivation."""
 
@@ -149,8 +158,8 @@ class InstallationMonitor:
             matching_ha_device_id: str | None = None
             # Pass A: Match via explicit device identifiers (e.g. esphome, mqtt, etc.)
             for ha_dev in dev_reg.devices:
-                for _domain, ident, *_ in ha_dev.identifiers:
-                    if str(ident).lower() in (
+                for ident in _identifier_values(ha_dev.identifiers):
+                    if ident.lower() in (
                         dev_name.lower(),
                         device_id.lower(),
                         norm_name,
@@ -172,8 +181,8 @@ class InstallationMonitor:
                     ):
                         # Avoid matching a device whose identifier explicitly belongs to a different node
                         has_conflicting_ident = False
-                        for _domain, ident, *_ in ha_dev.identifiers:
-                            ident_str = str(ident).lower()
+                        for ident in _identifier_values(ha_dev.identifiers):
+                            ident_str = ident.lower()
                             if ident_str not in (
                                 dev_name.lower(),
                                 device_id.lower(),
@@ -200,8 +209,8 @@ class InstallationMonitor:
                         return False
                     if matching_ha_device_id and ent_dev.id != matching_ha_device_id:
                         return False
-                    for _domain, ident, *_ in ent_dev.identifiers:
-                        ident_str = str(ident).lower()
+                    for ident in _identifier_values(ent_dev.identifiers):
+                        ident_str = ident.lower()
                         if ident_str not in (
                             dev_name.lower(),
                             device_id.lower(),
