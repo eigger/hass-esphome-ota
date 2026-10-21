@@ -352,7 +352,9 @@ async def test_entity_platform_and_device_relationship_validation(
     monitor3.async_unload()
 
 
-async def test_refresh_monitoring_tolerates_non_pair_identifiers(hass: HomeAssistant) -> None:
+async def test_refresh_monitoring_tolerates_non_pair_identifiers(
+    hass: HomeAssistant,
+) -> None:
     """Device registry identifiers that are not 2-tuples (1 or 3 elements) must not break matching."""
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
@@ -399,5 +401,8 @@ async def test_refresh_monitoring_tolerates_non_pair_identifiers(hass: HomeAssis
     await monitor.async_refresh_entity("esp_node_3")
     await hass.async_block_till_done()
 
-    assert device_manager.get_device("esp_node_3").update_entity_id == "update.esp_node_3_fw"
+    assert (
+        device_manager.get_device("esp_node_3").update_entity_id
+        == "update.esp_node_3_fw"
+    )
     monitor.async_unload()
