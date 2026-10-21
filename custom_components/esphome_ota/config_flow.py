@@ -93,7 +93,8 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "builder_not_found"
 
         choices = {
-            c.slug: f"{c.name} ({c.host}:{c.port})" for c in self._discovered_candidates
+            c.slug: f"{c.name} ({c.host}:{c.port}, {c.source})"
+            for c in self._discovered_candidates
         }
 
         return self.async_show_form(
@@ -262,7 +263,7 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
             selector.SelectOptionDict(value="auto", label="auto"),
             *(
                 selector.SelectOptionDict(
-                    value=c.slug, label=f"{c.name} ({c.host}:{c.port})"
+                    value=c.slug, label=f"{c.name} ({c.host}:{c.port}, {c.source})"
                 )
                 for c in candidates
             ),
