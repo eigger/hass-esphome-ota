@@ -350,3 +350,54 @@ async def test_entity_platform_and_device_relationship_validation(
         == "2.5.0"
     )
     monitor3.async_unload()
+
+
+async def test_refresh_monitoring_tolerates_non_pair_identifiers(hass: HomeAssistant) -> None:
+    """Device registry identifiers that are not 2-tuples (1 or 3 elements) must not break matching."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+
+    await device_manager.async_register_or_update(
+        device_id="esp_node_3",
+        configuration="esp_node_3",
+        name="esp_node_3",
+        friendly_name="ESP Node 3",
+    )
+
+    entry = MockConfigEntry(domain="legacy", entry_id="legacy_mock_entry")
+    entry.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+
+    # Some integrations register legacy 3-tuple identifiers
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("legacy", "unrelated", "extra")},
+        name="esp_node_3",
+    )
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("single",)},  # type: ignore[arg-type]
+        name="esp_node_3",
+    )
+    ha_dev = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("legacy", "esp_node_3", "extra")},
+        name="ESP Node 3",
+    )
+    ent_reg.async_get_or_create(
+        domain="update",
+        platform="legacy",
+        unique_id="node3_firmware",
+        suggested_object_id="esp_node_3_fw",
+        device_id=ha_dev.id,
+        original_name="Firmware",
+    )
+
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_refresh_entity("esp_node_3")
+    await hass.async_block_till_done()
+
+    assert device_manager.get_device("esp_node_3").update_entity_id == "update.esp_node_3_fw"
+    monitor.async_unload()
