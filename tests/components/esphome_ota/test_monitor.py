@@ -353,7 +353,7 @@ async def test_entity_platform_and_device_relationship_validation(
 
 
 async def test_refresh_monitoring_tolerates_non_pair_identifiers(hass: HomeAssistant) -> None:
-    """Device registry identifiers with more than two elements (1 or 3 elements) must not break matching."""
+    """Device registry identifiers that are not 2-tuples (1 or 3 elements) must not break matching."""
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
