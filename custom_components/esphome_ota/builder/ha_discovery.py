@@ -39,35 +39,65 @@ class HaDiscoveryAdapter:
         self.hass = hass
 
     async def async_discover_all(self) -> list[BuilderCandidate]:
-        """Collect all candidate Builders from all discovery sources."""
-        candidates: list[BuilderCandidate] = []
+        """Collect all candidate Builders from all discovery sources.
+
+        Candidates from the dashboard and Supervisor discovery sources can outlive
+        the add-on they point to, so they are dropped when the add-on is no longer
+        installed. Candidates for the same add-on slug are merged into one.
+        """
+        installed = await self._async_installed_addon_slugs()
+        by_slug: dict[str, BuilderCandidate] = {}
         seen_keys: set[tuple[str, int]] = set()
+        candidates: list[BuilderCandidate] = []
 
-        # 1. HA ESPHome integration dashboard
-        dashboard_candidates = await self.async_discover_from_esphome_dashboard()
-        for c in dashboard_candidates:
-            key = (c.host, c.port)
-            if key not in seen_keys:
+        sources = (
+            # 1. HA ESPHome integration dashboard
+            await self.async_discover_from_esphome_dashboard(),
+            # 2. Supervisor discovery services
+            await self.async_discover_from_supervisor_services(),
+            # 3. Supervisor installed add-ons
+            await self.async_discover_from_supervisor_addons(),
+        )
+        for source_candidates in sources:
+            for c in source_candidates:
+                if installed is not None and c.slug not in installed:
+                    _LOGGER.debug(
+                        "Ignoring stale %s candidate for uninstalled add-on %s",
+                        c.source,
+                        c.slug,
+                    )
+                    continue
+                key = (c.host, c.port)
+                if key in seen_keys:
+                    continue
                 seen_keys.add(key)
-                candidates.append(c)
-
-        # 2. Supervisor discovery services
-        service_candidates = await self.async_discover_from_supervisor_services()
-        for c in service_candidates:
-            key = (c.host, c.port)
-            if key not in seen_keys:
-                seen_keys.add(key)
-                candidates.append(c)
-
-        # 3. Supervisor installed add-ons
-        addon_candidates = await self.async_discover_from_supervisor_addons()
-        for c in addon_candidates:
-            key = (c.host, c.port)
-            if key not in seen_keys:
-                seen_keys.add(key)
-                candidates.append(c)
+                existing = by_slug.get(c.slug)
+                if existing is None:
+                    by_slug[c.slug] = c
+                    candidates.append(c)
+                elif not existing.version and c.version:
+                    existing.version = c.version
 
         return candidates
+
+    async def _async_installed_addon_slugs(self) -> set[str] | None:
+        """Return installed Supervisor add-on slugs, or None when unknown."""
+        try:
+            from homeassistant.helpers.hassio import is_hassio  # noqa: PLC0415
+
+            if not is_hassio(self.hass):
+                return None
+
+            from homeassistant.components.hassio import (  # noqa: PLC0415
+                get_addons_info,
+            )
+
+            addons = get_addons_info(self.hass)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Installed add-on lookup failed: %s", err)
+            return None
+        # An empty result usually means Supervisor data is not loaded yet
+        return set(addons) if addons else None
 
     async def async_discover_from_esphome_dashboard(self) -> list[BuilderCandidate]:
         """Discover candidate from HA's built-in ESPHome integration dashboard manager."""

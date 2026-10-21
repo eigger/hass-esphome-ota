@@ -95,6 +95,101 @@ async def test_discovery_from_supervisor_addons(hass: HomeAssistant) -> None:
         assert candidates[0].source == "supervisor_addon"
 
 
+async def test_discover_all_drops_stale_and_merges_by_slug(
+    hass: HomeAssistant,
+) -> None:
+    """Candidates of uninstalled add-ons are dropped; same-slug ones are merged."""
+    dashboard = BuilderCandidate(
+        slug="5c53de3b_esphome",
+        name="ESPHome Dashboard",
+        host="127.0.0.1",
+        port=6052,
+        source="dashboard",
+    )
+    stale_dashboard = BuilderCandidate(
+        slug="a0d7b954_esphome",
+        name="ESPHome Dashboard",
+        host="a0d7b954-esphome",
+        port=6052,
+        source="dashboard",
+    )
+    stale_discovery = BuilderCandidate(
+        slug="a0d7b954_esphome",
+        name="ESPHome",
+        host="a0d7b954-esphome",
+        port=6053,
+        source="supervisor_discovery",
+    )
+    addon = BuilderCandidate(
+        slug="5c53de3b_esphome",
+        name="ESPHome",
+        host="127.0.0.1",
+        port=61234,
+        source="supervisor_addon",
+        version="2026.10.0",
+    )
+    with (
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_esphome_dashboard",
+            return_value=[dashboard, stale_dashboard],
+        ),
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_supervisor_services",
+            return_value=[stale_discovery],
+        ),
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_supervisor_addons",
+            return_value=[addon],
+        ),
+        patch.object(
+            HaDiscoveryAdapter,
+            "_async_installed_addon_slugs",
+            return_value={"5c53de3b_esphome", "core_mosquitto"},
+        ),
+    ):
+        candidates = await HaDiscoveryAdapter(hass).async_discover_all()
+
+    assert [c.slug for c in candidates] == ["5c53de3b_esphome"]
+    assert candidates[0].source == "dashboard"
+    assert candidates[0].port == 6052
+    assert candidates[0].version == "2026.10.0"
+
+
+async def test_discover_all_keeps_candidates_when_installed_unknown(
+    hass: HomeAssistant,
+) -> None:
+    """Without Supervisor data nothing is filtered out."""
+    dashboard = BuilderCandidate(
+        slug="esphome", name="ESPHome", host="127.0.0.1", port=6052, source="dashboard"
+    )
+    with (
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_esphome_dashboard",
+            return_value=[dashboard],
+        ),
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_supervisor_services",
+            return_value=[],
+        ),
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_supervisor_addons",
+            return_value=[],
+        ),
+        patch.object(
+            HaDiscoveryAdapter, "_async_installed_addon_slugs", return_value=None
+        ),
+    ):
+        candidates = await HaDiscoveryAdapter(hass).async_discover_all()
+
+    assert candidates == [dashboard]
+
+
 async def test_resolver_selection_priorities(
     hass: HomeAssistant, mock_builder: MockBuilderServer
 ) -> None:
