@@ -190,6 +190,82 @@ async def test_discover_all_keeps_candidates_when_installed_unknown(
     assert candidates == [dashboard]
 
 
+async def test_installed_addon_slugs(hass: HomeAssistant) -> None:
+    """Installed add-on lookup returns None whenever the result is unreliable."""
+    adapter = HaDiscoveryAdapter(hass)
+
+    with patch("homeassistant.helpers.hassio.is_hassio", return_value=False):
+        assert await adapter._async_installed_addon_slugs() is None
+
+    with (
+        patch("homeassistant.helpers.hassio.is_hassio", return_value=True),
+        patch(
+            "homeassistant.components.hassio.get_addons_info",
+            side_effect=RuntimeError("not ready"),
+        ),
+    ):
+        assert await adapter._async_installed_addon_slugs() is None
+
+    with (
+        patch("homeassistant.helpers.hassio.is_hassio", return_value=True),
+        patch("homeassistant.components.hassio.get_addons_info", return_value={}),
+    ):
+        assert await adapter._async_installed_addon_slugs() is None
+
+    with (
+        patch("homeassistant.helpers.hassio.is_hassio", return_value=True),
+        patch(
+            "homeassistant.components.hassio.get_addons_info",
+            return_value={"5c53de3b_esphome": {}, "core_mosquitto": {}},
+        ),
+    ):
+        assert await adapter._async_installed_addon_slugs() == {
+            "5c53de3b_esphome",
+            "core_mosquitto",
+        }
+
+
+async def test_discover_all_fills_version_from_duplicate_endpoint(
+    hass: HomeAssistant,
+) -> None:
+    """The version is filled in even when the duplicate shares the endpoint."""
+    dashboard = BuilderCandidate(
+        slug="esphome", name="ESPHome", host="127.0.0.1", port=6052, source="dashboard"
+    )
+    addon = BuilderCandidate(
+        slug="esphome",
+        name="ESPHome",
+        host="127.0.0.1",
+        port=6052,
+        source="supervisor_addon",
+        version="2026.10.0",
+    )
+    with (
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_esphome_dashboard",
+            return_value=[dashboard],
+        ),
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_supervisor_services",
+            return_value=[],
+        ),
+        patch.object(
+            HaDiscoveryAdapter,
+            "async_discover_from_supervisor_addons",
+            return_value=[addon],
+        ),
+        patch.object(
+            HaDiscoveryAdapter, "_async_installed_addon_slugs", return_value=None
+        ),
+    ):
+        candidates = await HaDiscoveryAdapter(hass).async_discover_all()
+
+    assert len(candidates) == 1
+    assert candidates[0].version == "2026.10.0"
+
+
 async def test_resolver_selection_priorities(
     hass: HomeAssistant, mock_builder: MockBuilderServer
 ) -> None:

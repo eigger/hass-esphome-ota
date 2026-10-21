@@ -263,7 +263,7 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
             selector.SelectOptionDict(value="auto", label="auto"),
             *(
                 selector.SelectOptionDict(
-                    value=c.slug, label=f"{c.name} ({c.host}:{c.port})"
+                    value=c.slug, label=f"{c.name} ({c.host}:{c.port}, {c.source})"
                 )
                 for c in candidates
             ),

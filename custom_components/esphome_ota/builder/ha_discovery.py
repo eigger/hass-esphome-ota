@@ -42,8 +42,8 @@ class HaDiscoveryAdapter:
         """Collect all candidate Builders from all discovery sources.
 
         Candidates from the dashboard and Supervisor discovery sources can outlive
-        the add-on they point to, so they are dropped when the add-on is no longer
-        installed. Candidates for the same add-on slug are merged into one.
+        the add-on they point to, so every candidate is dropped when its add-on is
+        no longer installed. Candidates for the same add-on slug are merged into one.
         """
         installed = await self._async_installed_addon_slugs()
         by_slug: dict[str, BuilderCandidate] = {}
@@ -67,16 +67,17 @@ class HaDiscoveryAdapter:
                         c.slug,
                     )
                     continue
+                existing = by_slug.get(c.slug)
+                if existing is not None:
+                    if not existing.version and c.version:
+                        existing.version = c.version
+                    continue
                 key = (c.host, c.port)
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
-                existing = by_slug.get(c.slug)
-                if existing is None:
-                    by_slug[c.slug] = c
-                    candidates.append(c)
-                elif not existing.version and c.version:
-                    existing.version = c.version
+                by_slug[c.slug] = c
+                candidates.append(c)
 
         return candidates
 
