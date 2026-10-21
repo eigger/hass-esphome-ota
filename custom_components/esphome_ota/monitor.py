@@ -149,7 +149,7 @@ class InstallationMonitor:
             matching_ha_device_id: str | None = None
             # Pass A: Match via explicit device identifiers (e.g. esphome, mqtt, etc.)
             for ha_dev in dev_reg.devices:
-                for _domain, ident in ha_dev.identifiers:
+                for _domain, ident, *_ in ha_dev.identifiers:
                     if str(ident).lower() in (
                         dev_name.lower(),
                         device_id.lower(),
@@ -172,7 +172,7 @@ class InstallationMonitor:
                     ):
                         # Avoid matching a device whose identifier explicitly belongs to a different node
                         has_conflicting_ident = False
-                        for _domain, ident in ha_dev.identifiers:
+                        for _domain, ident, *_ in ha_dev.identifiers:
                             ident_str = str(ident).lower()
                             if ident_str not in (
                                 dev_name.lower(),
@@ -200,7 +200,7 @@ class InstallationMonitor:
                         return False
                     if matching_ha_device_id and ent_dev.id != matching_ha_device_id:
                         return False
-                    for _domain, ident in ent_dev.identifiers:
+                    for _domain, ident, *_ in ent_dev.identifiers:
                         ident_str = str(ident).lower()
                         if ident_str not in (
                             dev_name.lower(),
