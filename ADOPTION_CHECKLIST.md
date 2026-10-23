@@ -109,3 +109,10 @@ CI 성공만으로 실물 기기 검증을 주장하지 않습니다. 실물 검
 ## 리뷰 기록
 
 Opus 서브 에이전트 독립 리뷰(3ffb095): CI/배선·포맷 전용 변경(AST 동일 38개 파일)·삭제 스크립트 미참조·지원 최소 예외 처리는 적정. 필수 지적(상태 오용·템플릿 행 누락)과 Low/Nit 16건을 이 커밋에서 모두 반영했습니다. 반영 후 재검증 결과는 최종 커밋의 독립 재검토 시 추가합니다.
+
+
+## 2026-10-23 HACS ZIP and Downloads (scoped)
+
+- Target base: `655107c7af12c50058ebba7a7677aead84cc957e`; reviewed release central: `fd4162c0b93fbe8e109f99c787773ae09ba157e1`.
+- Scope: HACS-04/CI-11 release ZIP and DOC-03/05 Downloads replacing Analytics Usage. No release is created during this update.
+- Validation: pending badge/release contract checks, actionlint, actual local ZIP build and remote PR CI. Full adoption, device and real release upload are not asserted by this partial change.

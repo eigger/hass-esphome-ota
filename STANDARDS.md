@@ -34,3 +34,12 @@
 - `ruff format`을 저장소 전체에 적용했습니다(포맷 전용 변경, 38개 파일). Ruff 규칙 선택은 기존 `ruff.toml`(E/F, E501 제외)을 유지합니다.
 - 기존 CI의 `scripts/ha_component_requirements.py`는 공통 python-environment 액션의 `ha-components` 입력으로 대체되어 삭제했습니다.
 - 실물 ESPHome Builder/기기 검증은 수행하지 않았습니다.
+
+- Reviewed release standards SHA: `fd4162c0b93fbe8e109f99c787773ae09ba157e1`
+
+
+## 2026-10-23 ZIP release and Downloads update
+
+Base commit: `655107c7af12c50058ebba7a7677aead84cc957e`. HACS remains Custom. `hacs.json` now selects `esphome_ota.zip`; publishing the next release builds and attaches that integration ZIP through the pinned central action. Analytics Usage is replaced by Downloads. The archive contains tracked integration files at its root. No existing release/tag/assets are modified.
+
+Implementation and review: root; generated release caller reuses the independently reviewed central ZIP contract. Support minimum, manifest, code, dependencies, README body and prior adoption exceptions are preserved. Verification evidence is recorded in ADOPTION_CHECKLIST.md; this scoped update does not establish full standards compliance.
