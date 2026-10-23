@@ -115,4 +115,23 @@ Opus 서브 에이전트 독립 리뷰(3ffb095): CI/배선·포맷 전용 변경
 
 - Target base: `655107c7af12c50058ebba7a7677aead84cc957e`; reviewed release central: `fd4162c0b93fbe8e109f99c787773ae09ba157e1`.
 - Scope: HACS-04/CI-11 release ZIP and DOC-03/05 Downloads replacing Analytics Usage. No release is created during this update.
-- Validation: pending badge/release contract checks, actionlint, actual local ZIP build and remote PR CI. Full adoption, device and real release upload are not asserted by this partial change.
+- Local scoped validation: PASS — canonical badge check, no Analytics Usage, release metadata/caller contract, actionlint 1.7.12, native git diff --check, unchanged tracked integration/manifest/dependencies/tests.
+- Actual archive build: PASS at `48ac7f38e0a1e0008d77666e365e5ef424cf5e04`; `esphome_ota.zip`, 39 files, SHA256 `3d19cc7adce8fd2f45bc8d5a3603f2526bb9a9604cfbbd3a62bbdddded7fbd4b`. All archive members matched checkout bytes; manifest.json and __init__.py are at ZIP root. Final documentation-only follow-up preserves this integration tree. Windows Python 3.14.6; validation WSL Python 3.14.4/PyYAML 6.0.3/packaging 26.0.
+- Full central integration checker: FAIL (pre-existing or unadopted contracts outside this scoped update; not treated as PASS). Findings:
+
+```text
+DOC-01 README.md: Exactly one ordered header marker pair required
+DOC-01 README.ko.md: Exactly one ordered header marker pair required
+HA-02 custom_components/esphome_ota/manifest.json: categories requires 1–3 actual product categories (HA-02 project policy)
+HA-13 custom_components/__init__.py: Required contract file is missing
+GOV-02 .github/workflows/tests.yml: standards-ref must equal the reviewed reusable workflow SHA
+TEST-08 tests/__init__.py: must exist and be empty
+TEST-08 tests/components/__init__.py: must exist and be empty
+TEST-08 tests/components/esphome_ota/__init__.py: must exist and be empty
+TEST-03 tests/conftest.py: must match the central template exactly
+TEST-08 tests/components/esphome_ota/conftest.py: Exactly one ordered domain-fixtures marker pair required
+CI-01 .github/workflows/validate.yml: central standards composite action pinned to full SHA required
+```
+
+- Existing CI workflows are preserved, except hass-kocom-smarthome where matching reviewed central references are synchronized. Existing support minimum and prior exceptions remain.
+- Independent review and remote CI: tracked in this branch's pull request; merge requires resolved actionable findings and successful applicable checks. No real release upload, device or new real HA runtime validation is claimed by these local packaging checks.
