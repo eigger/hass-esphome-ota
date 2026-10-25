@@ -37,7 +37,7 @@ The integration has no external Python requirements (`manifest.json` `requiremen
 
 ## Adding dependencies
 
-Follow the shared [dependency rules](https://github.com/eigger/hass-repo-standards/blob/ba9f3fad8b635c163fb44a4e91b1833cc4ab47b4/docs/dependencies.md):
+Follow the shared [dependency rules](https://github.com/eigger/hass-repo-standards/blob/v1.0.0/docs/dependencies.md):
 
 - Runtime Python packages go in `manifest.json` `requirements`; Home Assistant domains in `dependencies` / `after_dependencies`.
 - Test tools go in `requirements_test.txt` (the plugin pins `pytest-timeout`); lint tools in `requirements_lint.txt`.
