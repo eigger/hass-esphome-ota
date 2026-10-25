@@ -167,3 +167,11 @@ TEST-08 tests/components/esphome_ota/conftest.py: Exactly one ordered domain-fix
 - `pytest tests/components/esphome_ota/ -q --timeout 120`: **201 passed, 12 subtests passed**. 수정 전후 회귀 테스트를 삭제하거나 skip하지 않았습니다.
 - 중앙 `check_integration.py`: PASS. 변경 fixture Ruff check/format, actionlint 1.7.12, `git diff --check`: PASS.
 - 원격 CI와 독립 리뷰는 PR #37의 최신 head 결과를 확인합니다. 기존 HA 최소 2024.1.0 선언과 실제 지원 차이에 관한 기존 미검증 기록은 이 부분 수정으로 해결됐다고 주장하지 않습니다.
+
+
+### 2026-10-25 Standards workflow 분리 검증
+
+- 분리 시작 커밋: `20a7b23ae48cecbcc136e061f512c19909c32e9a`; 검토 중앙 소스 `ca740d88b32fa5dcbc94c41fce2908450c76ed50` (중앙 PR #24). Validate는 HACS/Hassfest job을 그대로 유지하며 중앙 job만 standards.yml로 이동하고 표시 이름을 Standards로 변경합니다.
+- 독립 리뷰: root 구현의 19개 리포에 대해 별도 fix_scale_atflee_ci 담당자가 Validate job 19개와 이동 job 19개의 YAML 정의를 비교했습니다. 파일 이동·표시 이름 외 실제 검사 단계·이벤트·권한·timeout·입력 변경 없음. 중앙 위치 인식 변경은 root가 별도 독립 리뷰했습니다.
+- 로컬: 새 중앙 검사기·actionlint·diff 검사 PASS. 중앙 전체232개·관련38개 회귀 테스트와 양 배치19개 동등성 검사 PASS. 모든 대상 기본 브랜치의 branch protection·rulesets 조회에서 필수 검사 이름 설정이 없어 이름 변경으로 인한 대기 충돌 없음. 원격 CI는 이 PR의 최신 head에서 확인합니다.
+- 검사 기준을 추가하거나 완화하지 않았으며 기존 inline 배치도 같은 기준으로 지원합니다. 실제 runtime·지원 최소·의존성은 이 파일 분리에서 변경하지 않습니다.
