@@ -1,7 +1,9 @@
 # 적용한 공통 규칙
 
-- 표준: https://github.com/eigger/hass-repo-standards/tree/ca740d88b32fa5dcbc94c41fce2908450c76ed50
-- 참조 커밋 SHA: `ca740d88b32fa5dcbc94c41fce2908450c76ed50`
+- 표준: https://github.com/eigger/hass-repo-standards/tree/v1.0.0
+- 참조 커밋 SHA: 44349ee5621eea5d80e5c427f7a2435d2c2491bb
+- Standards release: v1.0.0
+- Resolved standards SHA: 44349ee5621eea5d80e5c427f7a2435d2c2491bb
 - 채택일: 2026-10-18 (채택 PR 병합 시 확정)
 - profile: integration / ha
 - 기본 브랜치: main; domain: esphome_ota
@@ -34,8 +36,6 @@
 - `ruff format`을 저장소 전체에 적용했습니다(포맷 전용 변경, 38개 파일). Ruff 규칙 선택은 기존 `ruff.toml`(E/F, E501 제외)을 유지합니다.
 - 기존 CI의 `scripts/ha_component_requirements.py`는 공통 python-environment 액션의 `ha-components` 입력으로 대체되어 삭제했습니다.
 - 실물 ESPHome Builder/기기 검증은 수행하지 않았습니다.
-
-- Reviewed release standards SHA: `ca740d88b32fa5dcbc94c41fce2908450c76ed50`
 ## 2026-10-23 ZIP release and Downloads update
 
 Base commit: `655107c7af12c50058ebba7a7677aead84cc957e`. HACS remains Custom. `hacs.json` now selects `esphome_ota.zip`; publishing the next release builds and attaches that integration ZIP through the pinned central action. Analytics Usage is replaced by Downloads. The archive contains tracked integration files at its root. No existing release/tag/assets are modified.
@@ -58,3 +58,6 @@ PR #37의 실제 실패 항목인 README 관리 영역·categories 검토 근거
 
 - 기존 Validate의 중앙 검사 job을 `standards.yml`로 옮기고 workflow/job 표시 이름을 `Standards`로 줄였습니다. Validate의 HACS/Hassfest, 검사 항목·통과 기준·실행 단계·조건·권한은 유지합니다.
 - 위치 인식과 중앙 명명 안내를 맞춘 검토 소스: `ca740d88b32fa5dcbc94c41fce2908450c76ed50` ([중앙 PR #24](https://github.com/eigger/hass-repo-standards/pull/24), 현재 이 PR의 의존 변경). 이전 기준 `1863343638014adb8a4001afc8fddc1a27dc500f`의 검증 이력은 앞 기록으로 보존합니다. 모든 중앙 pin·standards-ref는 같은 새 검토 소스로 맞춥니다.
+### 2026-10-25 immutable central release reference migration
+
+- User-requested partial migration: current central caller references use immutable `v1.0.0` resolved to `44349ee5621eea5d80e5c427f7a2435d2c2491bb`. Prior scoped ZIP SHA evidence is retained here: `ca740d88b32fa5dcbc94c41fce2908450c76ed50`. Runtime code, dependencies, support minimum, manifest and integration version are unchanged.
