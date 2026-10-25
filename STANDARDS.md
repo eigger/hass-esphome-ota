@@ -1,7 +1,7 @@
 # 적용한 공통 규칙
 
-- 표준: https://github.com/eigger/hass-repo-standards/tree/ba9f3fad8b635c163fb44a4e91b1833cc4ab47b4
-- 참조 커밋 SHA: `ba9f3fad8b635c163fb44a4e91b1833cc4ab47b4`
+- 표준: https://github.com/eigger/hass-repo-standards/tree/1863343638014adb8a4001afc8fddc1a27dc500f
+- 참조 커밋 SHA: `1863343638014adb8a4001afc8fddc1a27dc500f`
 - 채택일: 2026-10-18 (채택 PR 병합 시 확정)
 - profile: integration / ha
 - 기본 브랜치: main; domain: esphome_ota
@@ -35,11 +35,16 @@
 - 기존 CI의 `scripts/ha_component_requirements.py`는 공통 python-environment 액션의 `ha-components` 입력으로 대체되어 삭제했습니다.
 - 실물 ESPHome Builder/기기 검증은 수행하지 않았습니다.
 
-- Reviewed release standards SHA: `fd4162c0b93fbe8e109f99c787773ae09ba157e1`
-
-
+- Reviewed release standards SHA: `1863343638014adb8a4001afc8fddc1a27dc500f`
 ## 2026-10-23 ZIP release and Downloads update
 
 Base commit: `655107c7af12c50058ebba7a7677aead84cc957e`. HACS remains Custom. `hacs.json` now selects `esphome_ota.zip`; publishing the next release builds and attaches that integration ZIP through the pinned central action. Analytics Usage is replaced by Downloads. The archive contains tracked integration files at its root. No existing release/tag/assets are modified.
 
 Implementation and review: root; generated release caller reuses the independently reviewed central ZIP contract. Support minimum, manifest, code, dependencies, README body and prior adoption exceptions are preserved. Verification evidence is recorded in ADOPTION_CHECKLIST.md; this scoped update does not establish full standards compliance.
+
+## 2026-10-25 중앙 검사기 갱신
+
+- 검토한 중앙 main: `1863343638014adb8a4001afc8fddc1a27dc500f` (git ls-remote 확인). 이전 기본 기준 `ba9f3fad8b635c163fb44a4e91b1833cc4ab47b4`의 채택 이력은 위 기록을 보존합니다.
+- 모든 중앙 workflow/action pin과 reusable workflow의 standards-ref를 같은 검토 SHA로 맞춥니다. HACS-04는 actions/*의 full SHA 고정을 유지하면서 SHA 값 차이를 허용합니다.
+- Validate에 중앙 템플릿의 무조건 실행 standards job을 추가합니다. 기존 HACS/Hassfest와 HA test job 이름·입력은 보존하며, 기본 브랜치를 사용하는 중앙 실행 조건을 적용합니다.
+- 통합 코드·런타임 의존성·지원 최소·배포 버전은 이번 변경 대상이 아닙니다. 기존 채택 범위를 전체 완료로 바꾸지 않으며 실제 검증 결과와 남은 항목은 ADOPTION_CHECKLIST.md의 같은 날짜 기록을 참조합니다.
