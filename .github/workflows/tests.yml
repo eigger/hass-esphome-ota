@@ -14,8 +14,9 @@ concurrency:
 # not run on (see STANDARDS.md exception); no minimum job until that is resolved.
 jobs:
   current:
-    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@ba9f3fad8b635c163fb44a4e91b1833cc4ab47b4 # reviewed standards commit
+    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@ca740d88b32fa5dcbc94c41fce2908450c76ed50 # reviewed standards commit
     with:
+      standards-ref: ca740d88b32fa5dcbc94c41fce2908450c76ed50
       domain: esphome_ota
       python-versions: '["3.14"]'
       lint-python-version: '3.14'

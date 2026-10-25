@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+# <!-- hass-standards:domain-fixtures:start -->
+# Use pytest_homeassistant_custom_component.common.MockConfigEntry for
+# mock_config_entry when the integration uses config entries.
+# Define mock_client only when an external communication client is present.
+# Mock external communication boundaries, never Home Assistant core modules.
+# Keep integration-specific fixtures below this managed block.
+# <!-- hass-standards:domain-fixtures:end -->
+
+
 import json
 import shutil
 import uuid
@@ -21,13 +30,6 @@ from custom_components.esphome_ota.const import (
     CONF_BUILDER_SLUG,
     DOMAIN,
 )
-
-
-@pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(request: pytest.FixtureRequest) -> None:
-    """Enable custom integrations in Home Assistant test environment."""
-    if "hass" in request.fixturenames:
-        request.getfixturevalue("enable_custom_integrations")
 
 
 @pytest.fixture(autouse=True)

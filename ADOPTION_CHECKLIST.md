@@ -135,3 +135,43 @@ CI-01 .github/workflows/validate.yml: central standards composite action pinned 
 
 - Existing CI workflows are preserved, except hass-kocom-smarthome where matching reviewed central references are synchronized. Existing support minimum and prior exceptions remain.
 - Independent review and remote CI: tracked in this branch's pull request; merge requires resolved actionable findings and successful applicable checks. No real release upload, device or new real HA runtime validation is claimed by these local packaging checks.
+
+
+## 2026-10-25 중앙 검사기 부분 갱신 검증
+
+- 검토한 중앙 SHA: `1863343638014adb8a4001afc8fddc1a27dc500f`; 적용 시작 커밋: `c948a632764b333dd85aa75f369e05a063fe3e14`.
+- 범위: 중앙 pin·standards-ref·검토 기준 기록 정합화 및 누락 standards job 추가. HA 구현·요구 버전은 유지합니다.
+- 로컬: Python 3.14.5 / PyYAML 6.0.3, `python scripts/check_integration.py <target>` (검토한 중앙 source에서 실행): FAIL — 아래 미충족 항목을 확인했으며 성공으로 표시하지 않음.
+- actionlint: PASS. PR CI·독립 리뷰 결과는 PR 링크와 check 결과를 확인합니다. 이 로컬 결과만으로 전체 채택 완료를 주장하지 않습니다.
+- 수정 전에도 최신 검사기로 검사 시 11개 진단이 있었습니다. 이번 검사기가 드러내는 잔여 항목은 다음과 같습니다. 승인 예외나 실패 무시를 추가하지 않았습니다.
+
+```text
+DOC-01 README.md: Exactly one ordered header marker pair required
+DOC-01 README.ko.md: Exactly one ordered header marker pair required
+HA-02 custom_components/esphome_ota/manifest.json: categories requires 1–3 actual product categories (HA-02 project policy)
+HA-13 custom_components/__init__.py: Required contract file is missing
+TEST-08 tests/__init__.py: must exist and be empty
+TEST-08 tests/components/__init__.py: must exist and be empty
+TEST-08 tests/components/esphome_ota/__init__.py: must exist and be empty
+TEST-03 tests/conftest.py: must match the central template exactly
+TEST-08 tests/components/esphome_ota/conftest.py: Exactly one ordered domain-fixtures marker pair required
+```
+- 독립 리뷰: 별도 review_checker_rollout 담당자가 19개 리포의 workflow 69개·기존 job 100개를 구조 비교했습니다. 새 CI 회귀 지적 없음. 기존 job ID·입력·권한·지원 최소와 통합 코드 보존 및 새 standards job의 중앙 템플릿 일치 확인. 실행 변경 없는 이 기록 추가 전 작업 트리를 검토했습니다.
+
+## 2026-10-25 CI 실패 수정
+
+- 대상 시작 커밋: `47a3dba92aea50c3ebccec5c5ed814987912b44c` (PR #37). 앞 절의 실패 기록을 이 변경에서 해결합니다.
+- README 본문과 기존 지원/라이선스 고지를 보존해 중앙 관리 영역으로 이관하고 메타데이터에서 같은 렌더러로 생성했습니다. `computers_network`는 실제 ESPHome Device Builder·컴파일/OTA 펌웨어 관리 용도를 근거로 선택했습니다. 새 categories 스키마는 검토한 공식 Core `ec18d8b25d1ee39aa8b85a72a170e42bee33228c`의 전체 Hassfest로 검증합니다.
+- 공통 test scaffold를 적용하고 기존 MockBuilderServer·config entry·정리 fixture와 실제 HA 테스트를 보존했습니다. 통합 구현과 의존성·버전·지원 최소는 변경하지 않았습니다.
+- 격리된 로컬 환경: Python 3.14.5, HA 2026.10.2, pytest-homeassistant-custom-component 0.13.373. requirements_test.txt와 중앙 python-environment의 component_requirements로 산출한 frontend/panel_custom/websocket_api/http/esphome 요구사항을 함께 resolver로 설치했습니다. `uv pip check`: PASS.
+- `pytest tests/components/esphome_ota/ -q --timeout 120`: **201 passed, 12 subtests passed**. 수정 전후 회귀 테스트를 삭제하거나 skip하지 않았습니다.
+- 중앙 `check_integration.py`: PASS. 변경 fixture Ruff check/format, actionlint 1.7.12, `git diff --check`: PASS.
+- 원격 CI와 독립 리뷰는 PR #37의 최신 head 결과를 확인합니다. 기존 HA 최소 2024.1.0 선언과 실제 지원 차이에 관한 기존 미검증 기록은 이 부분 수정으로 해결됐다고 주장하지 않습니다.
+
+
+### 2026-10-25 Standards workflow 분리 검증
+
+- 분리 시작 커밋: `20a7b23ae48cecbcc136e061f512c19909c32e9a`; 검토 중앙 소스 `ca740d88b32fa5dcbc94c41fce2908450c76ed50` (중앙 PR #24). Validate는 HACS/Hassfest job을 그대로 유지하며 중앙 job만 standards.yml로 이동하고 표시 이름을 Standards로 변경합니다.
+- 독립 리뷰: root 구현의 19개 리포에 대해 별도 fix_scale_atflee_ci 담당자가 Validate job 19개와 이동 job 19개의 YAML 정의를 비교했습니다. 파일 이동·표시 이름 외 실제 검사 단계·이벤트·권한·timeout·입력 변경 없음. 중앙 위치 인식 변경은 root가 별도 독립 리뷰했습니다.
+- 로컬: 새 중앙 검사기·actionlint·diff 검사 PASS. 중앙 전체232개·관련38개 회귀 테스트와 양 배치19개 동등성 검사 PASS. 모든 대상 기본 브랜치의 branch protection·rulesets 조회에서 필수 검사 이름 설정이 없어 이름 변경으로 인한 대기 충돌 없음. 원격 CI는 이 PR의 최신 head에서 확인합니다.
+- 검사 기준을 추가하거나 완화하지 않았으며 기존 inline 배치도 같은 기준으로 지원합니다. 실제 runtime·지원 최소·의존성은 이 파일 분리에서 변경하지 않습니다.

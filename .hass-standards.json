@@ -11,5 +11,23 @@
   "installation_links": {
     "README.md": "#installation",
     "README.ko.md": "#설치"
+  },
+  "categories_review": {
+    "value": [
+      "computers_network"
+    ],
+    "integration_type": null,
+    "source": "README Supported features and docs/features.md: connects ESPHome Device Builder, compiles ESPHome firmware, verifies and publishes OTA binaries, and manages device firmware updates through a HA sidebar. Primary computers_network covers the actual computing/firmware tooling use across ESPHome devices; no specific end-device product class or cloud developer service is claimed."
+  },
+  "readme": {
+    "title": "ESPHome OTA for Home Assistant",
+    "descriptions": {
+      "en": "**ESPHome OTA** is a Home Assistant custom integration (HACS) for building and publishing ESPHome firmware over HTTP OTA. It connects to the **ESPHome Device Builder** add-on's trusted loopback listener inside Home Assistant OS, so no public ports, `leave_front_door_open`, or login tokens are needed. It is a HACS custom integration, not an official Home Assistant Core integration.",
+      "ko": "**ESPHome OTA**는 ESPHome 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합(HACS)입니다. HA OS 안에서 **ESPHome Device Builder** 애드온의 신뢰 루프백(trusted loopback listener)에 자동 연결하므로 공개 포트 매핑, `leave_front_door_open`, 로그인 토큰이 필요 없습니다. HACS 커스텀 통합이며 Home Assistant Core 공식 통합이 아닙니다."
+    },
+    "issues": true,
+    "discussions": false,
+    "license_name": "MIT License",
+    "related_projects": []
   }
 }
