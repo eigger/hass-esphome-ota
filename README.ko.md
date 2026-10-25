@@ -1,4 +1,9 @@
+<!-- hass-standards:header:start -->
 # ESPHome OTA for Home Assistant
+
+**ESPHome OTA**는 ESPHome 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합(HACS)입니다. HA OS 안에서 **ESPHome Device Builder** 애드온의 신뢰 루프백(trusted loopback listener)에 자동 연결하므로 공개 포트 매핑, `leave_front_door_open`, 로그인 토큰이 필요 없습니다. HACS 커스텀 통합이며 Home Assistant Core 공식 통합이 아닙니다.
+
+[English](README.md) | **한국어**
 
 <!-- hass-standards:badges:start -->
 [![Release](https://img.shields.io/github/v/release/eigger/hass-esphome-ota?style=flat)](https://github.com/eigger/hass-esphome-ota/releases)
@@ -9,10 +14,7 @@
 [![License](https://img.shields.io/github/license/eigger/hass-esphome-ota?style=flat)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/eigger/hass-esphome-ota/total?style=flat&color=41BDF5&label=Downloads)](https://github.com/eigger/hass-esphome-ota/releases)
 <!-- hass-standards:badges:end -->
-
-[English](README.md) | **한국어**
-
-**ESPHome OTA**는 ESPHome 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합(HACS)입니다. HA OS 안에서 **ESPHome Device Builder** 애드온의 신뢰 루프백(trusted loopback listener)에 자동 연결하므로 공개 포트 매핑, `leave_front_door_open`, 로그인 토큰이 필요 없습니다. HACS 커스텀 통합이며 Home Assistant Core 공식 통합이 아닙니다.
+<!-- hass-standards:header:end -->
 
 ## 지원 기능
 
@@ -30,6 +32,10 @@
 - ESPHome 기기가 접근할 수 있는 Base URL.
 
 ## 설치
+
+<!-- hass-standards:installation:start -->
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eigger&repository=hass-esphome-ota&category=integration)
+<!-- hass-standards:installation:end -->
 
 1. HACS의 **사용자 지정 저장소**에 `https://github.com/eigger/hass-esphome-ota`를 범주 **Integration**으로 추가합니다.
 2. **ESPHome OTA**를 다운로드하고 Home Assistant를 재시작합니다.
@@ -61,10 +67,21 @@
 - [상세 설계](docs/architecture.ko.md)
 - [HA OS 실환경 검증](docs/validation.ko.md)
 
-## 지원
+### 저장소 지원
 
 버그 보고와 기능 제안은 [GitHub Issues](https://github.com/eigger/hass-esphome-ota/issues)를 이용하세요. 이 저장소는 GitHub Discussions를 사용하지 않습니다.
 
+<!-- hass-standards:support:start -->
+## 지원
+
+- [Issues](https://github.com/eigger/hass-esphome-ota/issues): 버그를 신고하거나 기능을 요청하세요.
+<!-- hass-standards:support:end -->
+
+<!-- hass-standards:related-projects:start -->
+<!-- hass-standards:related-projects:end -->
+
+<!-- hass-standards:license:start -->
 ## 라이선스
 
-[MIT 라이선스](LICENSE)로 배포됩니다.
+[MIT License](LICENSE) 라이선스로 배포됩니다.
+<!-- hass-standards:license:end -->

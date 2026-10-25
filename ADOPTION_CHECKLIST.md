@@ -157,3 +157,13 @@ TEST-03 tests/conftest.py: must match the central template exactly
 TEST-08 tests/components/esphome_ota/conftest.py: Exactly one ordered domain-fixtures marker pair required
 ```
 - 독립 리뷰: 별도 review_checker_rollout 담당자가 19개 리포의 workflow 69개·기존 job 100개를 구조 비교했습니다. 새 CI 회귀 지적 없음. 기존 job ID·입력·권한·지원 최소와 통합 코드 보존 및 새 standards job의 중앙 템플릿 일치 확인. 실행 변경 없는 이 기록 추가 전 작업 트리를 검토했습니다.
+
+## 2026-10-25 CI 실패 수정
+
+- 대상 시작 커밋: `47a3dba92aea50c3ebccec5c5ed814987912b44c` (PR #37). 앞 절의 실패 기록을 이 변경에서 해결합니다.
+- README 본문과 기존 지원/라이선스 고지를 보존해 중앙 관리 영역으로 이관하고 메타데이터에서 같은 렌더러로 생성했습니다. `computers_network`는 실제 ESPHome Device Builder·컴파일/OTA 펌웨어 관리 용도를 근거로 선택했습니다. 새 categories 스키마는 검토한 공식 Core `ec18d8b25d1ee39aa8b85a72a170e42bee33228c`의 전체 Hassfest로 검증합니다.
+- 공통 test scaffold를 적용하고 기존 MockBuilderServer·config entry·정리 fixture와 실제 HA 테스트를 보존했습니다. 통합 구현과 의존성·버전·지원 최소는 변경하지 않았습니다.
+- 격리된 로컬 환경: Python 3.14.5, HA 2026.10.2, pytest-homeassistant-custom-component 0.13.373. requirements_test.txt와 중앙 python-environment의 component_requirements로 산출한 frontend/panel_custom/websocket_api/http/esphome 요구사항을 함께 resolver로 설치했습니다. `uv pip check`: PASS.
+- `pytest tests/components/esphome_ota/ -q --timeout 120`: **201 passed, 12 subtests passed**. 수정 전후 회귀 테스트를 삭제하거나 skip하지 않았습니다.
+- 중앙 `check_integration.py`: PASS. 변경 fixture Ruff check/format, actionlint 1.7.12, `git diff --check`: PASS.
+- 원격 CI와 독립 리뷰는 PR #37의 최신 head 결과를 확인합니다. 기존 HA 최소 2024.1.0 선언과 실제 지원 차이에 관한 기존 미검증 기록은 이 부분 수정으로 해결됐다고 주장하지 않습니다.

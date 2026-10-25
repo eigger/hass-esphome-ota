@@ -5,6 +5,9 @@
     "esphome",
     "hassio"
   ],
+  "categories": [
+    "computers_network"
+  ],
   "codeowners": [
     "@eigger"
   ],

@@ -48,3 +48,7 @@ Implementation and review: root; generated release caller reuses the independent
 - 모든 중앙 workflow/action pin과 reusable workflow의 standards-ref를 같은 검토 SHA로 맞춥니다. HACS-04는 actions/*의 full SHA 고정을 유지하면서 SHA 값 차이를 허용합니다.
 - Validate에 중앙 템플릿의 무조건 실행 standards job을 추가합니다. 기존 HACS/Hassfest와 HA test job 이름·입력은 보존하며, 기본 브랜치를 사용하는 중앙 실행 조건을 적용합니다.
 - 통합 코드·런타임 의존성·지원 최소·배포 버전은 이번 변경 대상이 아닙니다. 기존 채택 범위를 전체 완료로 바꾸지 않으며 실제 검증 결과와 남은 항목은 ADOPTION_CHECKLIST.md의 같은 날짜 기록을 참조합니다.
+
+### 2026-10-25 CI 미충족 보완
+
+PR #37의 실제 실패 항목인 README 관리 영역·categories 검토 근거·공통 test scaffold를 보완했습니다. 기존 README 본문, 실제 HA lifecycle/Builder 테스트와 지원 정책을 보존합니다. 로컬 검증과 원격 확인 범위는 ADOPTION_CHECKLIST.md의 CI 실패 수정 기록을 참조합니다.
