@@ -1,15 +1,24 @@
 version: 2
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      home-assistant-tests:
-        patterns:
-          - homeassistant
-          - pytest-homeassistant-custom-component
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: daily
+  cooldown:
+    exclude:
+    - eigger/hass-repo-standards
+    - eigger/hass-repo-standards/*
+  groups:
+    central-standards:
+      patterns:
+      - eigger/hass-repo-standards
+      - eigger/hass-repo-standards/*
+- package-ecosystem: pip
+  directory: /
+  schedule:
+    interval: weekly
+  groups:
+    home-assistant-tests:
+      patterns:
+      - homeassistant
+      - pytest-homeassistant-custom-component
