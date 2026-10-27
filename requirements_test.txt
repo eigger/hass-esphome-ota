@@ -1,4 +1,3 @@
 # Current test environment (support minimum is declared separately in hacs.json).
 # pytest-timeout is pinned by the plugin.
-homeassistant==2026.10.2
 pytest-homeassistant-custom-component==0.13.373
