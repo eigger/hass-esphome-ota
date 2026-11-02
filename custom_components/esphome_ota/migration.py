@@ -16,6 +16,7 @@ from .config_patch import apply_ota_patch
 from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
 from .firmware import inspect_binary
+from .models import BinaryValidationError
 from .models import BuilderConnectionError
 from .publisher import ArtifactPublisher
 from .storage import StorageManager
@@ -94,8 +95,15 @@ class MigrationManager:
             data["migrated_at"] = record.get("migrated_at")
         return data
 
-    def _execute_migration_sync(self) -> dict[str, Any]:
-        """Migrate legacy devices and public files into modern storage format."""
+    def _execute_migration_sync(
+        self, platforms: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        """Migrate legacy devices and public files into modern storage format.
+
+        ``platforms`` maps legacy node -> Builder target_platform so each binary
+        is inspected against its real platform (e.g. ESP8266) when known.
+        """
+        platforms = platforms or {}
         esphome_dir = Path(self.hass.config.path("esphome"))
         legacy_reg_path = esphome_dir / "ota_server" / "registered.json"
         www_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
@@ -122,7 +130,22 @@ class MigrationManager:
             if bin_path.is_file():
                 try:
                     blob = bin_path.read_bytes()
-                    info = inspect_binary(blob=blob, reserved_version=version)
+                    plat = platforms.get(node)
+                    if plat:
+                        info = inspect_binary(
+                            blob=blob, target_platform=plat, reserved_version=version
+                        )
+                    else:
+                        # Platform unknown (device not in Builder): try ESP32
+                        # first, then ESP8266, whose images carry a different header.
+                        try:
+                            info = inspect_binary(blob=blob, reserved_version=version)
+                        except BinaryValidationError:
+                            info = inspect_binary(
+                                blob=blob,
+                                target_platform="esp8266",
+                                reserved_version=version,
+                            )
                     # Archive into private storage
                     self.publisher._publish_sync(
                         device_id=node,
@@ -140,10 +163,35 @@ class MigrationManager:
             "migrated_artifacts": migrated_artifacts,
         }
 
+    async def _async_legacy_platforms(self) -> dict[str, str]:
+        """Map legacy registry nodes to their Builder target_platform."""
+        reg_path = (
+            Path(self.hass.config.path("esphome")) / "ota_server" / "registered.json"
+        )
+        if not await async_path_is_file(self.hass, reg_path):
+            return {}
+        try:
+            content = await self.hass.async_add_executor_job(
+                reg_path.read_text, "utf-8"
+            )
+            registered = json.loads(content)
+        except Exception:  # noqa: BLE001
+            return {}
+        platforms: dict[str, str] = {}
+        if not isinstance(registered, dict):
+            return platforms
+        for node, rec in registered.items():
+            token = (rec.get("token", "") if isinstance(rec, dict) else "") or ""
+            _, _, raw, _ = self.device_manager.resolve_legacy_configuration(node, token)
+            if raw and raw.get("target_platform"):
+                platforms[node] = raw["target_platform"]
+        return platforms
+
     async def async_migrate(self) -> dict[str, Any]:
         """Execute legacy migration and update storage."""
+        platforms = await self._async_legacy_platforms()
         sync_result = await self.hass.async_add_executor_job(
-            self._execute_migration_sync
+            self._execute_migration_sync, platforms
         )
         migrated_artifacts: list[str] = sync_result.get("migrated_artifacts", [])
 

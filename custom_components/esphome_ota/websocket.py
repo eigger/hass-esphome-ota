@@ -30,6 +30,7 @@ from .models import (
     BuilderConnectionError,
     BuilderTimeoutError,
     ConfigConflictError,
+    UnsupportedPlatformError,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -453,6 +454,8 @@ async def ws_build(
             auto_hide=msg.get("auto_hide"),
         )
         connection.send_result(msg["id"], {"job_id": job_id})
+    except UnsupportedPlatformError as err:
+        connection.send_error(msg["id"], "unsupported_platform", str(err))
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "build_failed", str(err))
 

@@ -20,6 +20,11 @@ class EsphomeOtaError(Exception):
 class BuilderError(EsphomeOtaError):
     """Error communicating with or executing on ESPHome Builder."""
 
+    def __init__(self, *args: object, error_code: str | None = None) -> None:
+        """Keep the Builder's structured error code when it supplied one."""
+        super().__init__(*args)
+        self.error_code = error_code
+
 
 class BuilderConnectionError(BuilderError):
     """Cannot connect to ESPHome Builder trusted listener."""
@@ -51,6 +56,10 @@ class ConfigConflictError(EsphomeOtaError):
 
 class BinaryValidationError(EsphomeOtaError):
     """Firmware binary validation failed."""
+
+
+class UnsupportedPlatformError(BinaryValidationError):
+    """Target platform cannot be verified or published (e.g. RP2040/RP2350)."""
 
 
 class DeviceNotFoundError(EsphomeOtaError):

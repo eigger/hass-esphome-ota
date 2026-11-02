@@ -47,7 +47,6 @@ STAGE_VERIFYING = "verifying"
 STAGE_PUBLISHING = "publishing"
 STAGE_PUBLISHED = "published"
 STAGE_FAILED = "failed"
-STAGE_CANCELLING = "cancelling"
 STAGE_CANCELLED = "cancelled"
 STAGE_RECOVERY_REQUIRED = "recovery_required"
 

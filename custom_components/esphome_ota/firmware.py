@@ -7,7 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from .models import BinaryValidationError
+from .models import BinaryValidationError, UnsupportedPlatformError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +26,10 @@ VARIANTS = {
     "rp2040": "RP2040",
     "rp2350": "RP2350",
 }
+
+# Platforms whose images carry no verifiable header (RP2040/RP2350 firmware is a
+# raw ARM binary), so chip identity cannot be checked before publishing.
+UNSUPPORTED_PLATFORMS = frozenset({"rp2040", "rp2350"})
 
 CHIP_FAMILIES = sorted(set(VARIANTS.values()))
 
@@ -73,6 +77,21 @@ _MONTH_MAP = {
 def normalise_platform(value: str) -> str:
     """Normalize platform string."""
     return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+
+def is_supported_platform(target_platform: str) -> bool:
+    """Return whether firmware for this platform can be verified and published."""
+    return normalise_platform(target_platform) not in UNSUPPORTED_PLATFORMS
+
+
+def ensure_supported_platform(target_platform: str) -> None:
+    """Raise UnsupportedPlatformError when the platform cannot be verified."""
+    if not is_supported_platform(target_platform):
+        name = VARIANTS.get(normalise_platform(target_platform)) or target_platform
+        raise UnsupportedPlatformError(
+            f"Platform {name} is not supported: its firmware cannot be verified "
+            "and published"
+        )
 
 
 def chip_id_from_binary(blob: bytes) -> int | None:
@@ -216,6 +235,7 @@ def inspect_binary(
     Raises:
         BinaryValidationError: If binary is invalid, corrupted, or chip family mismatches.
     """
+    ensure_supported_platform(target_platform)
     if len(blob) < 1024:
         raise BinaryValidationError(f"Binary is too small: {len(blob)} bytes")
 

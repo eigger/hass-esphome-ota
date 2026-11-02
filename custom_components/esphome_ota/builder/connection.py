@@ -270,7 +270,8 @@ class BuilderConnection:
                             f"{command_name} failed: Builder connection lost ({details})"
                         )
                     raise BuilderError(
-                        f"{command_name} failed: {error_code} {details}".strip()
+                        f"{command_name} failed: {error_code} {details}".strip(),
+                        error_code=str(error_code) if error_code else None,
                     )
 
                 yield payload
@@ -320,7 +321,10 @@ class BuilderConnection:
                 raise BuilderConnectionError(
                     f"{command_name} failed: Builder connection lost ({details})"
                 )
-            raise BuilderError(f"{command_name} failed: {error_code} {details}".strip())
+            raise BuilderError(
+                f"{command_name} failed: {error_code} {details}".strip(),
+                error_code=str(error_code) if error_code else None,
+            )
         return payload.get("result")
 
     def next_backoff_delay(self) -> float:

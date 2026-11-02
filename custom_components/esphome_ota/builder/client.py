@@ -14,6 +14,7 @@ from ..const import (
     DOWNLOAD_TIMEOUT_SECONDS,
     FIRMWARE_BIN,
     FIRMWARE_OTA_BIN,
+    MAX_UPLOAD_SIZE,
 )
 from ..models import (
     BuilderConnectionError,
@@ -25,6 +26,20 @@ from .capabilities import BuilderCapabilities
 from .connection import BuilderConnection
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _is_cas_conflict(err: BuilderError) -> bool:
+    """Classify an update_config failure as a CAS conflict.
+
+    A structured error_code from the Builder is authoritative. Message keywords
+    are only a fallback for Builders that do not supply one.
+    """
+    code = getattr(err, "error_code", None)
+    if code:
+        code = code.upper()
+        return "CONFLICT" in code or "MISMATCH" in code or "PRECONDITION" in code
+    msg = str(err).lower()
+    return "conflict" in msg or "mismatch" in msg or "expected" in msg
 
 
 class BuilderClient:
@@ -80,8 +95,7 @@ class BuilderClient:
         try:
             await self.conn.command("devices/update_config", args)
         except BuilderError as err:
-            err_msg = str(err).lower()
-            if "conflict" in err_msg or "mismatch" in err_msg or "expected" in err_msg:
+            if _is_cas_conflict(err):
                 raise ConfigConflictError(
                     f"CAS conflict updating config for {configuration}: {err}"
                 ) from err
@@ -412,7 +426,20 @@ class BuilderClient:
                     raise BuilderError(
                         f"Download of {target_file} for {configuration} failed with HTTP {resp.status}"
                     )
-                blob = await resp.read()
+                too_big = BuilderError(
+                    f"Download of {target_file} for {configuration} exceeds the "
+                    f"maximum allowed size of {MAX_UPLOAD_SIZE} bytes"
+                )
+                if (resp.content_length or 0) > MAX_UPLOAD_SIZE:
+                    raise too_big
+                chunks: list[bytes] = []
+                received = 0
+                async for chunk in resp.content.iter_chunked(64 * 1024):
+                    received += len(chunk)
+                    if received > MAX_UPLOAD_SIZE:
+                        raise too_big
+                    chunks.append(chunk)
+                blob = b"".join(chunks)
         except asyncio.TimeoutError as err:
             raise BuilderTimeoutError(
                 f"Download of {target_file} timed out after {DOWNLOAD_TIMEOUT_SECONDS}s"
