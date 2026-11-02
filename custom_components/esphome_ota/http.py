@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from copy import deepcopy
 from typing import Any
 
@@ -159,11 +160,14 @@ class FirmwareUploadView(HomeAssistantView):
                 target_platform = dev.target_platform
 
             try:
-                info = inspect_binary(
-                    blob=blob,
-                    target_platform=target_platform,
-                    expected_chip=dev.chip_family if dev else None,
-                    reserved_version=dev.managed_version if dev else None,
+                info = await self.hass.async_add_executor_job(
+                    partial(
+                        inspect_binary,
+                        blob=blob,
+                        target_platform=target_platform,
+                        expected_chip=dev.chip_family if dev else None,
+                        reserved_version=dev.managed_version if dev else None,
+                    )
                 )
                 artifacts = await manager.storage.async_load_artifacts()
                 previous_artifact = artifacts.get(clean_device_id)
@@ -191,15 +195,20 @@ class FirmwareUploadView(HomeAssistantView):
                                         public_path.read_bytes
                                     )
                                 )
-                            previous_public_info = inspect_binary(
-                                blob=previous_public_blob,
-                                target_platform=dev.target_platform,
-                                expected_chip=dev.chip_family,
-                                reserved_version=(
-                                    previous_artifact.version
-                                    if previous_artifact
-                                    else None
-                                ),
+                            previous_public_info = (
+                                await self.hass.async_add_executor_job(
+                                    partial(
+                                        inspect_binary,
+                                        blob=previous_public_blob,
+                                        target_platform=dev.target_platform,
+                                        expected_chip=dev.chip_family,
+                                        reserved_version=(
+                                            previous_artifact.version
+                                            if previous_artifact
+                                            else None
+                                        ),
+                                    )
+                                )
                             )
                         except Exception as backup_err:  # noqa: BLE001
                             return web.json_response(

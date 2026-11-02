@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
@@ -528,15 +529,18 @@ class JobRunner:
 
                 # 6. Verifying binary structure and chip family
                 await self._update_stage(job, STAGE_VERIFYING)
-                info = inspect_binary(
-                    blob=blob,
-                    target_platform=device.target_platform,
-                    expected_chip=device.chip_family,
-                    reserved_version=(
-                        None
-                        if _is_unresolved_version(job.reserved_version)
-                        else job.reserved_version
-                    ),
+                info = await self.hass.async_add_executor_job(
+                    partial(
+                        inspect_binary,
+                        blob=blob,
+                        target_platform=device.target_platform,
+                        expected_chip=device.chip_family,
+                        reserved_version=(
+                            None
+                            if _is_unresolved_version(job.reserved_version)
+                            else job.reserved_version
+                        ),
+                    )
                 )
                 is_user_owned = device.own_project_version is not None or (
                     _is_unresolved_version(job.reserved_version)
@@ -851,15 +855,18 @@ class JobRunner:
                     return
 
                 await self._update_stage(job, STAGE_VERIFYING)
-                info = inspect_binary(
-                    blob=blob,
-                    target_platform=device.target_platform,
-                    expected_chip=device.chip_family,
-                    reserved_version=(
-                        None
-                        if _is_unresolved_version(job.reserved_version)
-                        else job.reserved_version
-                    ),
+                info = await self.hass.async_add_executor_job(
+                    partial(
+                        inspect_binary,
+                        blob=blob,
+                        target_platform=device.target_platform,
+                        expected_chip=device.chip_family,
+                        reserved_version=(
+                            None
+                            if _is_unresolved_version(job.reserved_version)
+                            else job.reserved_version
+                        ),
+                    )
                 )
                 is_user_owned = device.own_project_version is not None or (
                     _is_unresolved_version(job.reserved_version)
@@ -1027,11 +1034,14 @@ class JobRunner:
     ) -> PublishedArtifact:
         """Republish while holding the device mutation lock."""
         blob = await self.publisher.async_load_private_artifact(artifact.private_path)
-        info = inspect_binary(
-            blob=blob,
-            target_platform=device.target_platform,
-            expected_chip=artifact.chip_family,
-            reserved_version=artifact.version,
+        info = await self.hass.async_add_executor_job(
+            partial(
+                inspect_binary,
+                blob=blob,
+                target_platform=device.target_platform,
+                expected_chip=artifact.chip_family,
+                reserved_version=artifact.version,
+            )
         )
         published = await self.publisher.async_publish(
             device_id=device.device_id,
