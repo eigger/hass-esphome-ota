@@ -248,9 +248,9 @@ class MigrationManager:
                     # Builder's platform wins; otherwise the one detected from
                     # the legacy binary (e.g. ESP8266 for devices Builder lacks)
                     plat = (
-                        raw.get("target_platform", "esp32")
-                        if raw
-                        else detected_platforms.get(node, "esp32")
+                        (raw or {}).get("target_platform")
+                        or detected_platforms.get(node)
+                        or "esp32"
                     )
                     try:
                         ensure_supported_platform(plat)

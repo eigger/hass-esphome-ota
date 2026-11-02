@@ -136,6 +136,21 @@ async def test_migration_unregistered_esp8266_keeps_platform(
     assert dev.chip_family == "ESP8266"
 
 
+async def test_migration_raw_without_platform_uses_detected(
+    hass: HomeAssistant,
+) -> None:
+    """A Builder entry lacking target_platform still gets the detected platform."""
+    migrator, device_manager, www_dir = _legacy_setup(
+        hass,
+        {"oldnode": {"token": "", "version": "1.0.0", "title": "Old"}},
+        [{"name": "oldnode", "configuration": "oldnode.yaml"}],
+    )
+    (www_dir / "oldnode.ota.bin").write_bytes(_esp8266_blob())
+    res = await migrator.async_migrate()
+    assert res["success"] is True
+    assert device_manager.get_device("oldnode").target_platform == "esp8266"
+
+
 async def test_migration_artifact_key_matches_device_key(hass: HomeAssistant) -> None:
     """Artifacts are published under the resolved Builder device_id."""
     publisher = MagicMock()
