@@ -59,8 +59,18 @@ def _is_unresolved_version(version: str | None) -> bool:
     return bool(version and ("$" in version or "{" in version or "}" in version))
 
 
+# Terminal job retention: keep the most recent N finished jobs per device.
+MAX_TERMINAL_JOBS_PER_DEVICE = 5
+_TERMINAL_STAGES = (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED)
+# Transitions that are cheap to rebuild on resume (a builder_job_id is already
+# checkpointed by then), so they are only broadcast, not persisted on their own.
+_EPHEMERAL_STAGES = (STAGE_BUILDING, STAGE_DOWNLOADING, STAGE_VERIFYING)
+
 # Mirrors legacy server.py _ANSI_RE: strip ANSI and CSI escape sequences from logs
 _ANSI_STRIP_RE = re.compile(r"(\x1b|\033|\\033)\[[0-?]*[ -/]*[@-~]")
+
+
+HEARTBEAT_LOG_PREFIX = "... still building"
 
 
 def _clean_log_line(line: str) -> str:
@@ -92,6 +102,35 @@ def _parse_iso_or_timestamp(val: Any) -> float | None:
         except (ValueError, TypeError):
             pass
     return None
+
+
+async def record_publication(
+    storage: StorageManager,
+    device_manager: DeviceManager,
+    monitor: Any | None,
+    notify: Callable[[str, dict[str, Any]], None] | None,
+    device: ManagedDevice,
+    published: PublishedArtifact,
+) -> None:
+    """Shared post-publish bookkeeping: artifact record, device state, cleanup, UI."""
+    await storage.async_save_artifact(device.device_id, published)
+    await device_manager.async_mark_published(
+        device.device_id,
+        published.version,
+        published.expires_at,
+        published.published_at,
+    )
+    if monitor:
+        monitor.schedule_cleanup(
+            device.device_id,
+            device.slug,
+            artifact_id=published.published_at,
+            expires_at=published.expires_at,
+            cleanup_hours=published.cleanup_hours,
+        )
+        await monitor.async_refresh_entity(device.device_id)
+    if notify:
+        notify("devices_updated", {"devices": device_manager.list_all()})
 
 
 class JobRunner:
@@ -135,6 +174,7 @@ class JobRunner:
     async def async_load(self) -> None:
         """Load stored pipeline jobs."""
         self._active_jobs = await self.storage.async_load_jobs()
+        self._prune_jobs()
 
     def get_job(self, job_id: str) -> PipelineJob | None:
         """Get job by ID."""
@@ -180,8 +220,64 @@ class JobRunner:
         if checkpoint_data:
             job.checkpoint.update(checkpoint_data)
         self._active_jobs[job.job_id] = job
-        await self.storage.async_save_jobs(self._active_jobs)
+        if stage in _TERMINAL_STAGES:
+            pruned = self._prune_jobs()
+            if pruned and self.event_callback and not self._unloaded:
+                self.event_callback("jobs_pruned", {"job_ids": pruned})
+        if stage not in _EPHEMERAL_STAGES:
+            await self.storage.async_save_jobs(self._active_jobs)
         self._notify_job_update(job)
+
+    def _prune_jobs(self) -> list[str]:
+        """Keep only recent finished jobs per device; return the removed job ids.
+
+        Log trimming for finished jobs happens at persist time (see storage), so
+        a just-failed job keeps its full in-memory log for the UI.
+        """
+        removed: list[str] = []
+        by_device: dict[str, list[PipelineJob]] = {}
+        for job in self._active_jobs.values():
+            if job.stage in _TERMINAL_STAGES:
+                by_device.setdefault(job.device_id, []).append(job)
+        for jobs in by_device.values():
+            jobs.sort(key=lambda j: j.updated_at, reverse=True)
+            for old in jobs[MAX_TERMINAL_JOBS_PER_DEVICE:]:
+                if old.job_id in self._active_tasks:
+                    continue
+                self._active_jobs.pop(old.job_id, None)
+                self._cancelled_jobs.discard(old.job_id)
+                removed.append(old.job_id)
+        return removed
+
+    async def async_record_publication(
+        self, device: ManagedDevice, published: PublishedArtifact
+    ) -> None:
+        """Persist a new publication and refresh monitor, entities and UI."""
+        await record_publication(
+            self.storage,
+            self.device_manager,
+            self.monitor,
+            self.event_callback,
+            device,
+            published,
+        )
+
+    def _append_job_log(self, job: PipelineJob, line: str) -> None:
+        """Append a build output line and emit it as an incremental event."""
+        cleaned = _clean_log_line(line)
+        # Client-side keepalive lines are progress noise, not build output.
+        if not cleaned or cleaned.startswith(HEARTBEAT_LOG_PREFIX):
+            return
+        job.log_tail.append(cleaned)
+        if len(job.log_tail) > MAX_LOG_TAIL_LINES:
+            job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
+        if self._unloaded:
+            return
+        if self.event_callback:
+            self.event_callback(
+                "job_log",
+                {"job_id": job.job_id, "device_id": job.device_id, "line": cleaned},
+            )
 
     async def async_start_build_pipeline(
         self,
@@ -272,6 +368,8 @@ class JobRunner:
 
         try:
             async with lock:
+                if await self._cancel_if_device_removed(job, device):
+                    return
                 # 1. Preparing YAML configuration and managing version under lock
                 await self._update_stage(job, STAGE_PREPARING)
                 current_yaml = await client.get_config(device.configuration)
@@ -324,7 +422,7 @@ class JobRunner:
                     device.managed_version = override
                     self._notify_job_update(job)
                 elif own_ver:
-                    if ("$" in own_ver or "{" in own_ver) and builder_version:
+                    if _is_unresolved_version(own_ver) and builder_version:
                         job.reserved_version = builder_version
                         device.own_project_version = builder_version
                     else:
@@ -402,12 +500,7 @@ class JobRunner:
                 await self._update_stage(job, STAGE_BUILDING)
 
                 def _append_log(line: str) -> None:
-                    cleaned = _clean_log_line(line)
-                    if cleaned:
-                        job.log_tail.append(cleaned)
-                        if len(job.log_tail) > MAX_LOG_TAIL_LINES:
-                            job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
-                        self._notify_job_update(job)
+                    self._append_job_log(job, line)
 
                 await client.wait_for_compile_completion(
                     configuration=device.configuration,
@@ -499,30 +592,7 @@ class JobRunner:
                     return
 
                 # Record successful publish in storage and devices
-                await self.storage.async_save_artifact(device.device_id, published)
-                await self.device_manager.async_mark_published(
-                    device.device_id,
-                    published.version,
-                    published.expires_at,
-                    published.published_at,
-                )
-
-                # Schedule automatic cleanup and trigger immediate update entity check
-                if self.monitor:
-                    self.monitor.schedule_cleanup(
-                        device.device_id,
-                        device.slug,
-                        artifact_id=published.published_at,
-                        expires_at=published.expires_at,
-                        cleanup_hours=published.cleanup_hours,
-                    )
-                    await self.monitor.async_refresh_entity(device.device_id)
-
-                # Emit devices_updated so UI device cards update immediately
-                if self.event_callback:
-                    self.event_callback(
-                        "devices_updated", {"devices": self.device_manager.list_all()}
-                    )
+                await self.async_record_publication(device, published)
 
                 await self._update_stage(job, STAGE_PUBLISHED)
                 _LOGGER.info(
@@ -541,7 +611,7 @@ class JobRunner:
                 )
                 return
             if job.builder_job_id:
-                await client.cancel_job(job.builder_job_id)
+                await self._cancel_remote(client, job)
             await self._update_stage(job, STAGE_CANCELLED)
         except BuilderConnectionError as err:
             _LOGGER.warning(
@@ -657,6 +727,10 @@ class JobRunner:
                 ):
                     matching = matching_candidates[0]
                     job.builder_job_id = str(matching["job_id"])
+                    # Persist the recovered id now: later BUILDING/DOWNLOADING/
+                    # VERIFYING transitions are not saved on their own.
+                    job.checkpoint["builder_job_id"] = job.builder_job_id
+                    await self.storage.async_save_jobs(self._active_jobs)
                     _LOGGER.info(
                         "Recovered builder_job_id=%s for job %s",
                         job.builder_job_id,
@@ -713,6 +787,8 @@ class JobRunner:
 
         try:
             async with lock:
+                if await self._cancel_if_device_removed(job, device, client):
+                    return
                 assert job.builder_job_id is not None
                 b_job_id = job.builder_job_id
 
@@ -740,12 +816,7 @@ class JobRunner:
                     await self._update_stage(job, STAGE_BUILDING)
 
                     def _append_log(line: str) -> None:
-                        cleaned = _clean_log_line(line)
-                        if cleaned:
-                            job.log_tail.append(cleaned)
-                            if len(job.log_tail) > MAX_LOG_TAIL_LINES:
-                                job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
-                            self._notify_job_update(job)
+                        self._append_job_log(job, line)
 
                     await client.wait_for_compile_completion(
                         configuration=device.configuration,
@@ -836,29 +907,7 @@ class JobRunner:
                 ):
                     return
 
-                await self.storage.async_save_artifact(device.device_id, published)
-                await self.device_manager.async_mark_published(
-                    device.device_id,
-                    published.version,
-                    published.expires_at,
-                    published.published_at,
-                )
-
-                if self.monitor:
-                    self.monitor.schedule_cleanup(
-                        device.device_id,
-                        device.slug,
-                        artifact_id=published.published_at,
-                        expires_at=published.expires_at,
-                        cleanup_hours=published.cleanup_hours,
-                    )
-                    await self.monitor.async_refresh_entity(device.device_id)
-
-                # Emit devices_updated so UI device cards update immediately
-                if self.event_callback:
-                    self.event_callback(
-                        "devices_updated", {"devices": self.device_manager.list_all()}
-                    )
+                await self.async_record_publication(device, published)
 
                 await self._update_stage(job, STAGE_PUBLISHED)
                 _LOGGER.info(
@@ -873,7 +922,7 @@ class JobRunner:
             if self._unloaded:
                 return
             if job.builder_job_id:
-                await client.cancel_job(job.builder_job_id)
+                await self._cancel_remote(client, job)
             await self._update_stage(job, STAGE_CANCELLED)
         except BuilderConnectionError as err:
             _LOGGER.warning(
@@ -894,7 +943,7 @@ class JobRunner:
     ) -> None:
         """Cancel a running pipeline job."""
         job = self._active_jobs.get(job_id)
-        if not job:
+        if not job or job.stage in _TERMINAL_STAGES:
             return
 
         self._cancelled_jobs.add(job_id)
@@ -908,9 +957,46 @@ class JobRunner:
             except (asyncio.CancelledError, Exception) as err:  # noqa: BLE001
                 _LOGGER.debug("Cancelled task for job %s completed: %s", job_id, err)
         elif client and job.builder_job_id:
-            await client.cancel_job(job.builder_job_id)
+            await self._cancel_remote(client, job)
 
         await self._update_stage(job, STAGE_CANCELLED)
+
+    async def _cancel_remote(self, client: BuilderClient, job: PipelineJob) -> None:
+        """Best-effort Builder cancel; local cancellation must never depend on it."""
+        if not job.builder_job_id:
+            return
+        try:
+            await client.cancel_job(job.builder_job_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug(
+                "Remote cancel of builder job %s failed: %s", job.builder_job_id, err
+            )
+
+    async def _cancel_if_device_removed(
+        self,
+        job: PipelineJob,
+        device: ManagedDevice,
+        client: BuilderClient | None = None,
+    ) -> bool:
+        """Cancel a job that was waiting on the device lock while it was removed."""
+        if self.device_manager.get_device(device.device_id) is not None:
+            return False
+        _LOGGER.info(
+            "Device %s removed; cancelling job %s", device.device_id, job.job_id
+        )
+        self._cancelled_jobs.add(job.job_id)
+        if client and job.builder_job_id:
+            await self._cancel_remote(client, job)
+        await self._update_stage(job, STAGE_CANCELLED)
+        return True
+
+    async def async_cancel_device_jobs(
+        self, device_id: str, client: BuilderClient | None = None
+    ) -> None:
+        """Cancel every non-terminal job of a device."""
+        for job in list(self._active_jobs.values()):
+            if job.device_id == device_id and job.stage not in _TERMINAL_STAGES:
+                await self.async_cancel_job(job.job_id, client)
 
     async def async_republish(
         self,
@@ -949,27 +1035,6 @@ class JobRunner:
             cleanup_hours=self._publication_cleanup_hours(device),
             auto_hide=device.auto_hide,
         )
-        await self.storage.async_save_artifact(device.device_id, published)
-        await self.device_manager.async_mark_published(
-            device.device_id,
-            published.version,
-            published.expires_at,
-            published.published_at,
-        )
-
-        if self.monitor:
-            self.monitor.schedule_cleanup(
-                device.device_id,
-                device.slug,
-                artifact_id=published.published_at,
-                expires_at=published.expires_at,
-                cleanup_hours=published.cleanup_hours,
-            )
-            await self.monitor.async_refresh_entity(device.device_id)
-
-        if self.event_callback:
-            self.event_callback(
-                "devices_updated", {"devices": self.device_manager.list_all()}
-            )
+        await self.async_record_publication(device, published)
 
         return published

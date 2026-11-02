@@ -958,6 +958,32 @@ async def ws_remove_ota(
         connection.send_error(msg["id"], "device_not_found", "Device not found")
         return
 
+    # Stop in-flight builds first (they hold the device lock while running),
+    # then serialize the removal against other mutations of this device.
+    # Cancelling before the YAML step is intentional: the build would otherwise
+    # hold the lock and could publish a binary for a device being removed, so
+    # a later failure of the removal leaves those jobs cancelled.
+    await manager.job_runner.async_cancel_device_jobs(
+        dev.device_id, manager.resolver.active_client
+    )
+    async with manager.device_manager.get_lock(dev.device_id):
+        await _remove_ota_locked(hass, connection, msg, manager, dev)
+
+
+async def _remove_ota_locked(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    manager: Any,
+    dev: Any,
+) -> None:
+    """Remove managed OTA config while holding the device lock."""
+    # Jobs queued behind the lock before we acquired it are not holding it, so
+    # cancelling them again here cannot deadlock.
+    await manager.job_runner.async_cancel_device_jobs(
+        dev.device_id, manager.resolver.active_client
+    )
+    device_id = msg["device_id"]
     config_file = manager.device_manager.get_configuration(device_id)
     esphome_file = Path(hass.config.path("esphome", config_file))
     local_file_exists = await hass.async_add_executor_job(esphome_file.is_file)
@@ -1071,7 +1097,9 @@ async def ws_remove_ota(
         )
         yaml_removed = False
 
+    manager.monitor.cancel_cleanup(dev.device_id)
     binary_removed = await manager.publisher.async_deactivate(dev.slug)
+    await manager.publisher.async_delete_private_artifacts(dev.device_id)
 
     artifacts = await manager.storage.async_load_artifacts()
     if device_id in artifacts or dev.device_id in artifacts:

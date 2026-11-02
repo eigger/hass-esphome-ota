@@ -388,3 +388,52 @@ async def test_set_token_syncs_yaml_and_republishes(
         artifacts = await manager.storage.async_load_artifacts()
         assert artifacts["esp-tab"].public_bin_path == str(new_public_bin)
         await ws.close()
+
+
+async def test_remove_ota_cancels_jobs_and_removes_private_artifacts(
+    hass: HomeAssistant,
+    hass_ws_client: any,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Removing a device cancels active jobs and deletes its private binaries."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
+        return_value=[],
+    ):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        manager = hass.data[DOMAIN]["manager"]
+        dev = await manager.device_manager.async_register_or_update(
+            device_id="rm_node",
+            configuration="rm_node.yaml",
+            name="rm_node",
+            friendly_name="Rm Node",
+        )
+        priv = manager.publisher.private_base_dir / dev.device_id
+        priv.mkdir(parents=True, exist_ok=True)
+        (priv / "abc.bin").write_bytes(b"x")
+
+        from custom_components.esphome_ota.models import PipelineJob
+
+        manager.job_runner._active_jobs["jx"] = PipelineJob(
+            job_id="jx",
+            device_id="rm_node",
+            configuration="rm_node.yaml",
+            request_id="r",
+            stage="building",
+        )
+
+        ws = await hass_ws_client(hass)
+        with patch.object(manager.monitor, "cancel_cleanup") as cancel_cleanup:
+            await ws.send_json(
+                {"id": 30, "type": "esphome_ota/remove_ota", "device_id": "rm_node"}
+            )
+            msg = await ws.receive_json()
+        assert msg["success"] is True
+        cancel_cleanup.assert_called_with("rm_node")
+        assert manager.job_runner._active_jobs["jx"].stage == "cancelled"
+        assert not priv.exists()
+        await ws.close()

@@ -464,6 +464,20 @@ class ArtifactPublisher:
             self._deactivate_sync, slug, expected_artifact_id
         )
 
+    def _delete_private_artifacts_sync(self, device_id: str) -> None:
+        """Remove every private artifact stored for a device."""
+        base = self.private_base_dir.resolve()
+        dev_dir = (base / device_id).resolve()
+        if dev_dir == base or base not in dev_dir.parents:
+            return
+        shutil.rmtree(dev_dir, ignore_errors=True)
+
+    async def async_delete_private_artifacts(self, device_id: str) -> None:
+        """Delete the private artifact directory of a removed device."""
+        await self.hass.async_add_executor_job(
+            self._delete_private_artifacts_sync, device_id
+        )
+
     def _load_private_artifact_sync(self, private_path: str) -> bytes:
         """Load private binary bytes."""
         path = Path(private_path)
