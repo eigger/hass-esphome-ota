@@ -507,3 +507,89 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
         d for d in dev_events[-1][1]["devices"] if d["device_id"] == "livingroom"
     )
     assert uploaded_dev["last_published_version"] == "1.0.0"
+
+
+class _HangingClient:
+    """Builder client whose every call blocks until cancelled."""
+
+    def __getattr__(self, name: str):
+        async def _hang(*args, **kwargs):
+            import asyncio
+
+            await asyncio.Event().wait()
+
+        return _hang
+
+
+@pytest.mark.parametrize("stopping", [True, False])
+async def test_ha_stop_cancellation_keeps_job_resumable(
+    hass: HomeAssistant, stopping: bool
+) -> None:
+    """HA stop cancels tasks without remote cancel or stage change; user cancel still cancels."""
+    import asyncio
+    from unittest.mock import PropertyMock, patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_stop_test")
+    runner = JobRunner(hass, storage, device_manager, publisher)
+    await device_manager.async_register_or_update(
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        name="livingroom",
+        friendly_name="Living Room",
+    )
+    job = PipelineJob(
+        job_id="job_stop",
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        request_id="req-stop",
+        stage=STAGE_BUILDING,
+        builder_job_id="b1",
+        reserved_version="1.0.0",
+    )
+    runner._active_jobs[job.job_id] = job
+    runner._cancel_remote = AsyncMock()
+
+    await runner.async_resume_jobs(_HangingClient(), "https://ha.local")
+    task = runner._active_tasks["job_stop"]
+    await asyncio.sleep(0.05)
+
+    with patch.object(
+        type(hass), "is_stopping", new_callable=PropertyMock, return_value=stopping
+    ):
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    if stopping:
+        runner._cancel_remote.assert_not_awaited()
+        assert job.stage == STAGE_BUILDING
+    else:
+        runner._cancel_remote.assert_awaited_once()
+        assert job.stage == STAGE_CANCELLED
+
+
+async def test_resume_jobs_returns_early_when_unloaded(hass: HomeAssistant) -> None:
+    """async_resume_jobs spawns nothing once the runner is unloaded."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_stop_test")
+    runner = JobRunner(hass, storage, device_manager, publisher)
+    await device_manager.async_register_or_update(
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        name="livingroom",
+        friendly_name="Living Room",
+    )
+    runner._active_jobs["j"] = PipelineJob(
+        job_id="j",
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        request_id="r",
+        stage=STAGE_BUILDING,
+        builder_job_id="b1",
+        reserved_version="1.0.0",
+    )
+    await runner.async_unload()
+    await runner.async_resume_jobs(_HangingClient(), "https://ha.local")
+    assert runner._active_tasks == {}

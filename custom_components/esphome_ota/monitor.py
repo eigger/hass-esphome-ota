@@ -61,6 +61,7 @@ class InstallationMonitor:
         self._cleanup_timers: dict[str, asyncio.TimerHandle] = {}
         self._cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._persist_tasks: set[asyncio.Task[Any]] = set()
         self._unloaded = False
         self._refresh_debouncer = Debouncer(
             hass,
@@ -70,12 +71,19 @@ class InstallationMonitor:
             function=self.async_refresh_monitoring,
         )
 
-    def _track_task(self, coro: Coroutine[Any, Any, Any]) -> None:
-        """Run a coroutine as a task that is cancelled on unload."""
+    def _track_task(
+        self, coro: Coroutine[Any, Any, Any], *, cancel_on_unload: bool = True
+    ) -> None:
+        """Run a coroutine as a task, cancelled on unload unless it persists data."""
         if self._unloaded:
             coro.close()
             return
         task = self.hass.async_create_task(coro)
+        if not cancel_on_unload:
+            # Persistence must finish instead of being cut off mid-write.
+            self._persist_tasks.add(task)
+            task.add_done_callback(self._persist_tasks.discard)
+            return
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -347,7 +355,8 @@ class InstallationMonitor:
                     self._track_task(
                         self.device_manager.storage.async_save_devices(
                             self.device_manager._managed_devices
-                        )
+                        ),
+                        cancel_on_unload=False,
                     )
                 if matched_entity_id not in self._monitored_entities:
                     self._monitored_entities.add(matched_entity_id)
@@ -513,7 +522,7 @@ class InstallationMonitor:
                             },
                         )
 
-                self._track_task(_mark_and_notify_verified())
+                self._track_task(_mark_and_notify_verified(), cancel_on_unload=False)
             elif dev.last_installed_version != installed_version:
                 _LOGGER.info(
                     "Discovered installed version %s for %s",
@@ -533,7 +542,7 @@ class InstallationMonitor:
                             {"devices": self.device_manager.list_all()},
                         )
 
-                self._track_task(_mark_and_notify_updated())
+                self._track_task(_mark_and_notify_updated(), cancel_on_unload=False)
 
         unsub = async_track_state_change_event(self.hass, [entity_id], _state_changed)
         self._unsub_listeners.append(unsub)

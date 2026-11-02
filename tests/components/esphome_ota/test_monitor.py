@@ -412,20 +412,22 @@ async def test_cleanup_timer_firing_early_reschedules_until_expiry(
     hass: HomeAssistant,
 ) -> None:
     """A timer that fires before the wall-clock expiry re-arms instead of giving up."""
-    import asyncio
     from datetime import datetime, timedelta, timezone
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
     publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
     monitor = InstallationMonitor(hass, device_manager, publisher)
 
-    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=0.4)).isoformat()
-    with patch.object(
-        monitor, "_async_deactivate_artifact", AsyncMock(return_value=True)
-    ) as deactivate:
-        # Monotonic timer fires long before the stored expiry.
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    fake_timer = MagicMock()
+    with (
+        patch.object(
+            monitor, "_async_deactivate_artifact", AsyncMock(return_value=True)
+        ) as deactivate,
+        patch.object(hass.loop, "call_later", return_value=fake_timer) as call_later,
+    ):
         monitor.schedule_cleanup(
             "livingroom",
             "livingroom_slug",
@@ -433,14 +435,67 @@ async def test_cleanup_timer_firing_early_reschedules_until_expiry(
             artifact_id="pub1",
             expires_at=expires_at,
         )
-        await asyncio.sleep(0.15)
+        # Fire the early (monotonic) timer by hand: expiry is still an hour away.
+        first_cb = call_later.call_args_list[0].args[1]
+        first_cb()
+        await hass.async_block_till_done()
         deactivate.assert_not_awaited()
-        assert "livingroom" in monitor._cleanup_timers
+        assert call_later.call_count == 2
+        assert call_later.call_args_list[1].args[0] > 3000
 
-        await asyncio.sleep(0.6)
+        # Once the wall clock has passed the expiry the callback deactivates.
+        past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        monitor.schedule_cleanup(
+            "livingroom",
+            "livingroom_slug",
+            delay_seconds=0,
+            artifact_id="pub1",
+            expires_at=past,
+        )
+        call_later.call_args_list[-1].args[1]()
+        await hass.async_block_till_done()
         deactivate.assert_awaited_once()
 
     monitor.async_unload()
+
+
+async def test_unloaded_monitor_ignores_timer_event_and_retry(
+    hass: HomeAssistant,
+) -> None:
+    """After unload: registry events, fired timers and retry callbacks do nothing."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_setup()
+
+    with (
+        patch.object(
+            monitor, "_async_deactivate_artifact", AsyncMock(side_effect=OSError)
+        ),
+        patch.object(hass.loop, "call_later", return_value=MagicMock()) as call_later,
+    ):
+        monitor.schedule_cleanup("d", "slug", delay_seconds=0, artifact_id="p")
+        run_cleanup = call_later.call_args_list[0].args[1]
+        run_cleanup()
+        await hass.async_block_till_done()
+        retry = call_later.call_args_list[1].args[1]
+
+        monitor.async_unload()
+        calls = call_later.call_count
+        retry()
+        run_cleanup()
+        assert call_later.call_count == calls
+
+    with patch.object(monitor._refresh_debouncer, "async_schedule_call") as sched:
+        hass.bus.async_fire(
+            er.EVENT_ENTITY_REGISTRY_UPDATED,
+            {"action": "create", "entity_id": "update.x"},
+        )
+        await hass.async_block_till_done()
+        sched.assert_not_called()
 
 
 async def test_entity_registry_events_filtered_and_debounced(
@@ -472,7 +527,15 @@ async def test_entity_registry_events_filtered_and_debounced(
         await hass.async_block_till_done()
         monitor.async_refresh_monitoring.assert_not_awaited()
 
-        for _ in range(3):
+        hass.bus.async_fire(
+            er.EVENT_ENTITY_REGISTRY_UPDATED,
+            {
+                "action": "update",
+                "entity_id": "sensor.renamed",
+                "old_entity_id": "update.old_firmware",
+            },
+        )
+        for _ in range(2):
             hass.bus.async_fire(
                 er.EVENT_ENTITY_REGISTRY_UPDATED,
                 {"action": "create", "entity_id": "update.x_firmware"},

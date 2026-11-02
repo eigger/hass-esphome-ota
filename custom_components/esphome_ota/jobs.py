@@ -609,9 +609,9 @@ class JobRunner:
         except asyncio.CancelledError:
             _LOGGER.info("Pipeline job %s was cancelled", job.job_id)
             self._cancelled_jobs.add(job.job_id)
-            if self._unloaded:
+            if self._unloaded or self.hass.is_stopping:
                 _LOGGER.info(
-                    "Integration unloaded; stopped tracking pipeline %s without remote builder cancellation",
+                    "Integration unloaded or HA stopping; stopped tracking pipeline %s without remote builder cancellation",
                     job.job_id,
                 )
                 return
@@ -928,7 +928,7 @@ class JobRunner:
         except asyncio.CancelledError:
             _LOGGER.info("Resumed pipeline job %s was cancelled", job.job_id)
             self._cancelled_jobs.add(job.job_id)
-            if self._unloaded:
+            if self._unloaded or self.hass.is_stopping:
                 return
             if job.builder_job_id:
                 await self._cancel_remote(client, job)
