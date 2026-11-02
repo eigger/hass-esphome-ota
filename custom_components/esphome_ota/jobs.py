@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from functools import partial
 import logging
+import re
 import uuid
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
+from functools import partial
 from typing import Any
-
-import re
 
 from homeassistant.core import HomeAssistant
 
-from .redaction import install_redaction
 from .builder.client import BuilderClient
 from .config_patch import (
     apply_ota_patch,
@@ -49,6 +47,7 @@ from .models import (
     PublishedArtifact,
 )
 from .publisher import ArtifactPublisher
+from .redaction import install_redaction
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -473,7 +472,7 @@ class JobRunner:
                     )
 
                 await self.storage.async_save_devices(
-                    self.device_manager._managed_devices
+                    self.device_manager.managed_devices
                 )
 
                 # 2. Validating configuration

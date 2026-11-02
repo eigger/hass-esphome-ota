@@ -5,8 +5,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
-from homeassistant.core import HomeAssistant
 import pytest
+from homeassistant.core import HomeAssistant
 
 from custom_components.esphome_ota.builder.ha_discovery import HaDiscoveryAdapter
 from custom_components.esphome_ota.builder.resolver import BuilderResolver

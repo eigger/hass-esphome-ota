@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+
 import pytest
 
 from custom_components.esphome_ota.firmware import (

@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 import threading
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import aiohttp
-
 from homeassistant.core import HomeAssistant
-
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.esphome_ota import jobs

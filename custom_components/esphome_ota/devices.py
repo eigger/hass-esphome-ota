@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import logging
 import os
 import re
 import secrets
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +77,11 @@ class DeviceManager:
     def update_builder_devices(self, devices: list[dict[str, Any]]) -> None:
         """Update cached raw devices from Builder."""
         self._builder_devices = devices
+
+    @property
+    def managed_devices(self) -> dict[str, ManagedDevice]:
+        """Live mapping of managed devices keyed by device id (do not rebind)."""
+        return self._managed_devices
 
     def get_device(self, device_id: str) -> ManagedDevice | None:
         """Get managed device by ID."""
@@ -190,7 +195,7 @@ class DeviceManager:
             st = pub_dir.stat()
             mtime_ns = st.st_mtime_ns
             key = (st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
-        except Exception:
+        except Exception:  # noqa: BLE001
             self._public_scan = None
             return set()
         cached = self._public_scan
@@ -202,7 +207,7 @@ class DeviceManager:
                 for entry in entries:
                     if entry.name.endswith(_PUBLIC_BIN_SUFFIX) and entry.is_file():
                         slugs.add(entry.name[: -len(_PUBLIC_BIN_SUFFIX)])
-        except Exception:
+        except Exception:  # noqa: BLE001
             self._public_scan = None
             return set()
         settled = time.time_ns() - mtime_ns > _PUBLIC_SCAN_SETTLE_NS

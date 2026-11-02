@@ -15,9 +15,9 @@ import io
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
+import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-import pytest
 
 from custom_components.esphome_ota.builder.client import BuilderClient
 from custom_components.esphome_ota.builder.connection import BuilderConnection
@@ -449,7 +449,7 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
             self.storage = storage
             self.monitor = monitor
 
-        def _dispatch_event(self, name: str, payload: dict) -> None:
+        def dispatch_event(self, name: str, payload: dict) -> None:
             events.append((name, payload))
 
     monkeypatch.setattr(

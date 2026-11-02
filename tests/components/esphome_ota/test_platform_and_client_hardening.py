@@ -116,7 +116,7 @@ async def test_migration_inspects_with_builder_platform(hass: HomeAssistant) -> 
     assert targets["oldnode"]["platform"] == "ESP8266"
     result = migrator._execute_migration_sync(targets)
     assert result["migrated_artifacts"] == ["oldnode"]
-    assert publisher._publish_sync.call_args.kwargs["info"].chip_family == "ESP8266"
+    assert publisher.publish_sync.call_args.kwargs["info"].chip_family == "ESP8266"
 
 
 async def test_migration_unregistered_esp8266_keeps_platform(
@@ -169,7 +169,7 @@ async def test_migration_artifact_key_matches_device_key(hass: HomeAssistant) ->
     (www_dir / "node_tok.ota.bin").write_bytes(_esp8266_blob())
     targets = await migrator._async_legacy_targets()
     migrator._execute_migration_sync(targets)
-    kwargs = publisher._publish_sync.call_args.kwargs
+    kwargs = publisher.publish_sync.call_args.kwargs
     assert kwargs["device_id"] == targets["node"]["device_id"] != "node"
     assert kwargs["configuration"] == "node_tok.yaml"
 

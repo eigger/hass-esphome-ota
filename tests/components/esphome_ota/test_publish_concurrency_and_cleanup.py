@@ -428,7 +428,7 @@ async def test_cleanup_timer_during_concurrent_publish_does_not_delete_newer_fir
         blob_v101, target_platform="esp32", reserved_version="1.0.1"
     )
 
-    slug_lock = publisher._get_slug_lock("dev1_slug")
+    slug_lock = publisher.get_slug_lock("dev1_slug")
     async with slug_lock:
         # Wait for the 1.0.0 timer to fire while slug_lock is held
         await asyncio.sleep(0.08)
@@ -437,7 +437,7 @@ async def test_cleanup_timer_during_concurrent_publish_does_not_delete_newer_fir
 
         # Complete publish of 1.0.1 while holding lock
         art2 = await hass.async_add_executor_job(
-            publisher._publish_sync,
+            publisher.publish_sync,
             "dev1",
             "dev1.yaml",
             "dev1_slug",

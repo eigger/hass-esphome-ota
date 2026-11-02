@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { escapeHtml } from "./html.js";
 import { bindModalAccessibility, captureModalFocus, definePanelElement, rememberModalFocus, restoreModalFocus } from "./elements.js";
 
 const css = `
@@ -186,16 +187,6 @@ button:disabled {
   background: var(--secondary-background-color, #f3f4f6);
 }
 `;
-
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 class EsphomeOtaMigrationDialog extends HTMLElement {
   constructor() {

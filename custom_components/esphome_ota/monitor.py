@@ -16,10 +16,10 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .redaction import install_redaction, mask_slug
 from .const import DEFAULT_AUTO_CLEANUP_HOURS
 from .devices import DeviceManager
 from .publisher import ArtifactPublisher, async_path_exists
+from .redaction import install_redaction, mask_slug
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
@@ -142,10 +142,10 @@ class InstallationMonitor:
                     if dev and dev.expires_at != art.expires_at:
                         dev.expires_at = art.expires_at
                         await self.device_manager.storage.async_save_devices(
-                            self.device_manager._managed_devices
+                            self.device_manager.managed_devices
                         )
                     slug = dev.slug if dev else art.device_id
-                    self.publisher._active_artifacts[slug] = art.published_at
+                    self.publisher.set_current_artifact_id(slug, art.published_at)
                     if not art.expires_at:
                         continue
                     expiry_dt = datetime.fromisoformat(art.expires_at)
@@ -366,7 +366,7 @@ class InstallationMonitor:
                     dev.update_entity_id = matched_entity_id
                     self._track_task(
                         self.device_manager.storage.async_save_devices(
-                            self.device_manager._managed_devices
+                            self.device_manager.managed_devices
                         ),
                         cancel_on_unload=False,
                     )
@@ -677,7 +677,7 @@ class InstallationMonitor:
             # Storage can lag a publication or contain an older record. The
             # manifest ID check still protects the file while leaving unrelated
             # artifact metadata untouched.
-            async with self.publisher._get_slug_lock(slug):
+            async with self.publisher.get_slug_lock(slug):
                 is_private = await self._deactivate_if_file_matches(slug, artifact_id)
             if is_private and self.event_callback:
                 self.event_callback(
@@ -701,7 +701,7 @@ class InstallationMonitor:
         if art.is_public:
             # Lock order matches publication: slug first, then artifact store.
             # The latter remains held only for the state check and file removal.
-            async with self.publisher._get_slug_lock(slug):
+            async with self.publisher.get_slug_lock(slug):
                 is_private = await self.device_manager.storage.async_deactivate_artifact_if_current(
                     device_id,
                     art.published_at,
@@ -711,7 +711,7 @@ class InstallationMonitor:
             if not is_private:
                 return False
         else:
-            async with self.publisher._get_slug_lock(slug):
+            async with self.publisher.get_slug_lock(slug):
                 is_private = await _deactivate_if_still_current()
         if is_private and art.is_public:
             if self.event_callback:
@@ -737,7 +737,7 @@ class InstallationMonitor:
                 ):
                     dev.expires_at = None
                     await self.device_manager.storage.async_save_devices(
-                        self.device_manager._managed_devices
+                        self.device_manager.managed_devices
                     )
 
             if lock_held:
@@ -759,6 +759,10 @@ class InstallationMonitor:
         )
         public_bin = self.publisher.www_dir / f"{slug}.ota.bin"
         return removed or not await async_path_exists(self.hass, public_bin)
+
+    def get_cleanup_timer(self, device_id: str) -> asyncio.TimerHandle | None:
+        """Return the pending auto-cleanup timer for a device, if any."""
+        return self._cleanup_timers.get(device_id)
 
     def cancel_cleanup(self, device_id: str) -> None:
         """Cancel any scheduled cleanup timer for a device."""

@@ -502,11 +502,11 @@ async def test_entity_registry_events_filtered_and_debounced(
     hass: HomeAssistant,
 ) -> None:
     """Only update-domain registry events trigger one debounced refresh."""
+    from datetime import timedelta
     from unittest.mock import AsyncMock, patch
 
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
-    from datetime import timedelta
 
     storage = StorageManager(hass)
     device_manager = DeviceManager(hass, storage)
