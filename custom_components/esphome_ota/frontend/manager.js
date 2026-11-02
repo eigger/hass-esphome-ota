@@ -905,6 +905,13 @@ class EsphomeOtaManager extends HTMLElement {
         this._pruneSelection();
       }
       this._renderDeviceList();
+    } else if (event === "job_log" && data) {
+      // Incremental log line: extend the cached job and reuse the snapshot merge.
+      const job = this.jobs.find((j) => j.job_id === data.job_id);
+      if (job && typeof data.line === "string") {
+        job.log_tail = [...(job.log_tail || []), data.line].slice(-200);
+        this.shadowRoot.querySelector("esphome-ota-job-dialog")?.updateJob(job);
+      }
     } else if (event === "job_updated" && data) {
       const idx = this.jobs.findIndex((j) => j.job_id === data.job_id);
       if (idx >= 0) this.jobs[idx] = data;

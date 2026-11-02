@@ -16,6 +16,7 @@ from .redaction import install_redaction
 from .const import DEFAULT_AUTO_CLEANUP_HOURS, DOMAIN, MAX_UPLOAD_SIZE
 from .publisher import async_path_is_file, async_unlink_paths
 from .firmware import BinaryValidationError, inspect_binary
+from .jobs import record_publication
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
@@ -248,25 +249,13 @@ class FirmwareUploadView(HomeAssistantView):
                     if auto_hide_override is None
                     else auto_hide_override,
                 )
-                await manager.storage.async_save_artifact(dev.device_id, published)
-                await manager.device_manager.async_mark_published(
-                    dev.device_id,
-                    published.version,
-                    published.expires_at,
-                    published.published_at,
-                )
-                if manager.monitor:
-                    manager.monitor.schedule_cleanup(
-                        dev.device_id,
-                        dev.slug,
-                        artifact_id=published.published_at,
-                        expires_at=published.expires_at,
-                        cleanup_hours=published.cleanup_hours,
-                    )
-                    await manager.monitor.async_refresh_entity(dev.device_id)
-                manager._dispatch_event(
-                    "devices_updated",
-                    {"devices": manager.device_manager.list_all()},
+                await record_publication(
+                    manager.storage,
+                    manager.device_manager,
+                    manager.monitor,
+                    manager._dispatch_event,
+                    dev,
+                    published,
                 )
                 return web.json_response(
                     {

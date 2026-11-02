@@ -59,8 +59,19 @@ def _is_unresolved_version(version: str | None) -> bool:
     return bool(version and ("$" in version or "{" in version or "}" in version))
 
 
+# Terminal job retention: keep the most recent N per device, with trimmed logs.
+MAX_TERMINAL_JOBS_PER_DEVICE = 5
+TERMINAL_LOG_TAIL_LINES = 50
+_TERMINAL_STAGES = (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED)
+# Transitions that are cheap to rebuild on resume (a builder_job_id is already
+# checkpointed by then), so they are only broadcast, not persisted on their own.
+_EPHEMERAL_STAGES = (STAGE_BUILDING, STAGE_DOWNLOADING, STAGE_VERIFYING)
+
 # Mirrors legacy server.py _ANSI_RE: strip ANSI and CSI escape sequences from logs
 _ANSI_STRIP_RE = re.compile(r"(\x1b|\033|\\033)\[[0-?]*[ -/]*[@-~]")
+
+
+HEARTBEAT_LOG_PREFIX = "... still building"
 
 
 def _clean_log_line(line: str) -> str:
@@ -92,6 +103,35 @@ def _parse_iso_or_timestamp(val: Any) -> float | None:
         except (ValueError, TypeError):
             pass
     return None
+
+
+async def record_publication(
+    storage: StorageManager,
+    device_manager: DeviceManager,
+    monitor: Any | None,
+    notify: Callable[[str, dict[str, Any]], None] | None,
+    device: ManagedDevice,
+    published: PublishedArtifact,
+) -> None:
+    """Shared post-publish bookkeeping: artifact record, device state, cleanup, UI."""
+    await storage.async_save_artifact(device.device_id, published)
+    await device_manager.async_mark_published(
+        device.device_id,
+        published.version,
+        published.expires_at,
+        published.published_at,
+    )
+    if monitor:
+        monitor.schedule_cleanup(
+            device.device_id,
+            device.slug,
+            artifact_id=published.published_at,
+            expires_at=published.expires_at,
+            cleanup_hours=published.cleanup_hours,
+        )
+        await monitor.async_refresh_entity(device.device_id)
+    if notify:
+        notify("devices_updated", {"devices": device_manager.list_all()})
 
 
 class JobRunner:
@@ -135,6 +175,7 @@ class JobRunner:
     async def async_load(self) -> None:
         """Load stored pipeline jobs."""
         self._active_jobs = await self.storage.async_load_jobs()
+        self._prune_jobs()
 
     def get_job(self, job_id: str) -> PipelineJob | None:
         """Get job by ID."""
@@ -180,8 +221,57 @@ class JobRunner:
         if checkpoint_data:
             job.checkpoint.update(checkpoint_data)
         self._active_jobs[job.job_id] = job
-        await self.storage.async_save_jobs(self._active_jobs)
+        if stage in _TERMINAL_STAGES:
+            self._prune_jobs()
+        if stage not in _EPHEMERAL_STAGES:
+            await self.storage.async_save_jobs(self._active_jobs)
         self._notify_job_update(job)
+
+    def _prune_jobs(self) -> None:
+        """Bound memory/storage: trim finished jobs' logs and keep recent ones only."""
+        by_device: dict[str, list[PipelineJob]] = {}
+        for job in self._active_jobs.values():
+            if job.stage in _TERMINAL_STAGES:
+                if len(job.log_tail) > TERMINAL_LOG_TAIL_LINES:
+                    job.log_tail = job.log_tail[-TERMINAL_LOG_TAIL_LINES:]
+                by_device.setdefault(job.device_id, []).append(job)
+        for jobs in by_device.values():
+            jobs.sort(key=lambda j: j.updated_at, reverse=True)
+            for old in jobs[MAX_TERMINAL_JOBS_PER_DEVICE:]:
+                if old.job_id in self._active_tasks:
+                    continue
+                self._active_jobs.pop(old.job_id, None)
+                self._cancelled_jobs.discard(old.job_id)
+
+    async def async_record_publication(
+        self, device: ManagedDevice, published: PublishedArtifact
+    ) -> None:
+        """Persist a new publication and refresh monitor, entities and UI."""
+        await record_publication(
+            self.storage,
+            self.device_manager,
+            self.monitor,
+            self.event_callback,
+            device,
+            published,
+        )
+
+    def _append_job_log(self, job: PipelineJob, line: str) -> None:
+        """Append a build output line and emit it as an incremental event."""
+        cleaned = _clean_log_line(line)
+        # Client-side keepalive lines are progress noise, not build output.
+        if not cleaned or cleaned.startswith(HEARTBEAT_LOG_PREFIX):
+            return
+        job.log_tail.append(cleaned)
+        if len(job.log_tail) > MAX_LOG_TAIL_LINES:
+            job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
+        if self._unloaded:
+            return
+        if self.event_callback:
+            self.event_callback(
+                "job_log",
+                {"job_id": job.job_id, "device_id": job.device_id, "line": cleaned},
+            )
 
     async def async_start_build_pipeline(
         self,
@@ -324,7 +414,7 @@ class JobRunner:
                     device.managed_version = override
                     self._notify_job_update(job)
                 elif own_ver:
-                    if ("$" in own_ver or "{" in own_ver) and builder_version:
+                    if _is_unresolved_version(own_ver) and builder_version:
                         job.reserved_version = builder_version
                         device.own_project_version = builder_version
                     else:
@@ -402,12 +492,7 @@ class JobRunner:
                 await self._update_stage(job, STAGE_BUILDING)
 
                 def _append_log(line: str) -> None:
-                    cleaned = _clean_log_line(line)
-                    if cleaned:
-                        job.log_tail.append(cleaned)
-                        if len(job.log_tail) > MAX_LOG_TAIL_LINES:
-                            job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
-                        self._notify_job_update(job)
+                    self._append_job_log(job, line)
 
                 await client.wait_for_compile_completion(
                     configuration=device.configuration,
@@ -499,30 +584,7 @@ class JobRunner:
                     return
 
                 # Record successful publish in storage and devices
-                await self.storage.async_save_artifact(device.device_id, published)
-                await self.device_manager.async_mark_published(
-                    device.device_id,
-                    published.version,
-                    published.expires_at,
-                    published.published_at,
-                )
-
-                # Schedule automatic cleanup and trigger immediate update entity check
-                if self.monitor:
-                    self.monitor.schedule_cleanup(
-                        device.device_id,
-                        device.slug,
-                        artifact_id=published.published_at,
-                        expires_at=published.expires_at,
-                        cleanup_hours=published.cleanup_hours,
-                    )
-                    await self.monitor.async_refresh_entity(device.device_id)
-
-                # Emit devices_updated so UI device cards update immediately
-                if self.event_callback:
-                    self.event_callback(
-                        "devices_updated", {"devices": self.device_manager.list_all()}
-                    )
+                await self.async_record_publication(device, published)
 
                 await self._update_stage(job, STAGE_PUBLISHED)
                 _LOGGER.info(
@@ -740,12 +802,7 @@ class JobRunner:
                     await self._update_stage(job, STAGE_BUILDING)
 
                     def _append_log(line: str) -> None:
-                        cleaned = _clean_log_line(line)
-                        if cleaned:
-                            job.log_tail.append(cleaned)
-                            if len(job.log_tail) > MAX_LOG_TAIL_LINES:
-                                job.log_tail = job.log_tail[-MAX_LOG_TAIL_LINES:]
-                            self._notify_job_update(job)
+                        self._append_job_log(job, line)
 
                     await client.wait_for_compile_completion(
                         configuration=device.configuration,
@@ -836,29 +893,7 @@ class JobRunner:
                 ):
                     return
 
-                await self.storage.async_save_artifact(device.device_id, published)
-                await self.device_manager.async_mark_published(
-                    device.device_id,
-                    published.version,
-                    published.expires_at,
-                    published.published_at,
-                )
-
-                if self.monitor:
-                    self.monitor.schedule_cleanup(
-                        device.device_id,
-                        device.slug,
-                        artifact_id=published.published_at,
-                        expires_at=published.expires_at,
-                        cleanup_hours=published.cleanup_hours,
-                    )
-                    await self.monitor.async_refresh_entity(device.device_id)
-
-                # Emit devices_updated so UI device cards update immediately
-                if self.event_callback:
-                    self.event_callback(
-                        "devices_updated", {"devices": self.device_manager.list_all()}
-                    )
+                await self.async_record_publication(device, published)
 
                 await self._update_stage(job, STAGE_PUBLISHED)
                 _LOGGER.info(
@@ -894,7 +929,7 @@ class JobRunner:
     ) -> None:
         """Cancel a running pipeline job."""
         job = self._active_jobs.get(job_id)
-        if not job:
+        if not job or job.stage in _TERMINAL_STAGES:
             return
 
         self._cancelled_jobs.add(job_id)
@@ -911,6 +946,14 @@ class JobRunner:
             await client.cancel_job(job.builder_job_id)
 
         await self._update_stage(job, STAGE_CANCELLED)
+
+    async def async_cancel_device_jobs(
+        self, device_id: str, client: BuilderClient | None = None
+    ) -> None:
+        """Cancel every non-terminal job of a device."""
+        for job in list(self._active_jobs.values()):
+            if job.device_id == device_id and job.stage not in _TERMINAL_STAGES:
+                await self.async_cancel_job(job.job_id, client)
 
     async def async_republish(
         self,
@@ -949,27 +992,6 @@ class JobRunner:
             cleanup_hours=self._publication_cleanup_hours(device),
             auto_hide=device.auto_hide,
         )
-        await self.storage.async_save_artifact(device.device_id, published)
-        await self.device_manager.async_mark_published(
-            device.device_id,
-            published.version,
-            published.expires_at,
-            published.published_at,
-        )
-
-        if self.monitor:
-            self.monitor.schedule_cleanup(
-                device.device_id,
-                device.slug,
-                artifact_id=published.published_at,
-                expires_at=published.expires_at,
-                cleanup_hours=published.cleanup_hours,
-            )
-            await self.monitor.async_refresh_entity(device.device_id)
-
-        if self.event_callback:
-            self.event_callback(
-                "devices_updated", {"devices": self.device_manager.list_all()}
-            )
+        await self.async_record_publication(device, published)
 
         return published
