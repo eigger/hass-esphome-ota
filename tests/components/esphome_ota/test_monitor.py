@@ -611,3 +611,38 @@ async def test_debounced_refreshes_do_not_overlap(hass: HomeAssistant) -> None:
         assert peak == 1
 
     monitor.async_unload()
+
+
+async def test_public_accessors(hass: HomeAssistant) -> None:
+    """managed_devices, get_cleanup_timer and set_current_artifact_id expose internals."""
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_accessor_test")
+    monitor = InstallationMonitor(
+        hass,
+        device_manager,
+        publisher,
+        cleanup_hours=12,
+        event_callback=lambda e, d: None,
+    )
+
+    assert device_manager.managed_devices == {}
+    await device_manager.async_register_or_update(
+        device_id="kitchen",
+        configuration="kitchen",
+        name="kitchen",
+        friendly_name="Kitchen",
+    )
+    assert device_manager.managed_devices is device_manager._managed_devices
+    dev = device_manager.managed_devices["kitchen"]
+
+    assert monitor.get_cleanup_timer("kitchen") is None
+    monitor.schedule_cleanup("kitchen", dev.slug)
+    timer = monitor.get_cleanup_timer("kitchen")
+    assert timer is not None
+    monitor.cancel_cleanup("kitchen")
+    assert monitor.get_cleanup_timer("kitchen") is None
+
+    assert publisher.get_current_artifact_id(dev.slug) is None
+    publisher.set_current_artifact_id(dev.slug, "2026-01-01T00:00:00+00:00")
+    assert publisher.get_current_artifact_id(dev.slug) == "2026-01-01T00:00:00+00:00"

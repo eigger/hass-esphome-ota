@@ -29,7 +29,7 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 ## Requirements
 
 - Home Assistant with the ESPHome Device Builder add-on (Home Assistant OS / Supervised).
-- Home Assistant 2024.11.0 or newer is required (`hacs.json`; see [docs/development.md](docs/development.md#verified-environments)). CI verifies Home Assistant 2026.10.2.
+- Home Assistant 2024.11.0 or newer is required (`hacs.json`; see [docs/development.md](docs/development.md#verified-environments)). CI verifies Home Assistant 2026.10.4.
 - A Base URL that your ESPHome devices can reach.
 
 ## Installation

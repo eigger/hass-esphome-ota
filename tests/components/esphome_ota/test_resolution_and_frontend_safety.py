@@ -169,19 +169,26 @@ def test_issue4_xss_escaping_in_frontend() -> None:
     base = Path(__file__).parents[3] / "custom_components" / "esphome_ota" / "frontend"
     dev_dialog = (base / "device-dialog.js").read_text(encoding="utf-8")
     job_dialog = (base / "job-dialog.js").read_text(encoding="utf-8")
-    manager_js = (base / "manager.js").read_text(encoding="utf-8")
     html_js = (base / "html.js").read_text(encoding="utf-8")
     import_line = 'import { escapeHtml } from "./html.js";'
 
     assert "export function escapeHtml" in html_js
-    assert import_line in dev_dialog
+    for name in (
+        "manager.js",
+        "build-dialog.js",
+        "device-dialog.js",
+        "job-dialog.js",
+        "migration-dialog.js",
+    ):
+        source = (base / name).read_text(encoding="utf-8")
+        assert import_line in source, name
+        assert "function escapeHtml" not in source, name
+
     assert "escapeHtml(l)" in dev_dialog
-    assert import_line in job_dialog
     assert "ansiToHtml" in job_dialog
     assert "export function ansiToHtml(rawText)" in job_dialog
     assert "let safe = escapeHtml(text)" in job_dialog
     assert "ansiToHtml(line)" in job_dialog
-    assert import_line in manager_js
 
 
 async def test_issue5_connection_drop_unblocks_queues_and_resumes(

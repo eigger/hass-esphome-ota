@@ -29,7 +29,7 @@
 ## 요구사항
 
 - ESPHome Device Builder 애드온이 있는 Home Assistant(HA OS / Supervised).
-- Home Assistant 2024.11.0 이상이 필요합니다(`hacs.json`, [docs/development.md](docs/development.md#verified-environments) 참고, 영문). CI는 HA 2026.10.2에서 검증합니다.
+- Home Assistant 2024.11.0 이상이 필요합니다(`hacs.json`, [docs/development.md](docs/development.md#verified-environments) 참고, 영문). CI는 HA 2026.10.4에서 검증합니다.
 - ESPHome 기기가 접근할 수 있는 Base URL.
 
 ## 설치
