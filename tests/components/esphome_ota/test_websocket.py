@@ -272,9 +272,9 @@ async def test_prepare_ota_includes_project_version_in_package(
             "packages:\n"
             "  custom_sensors: !include sensors.yaml\n"
         )
-        mock_client.list_devices.return_value = [
-            {"configuration": "bedroom.yaml", "name": "bedroom"}
-        ]
+        builder_devices = [{"configuration": "bedroom.yaml", "name": "bedroom"}]
+        mock_client.list_devices.return_value = builder_devices
+        manager.device_manager.update_builder_devices(builder_devices)
         manager.resolver.active_client = mock_client
 
         ws = await hass_ws_client(hass)

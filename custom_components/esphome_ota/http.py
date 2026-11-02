@@ -7,9 +7,11 @@ from copy import deepcopy
 from typing import Any
 
 from aiohttp import web
+from aiohttp.http_exceptions import BadHttpMessage
 from homeassistant.components.http import HomeAssistantView, require_admin
 from homeassistant.core import HomeAssistant
 
+from .packages import NODE_RE, is_valid_device_id
 from .redaction import install_redaction
 from .const import DEFAULT_AUTO_CLEANUP_HOURS, DOMAIN, MAX_UPLOAD_SIZE
 from .publisher import async_path_is_file, async_unlink_paths
@@ -41,60 +43,75 @@ class FirmwareUploadView(HomeAssistantView):
             or not getattr(manager, "ready", True)
         ):
             return web.json_response({"error": "ESPHome OTA is not loaded"}, status=503)
+        if not is_valid_device_id(device_id):
+            return web.json_response({"error": "Invalid device ID"}, status=400)
         if not request.can_read_body:
             return web.json_response({"error": "No body in request"}, status=400)
 
-        reader = await request.multipart()
-        field = await reader.next()
-        if not field:
+        if not request.content_type.startswith("multipart/"):
             return web.json_response(
-                {"error": "No file field found in multipart request"}, status=400
+                {"error": "Content-Type must be multipart/form-data"}, status=400
             )
-
-        size = 0
-        chunks: list[bytes] = []
-
-        while True:
-            chunk = await field.read_chunk()
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_UPLOAD_SIZE:
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            if not field or getattr(field, "name", None) != "file":
                 return web.json_response(
-                    {
-                        "error": f"File exceeds maximum allowed size of {MAX_UPLOAD_SIZE} bytes"
-                    },
-                    status=413,
+                    {"error": "No file field found in multipart request"}, status=400
                 )
-            chunks.append(chunk)
 
-        blob = b"".join(chunks)
-        cleanup_hours_override = None
-        auto_hide_override = None
-        while True:
-            metadata = await reader.next()
-            if metadata is None:
-                break
-            value = await metadata.text()
-            if metadata.name == "cleanup_hours":
-                try:
-                    cleanup_hours_override = int(value)
-                except ValueError:
+            size = 0
+            chunks: list[bytes] = []
+
+            while True:
+                chunk = await field.read_chunk()
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_UPLOAD_SIZE:
                     return web.json_response(
-                        {"error": "Invalid cleanup period"}, status=400
+                        {
+                            "error": f"File exceeds maximum allowed size of {MAX_UPLOAD_SIZE} bytes"
+                        },
+                        status=413,
                     )
-                if not 0 <= cleanup_hours_override <= 168:
+                chunks.append(chunk)
+
+            blob = b"".join(chunks)
+            cleanup_hours_override = None
+            auto_hide_override = None
+            while True:
+                metadata = await reader.next()
+                if metadata is None:
+                    break
+                if not hasattr(metadata, "text") or not getattr(metadata, "name", None):
                     return web.json_response(
-                        {"error": "Cleanup period must be from 0 to 168 hours"},
-                        status=400,
+                        {"error": "Invalid multipart request"}, status=400
                     )
-            elif metadata.name == "auto_hide":
-                if value.lower() not in ("true", "false"):
-                    return web.json_response(
-                        {"error": "Invalid hide-after-install setting"}, status=400
-                    )
-                auto_hide_override = value.lower() == "true"
+                value = await metadata.text()
+                if metadata.name == "cleanup_hours":
+                    try:
+                        cleanup_hours_override = int(value)
+                    except ValueError:
+                        return web.json_response(
+                            {"error": "Invalid cleanup period"}, status=400
+                        )
+                    if not 0 <= cleanup_hours_override <= 168:
+                        return web.json_response(
+                            {"error": "Cleanup period must be from 0 to 168 hours"},
+                            status=400,
+                        )
+                elif metadata.name == "auto_hide":
+                    if value.lower() not in ("true", "false"):
+                        return web.json_response(
+                            {"error": "Invalid hide-after-install setting"}, status=400
+                        )
+                    auto_hide_override = value.lower() == "true"
+        except (ValueError, AssertionError, BadHttpMessage):
+            return web.json_response({"error": "Invalid multipart request"}, status=400)
         clean_device_id = device_id.removesuffix(".yaml")
+        if not is_valid_device_id(clean_device_id):
+            return web.json_response({"error": "Invalid device ID"}, status=400)
 
         # Reject obviously non-firmware payloads before resolving the device. The
         # full platform/chip validation still runs once a known target is found.
@@ -128,6 +145,10 @@ class FirmwareUploadView(HomeAssistantView):
                     builder_device.get("configuration") or f"{clean_device_id}.yaml"
                 )
                 name = builder_device.get("name") or clean_device_id
+                if not NODE_RE.match(name):
+                    return web.json_response(
+                        {"error": "Invalid device name"}, status=400
+                    )
                 friendly_name = builder_device.get("friendly_name") or name
                 target_platform = builder_device.get("target_platform", "esp32")
             else:

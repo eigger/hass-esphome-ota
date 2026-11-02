@@ -502,14 +502,10 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     formData.append("auto_hide", String(!!this.autoHideAfterInstall));
 
     try {
-      const token = this.hass.auth?.accessToken || "";
-      const resp = await fetch(`/api/esphome_ota/upload/${targetDeviceId}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      const resp = await this.hass.fetchWithAuth(
+        `/api/esphome_ota/upload/${encodeURIComponent(targetDeviceId)}`,
+        { method: "POST", body: formData },
+      );
       const data = await resp.json();
       if (!stillShowingTarget()) return;
       if (resp.ok) {

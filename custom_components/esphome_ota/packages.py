@@ -9,7 +9,27 @@ from .const import DEFAULT_PUBLISH_DIR
 
 _PROJECT_NAME_MAX = 32
 
-NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
+NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\Z")
+# An empty token is valid: it reverts the slug to the plain node name.
+TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{0,64}\Z")
+VERSION_RE = re.compile(r"^[^\x00-\x1f\x7f\"'\\]{1,64}\Z")
+_DEVICE_ID_RE = re.compile(r"^[^\x00-\x1f\x7f/\\]{1,128}\Z")
+
+
+def is_valid_device_id(value: str) -> bool:
+    """Return True if ``value`` is safe to use as a device ID / file stem."""
+    return (
+        bool(_DEVICE_ID_RE.match(value))
+        and ".." not in value
+        and value.strip(" .") != ""
+    )
+
+
+def yaml_dq(value: str) -> str:
+    """Return ``value`` as a double-quoted YAML scalar with escaping."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = escaped.replace("\n", "\\n").replace("\r", "\\r")
+    return f'"{escaped}"'
 
 
 def project_name(node: str) -> str:
@@ -80,14 +100,14 @@ def generate_inline_ota_yaml(
     if use_project and node and version:
         proj_block = f"""    esphome:
       project:
-        name: "{project_name(node)}"
-        version: "{version}"\n"""
+        name: {yaml_dq(project_name(node))}
+        version: {yaml_dq(version)}\n"""
 
     return f"""\
   esphome_ota:
     substitutions:
-      ota_base_url: "{clean_base_url}"
-      ota_slug: "{slug}"
+      ota_base_url: {yaml_dq(clean_base_url)}
+      ota_slug: {yaml_dq(slug)}
 {proj_block}    http_request:
       timeout: 60s
 
@@ -102,30 +122,4 @@ def generate_inline_ota_yaml(
         name: "Firmware"
         source: "${{ota_base_url}}/local/{publish_dir}/${{ota_slug}}.json"
         update_interval: 6h
-"""
-
-
-def generate_device_wrapper_yaml(
-    node: str,
-    token: str = "",
-    version: str = "1.0.0",
-    package_file: str = "update.yaml",
-    package_dir: str = "ota_server",
-) -> str:
-    """Generate legacy device wrapper YAML."""
-    slug = f"{node}_{token}" if token else node
-    p_name = project_name(node)
-    return f"""\
-{HEADER}
-substitutions:
-  ota_device: {node}
-  ota_slug: {slug}
-
-esphome:
-  project:
-    name: "{p_name}"
-    version: "{version}"
-
-packages:
-  ota_base: !include ../{package_file}
 """

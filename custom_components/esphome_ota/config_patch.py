@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 from .models import YamlDiff
-from .packages import generate_inline_ota_yaml
+from .packages import generate_inline_ota_yaml, yaml_dq
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -574,6 +574,12 @@ def _format_yaml_scalar(value: str) -> str:
         return '""'
     if re.fullmatch(r"[0-9]+(\.[0-9]+)*", value):
         return f'"{value}"'
+    try:
+        # Null/bool/number-like plain scalars would not round-trip as strings.
+        if not isinstance(yaml.safe_load(value), str):
+            return f'"{value}"'
+    except yaml.YAMLError:
+        pass
     if re.search(r'[:#\[\]{},&*?|>!%@`\'"\s]', value):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'
@@ -809,7 +815,7 @@ def set_package_ota_slug(content: str, new_slug: str) -> tuple[str, bool]:
                     nl = "\n"
                 else:
                     nl = ""
-                lines[idx] = f'{indent}ota_slug: "{new_slug}"{nl}'
+                lines[idx] = f"{indent}ota_slug: {yaml_dq(new_slug)}{nl}"
                 changed = True
 
     if changed:
