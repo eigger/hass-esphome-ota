@@ -515,7 +515,6 @@ async def test_entity_registry_events_filtered_and_debounced(
     await monitor.async_setup()
 
     with patch.object(monitor, "async_refresh_monitoring", AsyncMock()):
-        # Debouncer captured the original bound function, so patch it directly.
         for eid in ("light.a", "sensor.b"):
             hass.bus.async_fire(
                 er.EVENT_ENTITY_REGISTRY_UPDATED,
@@ -576,3 +575,39 @@ async def test_unload_during_refresh_attaches_no_listener(
     # Even a direct call after unload cannot attach a listener.
     monitor._attach_listener("d", "update.x")
     assert monitor._unsub_listeners == []
+
+
+async def test_debounced_refreshes_do_not_overlap(hass: HomeAssistant) -> None:
+    """A refresh longer than the cooldown is not run concurrently with the next."""
+    import asyncio
+    from unittest.mock import patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+
+    running = 0
+    peak = 0
+    release = asyncio.Event()
+    runs = 0
+
+    async def slow_refresh() -> None:
+        nonlocal running, peak, runs
+        running += 1
+        runs += 1
+        peak = max(peak, running)
+        await release.wait()
+        running -= 1
+
+    with patch.object(monitor, "async_refresh_monitoring", slow_refresh):
+        await monitor._async_debounced_refresh()
+        await monitor._async_debounced_refresh()
+        await asyncio.sleep(0.05)
+        assert runs == 1
+        release.set()
+        await hass.async_block_till_done()
+        assert runs == 2
+        assert peak == 1
+
+    monitor.async_unload()

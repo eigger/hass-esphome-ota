@@ -62,6 +62,7 @@ class InstallationMonitor:
         self._cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._persist_tasks: set[asyncio.Task[Any]] = set()
+        self._refresh_lock = asyncio.Lock()
         self._unloaded = False
         self._refresh_debouncer = Debouncer(
             hass,
@@ -73,7 +74,12 @@ class InstallationMonitor:
 
     async def _async_debounced_refresh(self) -> None:
         """Run the refresh as a tracked task so unload cancels it."""
-        self._track_task(self.async_refresh_monitoring())
+        self._track_task(self._async_serialized_refresh())
+
+    async def _async_serialized_refresh(self) -> None:
+        """Keep refreshes from overlapping when one outlasts the debounce cooldown."""
+        async with self._refresh_lock:
+            await self.async_refresh_monitoring()
 
     def _track_task(
         self, coro: Coroutine[Any, Any, Any], *, cancel_on_unload: bool = True
