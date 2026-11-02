@@ -18,7 +18,11 @@ _DEVICE_ID_RE = re.compile(r"^[^\x00-\x1f\x7f/\\]{1,128}\Z")
 
 def is_valid_device_id(value: str) -> bool:
     """Return True if ``value`` is safe to use as a device ID / file stem."""
-    return bool(_DEVICE_ID_RE.match(value)) and ".." not in value
+    return (
+        bool(_DEVICE_ID_RE.match(value))
+        and ".." not in value
+        and value.strip(" .") != ""
+    )
 
 
 def yaml_dq(value: str) -> str:

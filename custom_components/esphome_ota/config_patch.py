@@ -574,6 +574,12 @@ def _format_yaml_scalar(value: str) -> str:
         return '""'
     if re.fullmatch(r"[0-9]+(\.[0-9]+)*", value):
         return f'"{value}"'
+    try:
+        # Null/bool/number-like plain scalars would not round-trip as strings.
+        if not isinstance(yaml.safe_load(value), str):
+            return f'"{value}"'
+    except yaml.YAMLError:
+        pass
     if re.search(r'[:#\[\]{},&*?|>!%@`\'"\s]', value):
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{escaped}"'

@@ -76,7 +76,18 @@ def test_version_and_node_re() -> None:
 def test_device_id_validation() -> None:
     assert is_valid_device_id("living room(1)")
     assert is_valid_device_id("sensor+é")
-    for bad in ("", "a/b", "a\\b", "..", "a..b", "a\x00", "a\n"):
+    for bad in (
+        ".",
+        "...",
+        ".yaml".removesuffix(".yaml"),
+        "",
+        "a/b",
+        "a\\b",
+        "..",
+        "a..b",
+        "a\x00",
+        "a\n",
+    ):
         assert not is_valid_device_id(bad)
 
 
@@ -298,3 +309,13 @@ async def test_set_token_empty_reverts_slug_and_invalid_name(
         assert dev.token == ""
         assert dev.slug == "esp-tab"
         await ws.close()
+
+
+def test_format_yaml_scalar_quotes_non_string_scalars() -> None:
+    from custom_components.esphome_ota.config_patch import _format_yaml_scalar
+
+    for v in ("~", "-1", "null", "true", ".inf", "0x10"):
+        out = _format_yaml_scalar(v)
+        assert out == f'"{v}"'
+        assert yaml.safe_load(out) == v
+    assert _format_yaml_scalar("beta") == "beta"

@@ -110,6 +110,8 @@ class FirmwareUploadView(HomeAssistantView):
         except (ValueError, AssertionError, BadHttpMessage):
             return web.json_response({"error": "Invalid multipart request"}, status=400)
         clean_device_id = device_id.removesuffix(".yaml")
+        if not is_valid_device_id(clean_device_id):
+            return web.json_response({"error": "Invalid device ID"}, status=400)
 
         # Reject obviously non-firmware payloads before resolving the device. The
         # full platform/chip validation still runs once a known target is found.
