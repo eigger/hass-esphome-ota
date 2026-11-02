@@ -813,8 +813,9 @@ class EsphomeOtaManager extends HTMLElement {
     this.panelObserver = null;
     window.removeEventListener("resize", this.resizePanel);
     if (this._unsubEvents) {
-      this._unsubEvents();
+      const old = this._unsubEvents;
       this._unsubEvents = null;
+      Promise.resolve().then(old).catch(() => {});
     }
     this._subscriptionAttempted = false;
     clearTimeout(this._resubTimer);
@@ -910,13 +911,8 @@ class EsphomeOtaManager extends HTMLElement {
       // (the hass setter would otherwise race the not-yet-registered backend).
       const old = this._unsubEvents;
       this._unsubEvents = null;
-      if (old) {
-        try {
-          old();
-        } catch (_) {
-          /* connection may already be gone */
-        }
-      }
+      // The unsubscribe function returns a Promise; swallow rejections (socket may be gone).
+      if (old) Promise.resolve().then(old).catch(() => {});
       this._resubscribeSoon(0);
     } else if (event === "status_changed" && data) {
       this.status = data.status;
