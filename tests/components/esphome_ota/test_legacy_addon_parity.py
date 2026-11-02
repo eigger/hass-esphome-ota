@@ -14,9 +14,10 @@ Specifically verifies:
 from __future__ import annotations
 
 import re
+
 import aiohttp
-from homeassistant.core import HomeAssistant
 import pytest
+from homeassistant.core import HomeAssistant
 
 from custom_components.esphome_ota.builder.client import BuilderClient
 from custom_components.esphome_ota.builder.connection import BuilderConnection

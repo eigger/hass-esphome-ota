@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { escapeHtml } from "./html.js";
 import { bindModalAccessibility, captureModalFocus, definePanelElement, rememberModalFocus, restoreModalFocus } from "./elements.js";
 
 const css = `
@@ -240,16 +241,6 @@ button:disabled {
   color: var(--primary-text-color, #1f2937);
 }
 `;
-
-function escapeHtml(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 const DATE_SEP_RE =
   /^(20\d\d([-.])(0?[1-9]|1[0-2])\2(0?[1-9]|[12]\d|3[01]))(?:\.(\d+))?$/;

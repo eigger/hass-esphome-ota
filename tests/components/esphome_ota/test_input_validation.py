@@ -12,7 +12,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.esphome_ota.config_patch import set_package_ota_slug
 from custom_components.esphome_ota.const import DOMAIN
-from custom_components.esphome_ota.websocket import _www_path
 from custom_components.esphome_ota.packages import (
     NODE_RE,
     TOKEN_RE,
@@ -21,6 +20,7 @@ from custom_components.esphome_ota.packages import (
     is_valid_device_id,
     yaml_dq,
 )
+from custom_components.esphome_ota.websocket import _www_path
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
 

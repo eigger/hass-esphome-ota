@@ -9,14 +9,12 @@ from __future__ import annotations
 # Mock external communication boundaries, never Home Assistant core modules.
 # Keep integration-specific fixtures below this managed block.
 # <!-- hass-standards:domain-fixtures:end -->
-
-
 import json
 import shutil
 import uuid
 from collections.abc import AsyncGenerator, Generator
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest

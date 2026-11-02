@@ -1,13 +1,19 @@
 # Ruff configuration (ruff itself is pinned in requirements_lint.txt).
 #
-# Selection: E/F are the pycodestyle+pyflakes rules this codebase was already
-# clean against (real errors: undefined names, unused imports, syntax issues).
+# Selection: E/F are the pycodestyle+pyflakes rules (undefined names, unused
+# imports, syntax issues). I keeps imports sorted, BLE flags blind `except
+# Exception` (intentional ones carry `# noqa: BLE001`) and ASYNC flags blocking
+# calls in coroutines.
 [lint]
-select = ["E", "F"]
+select = ["E", "F", "I", "BLE", "ASYNC"]
 
 # Long lines are pervasive in strings and log-message formatting and
 # are not worth churning; everything else in E/F stays enforced.
-ignore = ["E501"]
+#
+# ASYNC109 (timeout parameter on async functions) and ASYNC240 (pathlib calls
+# in coroutines) are not enabled yet: fixing them changes behaviour/IO paths
+# and needs a dedicated change.
+ignore = ["E501", "ASYNC109", "ASYNC240"]
 
 [lint.per-file-ignores]
 "tests/*" = ["E402"]

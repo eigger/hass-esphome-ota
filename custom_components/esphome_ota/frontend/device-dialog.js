@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { escapeHtml } from "./html.js";
 import {
   bindModalAccessibility,
   captureModalFocus,
@@ -271,16 +272,6 @@ button:disabled {
   pointer-events: none;
 }
 `;
-
-function escapeHtml(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 class EsphomeOtaDeviceDialog extends HTMLElement {
   constructor() {

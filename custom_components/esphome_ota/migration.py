@@ -10,14 +10,13 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .publisher import async_path_is_file
-from .redaction import install_redaction
 from .config_patch import apply_ota_patch
 from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
 from .firmware import ensure_supported_platform, inspect_binary
 from .models import BinaryValidationError, BuilderConnectionError
-from .publisher import ArtifactPublisher
+from .publisher import ArtifactPublisher, async_path_is_file
+from .redaction import install_redaction
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -152,7 +151,7 @@ class MigrationManager:
                             )
                             detected_platforms[node] = "esp8266"
                     # Archive into private storage
-                    self.publisher._publish_sync(
+                    self.publisher.publish_sync(
                         device_id=target.get("device_id", node),
                         configuration=target.get("configuration", f"{node}.yaml"),
                         slug=slug,

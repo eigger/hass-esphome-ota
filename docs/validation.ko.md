@@ -22,17 +22,17 @@
 | Update 엔티티 감시 & 만료 | HA State 머신 테스트 | **통과 (100%)** | `installed_version` 일치 감시, unavailable 제외, 만료 타이머 |
 | 레거시 애드온 데이터 이전 | 스토리지 마이그레이션 | **통과 (100%)** | 토큰·슬러그 보존, 바이너리 이전, 멱등성 검증 |
 | 웹소켓 API & 수동 업로드 | HA WS/HTTP 클라이언트 | **통과 (100%)** | 관리자 권한 확인, 스냅샷+델타 구독, 16MB 업로드 제한 |
-| **8대 P1 1차 결함 회귀 테스트** | [test_p1_bugfixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_bugfixes.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
-| **2ba3cab 리뷰 결함 8건 회귀 테스트** | [test_p1_p2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_p1_p2_review_fixes.py) | **통과 (100%)** | Builder 미선택 ingress 포트, 다이얼로그 DOM 보존, 치환문자열 버전, XSS 방지, 소켓 중단 복구, 락 내부 버전 할당, Update 엔티티 동적 감시, 자동 정리 타이머 복원 |
-| **00d085d 2차 리뷰 결함 7건 회귀 테스트** | [test_00d085d_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_00d085d_review_fixes.py) | **통과 (100%)** | 취소 빌드 게시 차단, dev Builder 하이재킹 방지, !include 관리버전 보존/검토, Update 엔티티 정밀 매칭, 컴파일 유실 복구, 기기 카드 갱신, 수동 업로드 정리 스케줄링 |
-| **ffe378c 3차 리뷰 결함 4건 회귀 테스트** | [test_ffe378c_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ffe378c_review_fixes.py) | **통과 (100%)** | `firmware/get_jobs` 공식 API 규격, 과거 이력/업로드 오연결 방지, 원격 패키지 소유권 보호, ESPHome 플랫폼 엔티티 검증 |
-| **e2369ce 4차 리뷰 결함 4건 회귀 테스트** | [test_e2369ce_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_e2369ce_review_fixes.py) | **통과 (100%)** | 직전 완료 컴파일 오연결 차단(P1), recovery_required 화면 해제/취소/재확인(P2), ESP8266 firmware.bin 다운로드(P2), 4칸 들여쓰기 YAML 패치 교정(P2) |
-| **ee66713 5차 리뷰 결함 3건 회귀 테스트** | [test_ee66713_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ee66713_review_fixes.py) | **통과 (100%)** | packages 직접 자식 들여쓰기 기준 정밀화(P1), BuilderClient.get_jobs(configuration=) 스냅샷 지원(P2), factory 단독 바이너리 거부 및 OTA 파일 필수화(P2) |
-| **ae5c1bb 6차 리뷰 결함 3건 회귀 테스트** | [test_ae5c1bb_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_ae5c1bb_review_fixes.py) | **통과 (100%)** | 비펌웨어/0채움 바이너리 거부(P1), 언로드 시 파이프라인 정리 및 빌더 컴파일 보존(P2), 사용자 프로젝트 버전 소유권과 OTA 설정 갱신 분리(P2) |
-| **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_cf00be0_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_cf00be0_review_fixes.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
-| **c22c0a2 8차 리뷰 결함 3건 회귀 테스트** | [test_c22c0a2_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_c22c0a2_review_fixes.py) | **통과 (100%)** | 새 빌드 취소 시 기존 정상 펌웨어 보존(P1), Auto-detect 옵션 정규화 및 단일 Builder 자동 연결 복원(P2), 패널 Builder 선택 영구 저장 및 재로드 유지(P2), MockBuilderServer 웹소켓 종료 타임아웃 해결 |
-| **3050dea 9차 리뷰 결함 2건 회귀 테스트** | [test_3050dea_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_3050dea_review_fixes.py) | **통과 (100%)** | 파일 교체 중 취소 시 이전 정상 펌웨어 복원(P1), Builder 변경 시 자동 재로드 억제 및 언로드 객체 재연결 방지(P2) |
-| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_2070a00_review_fixes.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/tests/components/esphome_ota/test_2070a00_review_fixes.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 시작 전 취소 시 즉시 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2), 다중 기기 동시 배포 시 원자적 아티팩트 저장 보장(P2), 이전 버전 정리 타이머의 새 펌웨어 삭제 방지(P2), 디스크 매니페스트 우선 확인 및 언로드된 publisher 삭제 차단(P2) |
+| **8대 P1 1차 결함 회귀 테스트** | [test_build_pipeline_basics.py](../tests/components/esphome_ota/test_build_pipeline_basics.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
+| **2ba3cab 리뷰 결함 8건 회귀 테스트** | [test_resolution_and_frontend_safety.py](../tests/components/esphome_ota/test_resolution_and_frontend_safety.py) | **통과 (100%)** | Builder 미선택 ingress 포트, 다이얼로그 DOM 보존, 치환문자열 버전, XSS 방지, 소켓 중단 복구, 락 내부 버전 할당, Update 엔티티 동적 감시, 자동 정리 타이머 복원 |
+| **00d085d 2차 리뷰 결함 7건 회귀 테스트** | [test_pipeline_resume_and_recovery.py](../tests/components/esphome_ota/test_pipeline_resume_and_recovery.py) | **통과 (100%)** | 취소 빌드 게시 차단, dev Builder 하이재킹 방지, !include 관리버전 보존/검토, Update 엔티티 정밀 매칭, 컴파일 유실 복구, 기기 카드 갱신, 수동 업로드 정리 스케줄링 |
+| **ffe378c 3차 리뷰 결함 4건 회귀 테스트** | [test_job_recovery_and_ownership.py](../tests/components/esphome_ota/test_job_recovery_and_ownership.py) | **통과 (100%)** | `firmware/get_jobs` 공식 API 규격, 과거 이력/업로드 오연결 방지, 원격 패키지 소유권 보호, ESPHome 플랫폼 엔티티 검증 |
+| **e2369ce 4차 리뷰 결함 4건 회귀 테스트** | [test_recovery_and_package_yaml.py](../tests/components/esphome_ota/test_recovery_and_package_yaml.py) | **통과 (100%)** | 직전 완료 컴파일 오연결 차단(P1), recovery_required 화면 해제/취소/재확인(P2), ESP8266 firmware.bin 다운로드(P2), 4칸 들여쓰기 YAML 패치 교정(P2) |
+| **ee66713 5차 리뷰 결함 3건 회귀 테스트** | [test_package_indent_and_factory_images.py](../tests/components/esphome_ota/test_package_indent_and_factory_images.py) | **통과 (100%)** | packages 직접 자식 들여쓰기 기준 정밀화(P1), BuilderClient.get_jobs(configuration=) 스냅샷 지원(P2), factory 단독 바이너리 거부 및 OTA 파일 필수화(P2) |
+| **ae5c1bb 6차 리뷰 결함 3건 회귀 테스트** | [test_binary_validation_and_unload.py](../tests/components/esphome_ota/test_binary_validation_and_unload.py) | **통과 (100%)** | 비펌웨어/0채움 바이너리 거부(P1), 언로드 시 파이프라인 정리 및 빌더 컴파일 보존(P2), 사용자 프로젝트 버전 소유권과 OTA 설정 갱신 분리(P2) |
+| **cf00be0 7차 리뷰 결함 2건 회귀 테스트** | [test_publisher_cleanup_and_select_builder_api.py](../tests/components/esphome_ota/test_publisher_cleanup_and_select_builder_api.py) | **통과 (100%)** | 취소/언로드 시 스레드 파일 확정 차단 및 자동 정리(P1), 설치 후 다중 Builder 후보 선택·저장 및 OptionsFlow/WS 지원(P2) |
+| **c22c0a2 8차 리뷰 결함 3건 회귀 테스트** | [test_firmware_preservation_and_builder_selection.py](../tests/components/esphome_ota/test_firmware_preservation_and_builder_selection.py) | **통과 (100%)** | 새 빌드 취소 시 기존 정상 펌웨어 보존(P1), Auto-detect 옵션 정규화 및 단일 Builder 자동 연결 복원(P2), 패널 Builder 선택 영구 저장 및 재로드 유지(P2), MockBuilderServer 웹소켓 종료 타임아웃 해결 |
+| **3050dea 9차 리뷰 결함 2건 회귀 테스트** | [test_publish_cancellation_and_reconnect.py](../tests/components/esphome_ota/test_publish_cancellation_and_reconnect.py) | **통과 (100%)** | 파일 교체 중 취소 시 이전 정상 펌웨어 복원(P1), Builder 변경 시 자동 재로드 억제 및 언로드 객체 재연결 방지(P2) |
+| **2070a00 10차 리뷰 결함 회귀 테스트** | [test_publish_concurrency_and_cleanup.py](../tests/components/esphome_ota/test_publish_concurrency_and_cleanup.py) | **통과 (100%)** | 동일 슬러그 게시·롤백 직렬화 및 취소 executor 종료 대기(P1), 시작 전 취소 시 즉시 해제(P1), 동일 Builder 재선택 시 재로드 억제 카운터 복구(P2), 다중 기기 동시 배포 시 원자적 아티팩트 저장 보장(P2), 이전 버전 정리 타이머의 새 펌웨어 삭제 방지(P2), 디스크 매니페스트 우선 확인 및 언로드된 publisher 삭제 차단(P2) |
 | **실제 HA OS 런타임 실증** | 실제 하드웨어/애드온 | **미검증** | 개발 환경에 실행 중인 HA OS 인스턴스 부재 |
 
 > [!IMPORTANT]
@@ -191,7 +191,7 @@
 
 1. **[P1-1] 취소·언로드된 작업의 executor 스레드 지연 시 공개 바이너리/매니페스트 배포 방지 및 자동 정리**:
    - `jobs.py:708`, `publisher.py:156`에서 파이프라인 코루틴이 취소(`CancelledError`)되거나 언로드되어도 파일 I/O를 수행 중인 Python `ThreadPoolExecutor` 스레드가 중단되지 않아, 스레드 재개 시 공개 바이너리와 manifest가 생성되면서도 게시 이력과 정리 타이머가 누락되던 결함 해결.
-   - `ArtifactPublisher`에 `_unloaded` 상태 플래그 및 `async_unload()` 메서드를 추가하고, `_publish_sync`에 `check_cancelled` 콜백 인자 도입.
+   - `ArtifactPublisher`에 `_unloaded` 상태 플래그 및 `async_unload()` 메서드를 추가하고, `publish_sync`에 `check_cancelled` 콜백 인자 도입.
    - 비공개 아카이빙 전, 공개 파일 생성 직전, 매니페스트 확정 직전 및 직후에 실행 유효성(`_check_validity`)을 검사하여 작업 취소 또는 언로드 감지 시 즉시 `EsphomeOtaError`를 발생.
    - 공개 파일 생성 구간을 `try...except`로 보호하여, 취소나 예외 발생 시 생성 중이던 `public_bin`, `public_md5`, `public_manifest`를 즉시 `unlink(missing_ok=True)`하여 잔류 파일이 남지 않도록 보장.
    - `JobRunner`에 `_cancelled_jobs` 추적 세트를 도입하여 `async_cancel_job()` 시 즉시 취소 목록에 등록하고, 취소 핸들러에서 `async_deactivate(device.slug)`를 호출하여 잔여 공개 파일을 완전히 정리.
@@ -211,7 +211,7 @@
 
 1. **[P1] 새 빌드 취소 시 기존 정상 펌웨어 삭제 결함 해결**:
    - `jobs.py:425`, `jobs.py:719`에서 빌드 작업이 취소(`CancelledError`)되거나 언로드될 때 무조건 `await self.publisher.async_deactivate(device.slug)`를 호출하던 문제 해결. 검증·컴파일 단계 등 배포 전 단계에서 새 작업을 취소하더라도 이전에 배포된 정상 펌웨어가 삭제되지 않도록 취소 핸들러의 `async_deactivate` 호출을 완전히 제거.
-   - `publisher.py`의 `_publish_sync`에 임시 스테이징(`.stage_<uuid>`) 메커니즘을 적용: 바이너리, MD5, 매니페스트를 임시 스테이징 파일에 먼저 작성한 뒤 유효성 검사를 통과한 경우에만 `os.replace`로 원자적 치환.
+   - `publisher.py`의 `publish_sync`에 임시 스테이징(`.stage_<uuid>`) 메커니즘을 적용: 바이너리, MD5, 매니페스트를 임시 스테이징 파일에 먼저 작성한 뒤 유효성 검사를 통과한 경우에만 `os.replace`로 원자적 치환.
    - 배포 도중 취소되거나 예외가 발생하더라도 작업 이전에 이미 존재하던 파일(`prior_bin_exists` 등)은 일체 삭제하지 않고, 오직 해당 작업이 생성한 임시 스테이징 파일(및 신규 배포였던 경우에 한해 미완성 파일)만 정리하도록 수정.
 2. **[P2] 옵션의 Auto-detect 설정 시 자동 연결 방해 결함 해결**:
    - `manager.py:60`에서 `entry.options` 또는 `entry.data`에 저장된 `"auto"` 문자열을 실제 Builder slug로 취급하여 단일 후보가 감지되어도 일치하는 Builder가 없어 연결하지 못하던 결함 해결.
@@ -228,7 +228,7 @@
 ## 11. 3050dea 9차 리뷰 결함 2건 조치 내역 (P1 1건, P2 1건)
 
 1. **[P1] 파일 교체 중 취소 시 이전 정상 펌웨어 복원 및 미확정 매니페스트 공개 방지**:
-   - `publisher.py:148`의 `_publish_sync`에서 바이너리 교체 직후 작업이 취소되거나 예외가 발생할 경우, 기존 파일이 존재했다는 이유로 롤백을 수행하지 않고 manifest까지 새 버전으로 교체한 뒤 취소 에러를 발생시키던 결함 해결.
+   - `publisher.py:148`의 `publish_sync`에서 바이너리 교체 직후 작업이 취소되거나 예외가 발생할 경우, 기존 파일이 존재했다는 이유로 롤백을 수행하지 않고 manifest까지 새 버전으로 교체한 뒤 취소 에러를 발생시키던 결함 해결.
    - **백업 사본 보존**: 기존 파일 교체 전에 기존 `public_bin`, `public_md5`, `public_manifest`가 존재하는 경우 각각 `.bak_<uuid>` 임시 백업 파일로 복사(`shutil.copyfile`).
    - **일관된 취소·유효성 검사**: 파일 치환 시작 직전 및 최종 공개 확정 지점인 manifest 치환 직전에 `_check_validity()`를 검사.
    - **안전한 롤백 및 정리**:
@@ -246,9 +246,9 @@
 ## 12. 2070a00 10차 리뷰 결함 2건 조치 내역 (P1 1건, P2 1건)
 
 1. **[P1] 취소된 게시의 롤백이 이후 정상 게시까지 덮어쓰는 동시성 결함 해결**:
-   - `publisher.py:172`의 `_publish_sync`에서 이전 게시 스레드가 지연된 상태에서 새 게시(예: 1.0.2)가 성공하면, 지연되었던 이전 작업의 롤백이 새 정상 파일을 과거 백업(예: 1.0.0)으로 덮어쓰는 치명적 경쟁 상태 해결.
+   - `publisher.py:172`의 `publish_sync`에서 이전 게시 스레드가 지연된 상태에서 새 게시(예: 1.0.2)가 성공하면, 지연되었던 이전 작업의 롤백이 새 정상 파일을 과거 백업(예: 1.0.0)으로 덮어쓰는 치명적 경쟁 상태 해결.
    - **동일 slug 기반 게시/롤백 직렬화**: `ArtifactPublisher`에 `_slug_locks: dict[str, asyncio.Lock]` 및 `_sync_slug_locks: dict[str, threading.Lock]`을 도입하여 동일 기기(slug)에 대한 게시 및 비활성화(deactivate) 작업을 스레드 및 코루틴 수준에서 직렬화.
-   - **취소된 executor 스레드 완료 보장**: `_publish_sync`에 `(loop, done_event, started_event)`를 전달하고, 취소·예외 발생 여부와 상관없이 동기 스레드의 최종 `finally` 블록에서 `loop.call_soon_threadsafe(done_event.set)`을 호출.
+   - **취소된 executor 스레드 완료 보장**: `publish_sync`에 `(loop, done_event, started_event)`를 전달하고, 취소·예외 발생 여부와 상관없이 동기 스레드의 최종 `finally` 블록에서 `loop.call_soon_threadsafe(done_event.set)`을 호출.
    - **시작 전 취소 시 즉시 해제 및 무한 대기 방지**: executor가 바쁜 상태에서 대기 중이던 배포 작업이 시작 전에 취소된 경우, executor 작업이 실행되지 않아 `done_event`가 설정되지 않더라도 `fut.cancelled() and not started_event.is_set()`를 감지하여 락을 무한 대기하지 않고 즉시 해제. 반면 executor 스레드가 이미 시작된 경우(`started_event.is_set()`)에는 롤백 및 정리가 끝날 때까지 `done_event.wait()`로 안전하게 대기하여 후속 게시 파일 보호.
 2. **[P2] 동일 Builder 재선택 시 재로드 억제 카운터 누적으로 인한 후속 옵션 변경 미적용 결함 해결**:
    - `manager.py:355`의 `async_select_builder`에서 동일한 Builder slug를 다시 선택하는 경우, HA `ConfigEntries.async_update_entry()`는 값이 동일하여 `False`를 반환하고 설정 변경 리스너를 호출하지 않음.
@@ -256,12 +256,12 @@
    - **변경 여부 검증 및 카운터 복구**: `changed = self.hass.config_entries.async_update_entry(...)` 반환값을 확인하여, 변경 사항이 없는 경우(`not changed`) 즉시 `self._suppress_reload_count = max(0, self._suppress_reload_count - 1)`로 카운터를 원복. 예외 발생 시에도 `finally/except`에서 카운터를 복구하고, `async_unload` 시 카운터를 0으로 초기화하도록 방어.
 3. **[P2] 다중 기기 동시 배포 시 저장소 덮어쓰기로 인한 공개 이력 유실 결함 해결**:
    - `jobs.py:397` 등에서 여러 기기를 동시에 빌드·게시하거나 수동 업로드할 때, 각 작업이 `async_load_artifacts()`로 전체 이력을 읽은 후 기기 하나를 추가하여 `async_save_artifacts()`를 호출함으로써 마지막에 저장된 기기가 다른 기기의 저장 내역을 덮어쓰던 경쟁 상태 해결.
-   - **저장소 계층 락 보호 단일 갱신 함수 도입**: `StorageManager`([storage.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/storage.py))에 `_artifact_lock: asyncio.Lock`을 추가하고, 단일 기기 갱신 전용 비동기 함수 `async_save_artifact(device_id, artifact)`를 신설하여 읽기-수정-쓰기 전 과정을 원자적으로 보호.
-   - **빌드·복구·재게시·업로드 공통 적용**: `JobRunner`의 빌드 완료([jobs.py:397](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L397)), 복구 완료([jobs.py:688](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L688)), 프라이빗 재게시([jobs.py:776](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/jobs.py#L776)), 수동 펌웨어 업로드([http.py:83](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/http.py#L83)) 전 영역에서 `async_save_artifact`를 호출하도록 통일하여 동시 배포 시에도 모든 기기의 배포 이력과 정리 타이머 복원 메타데이터가 완벽히 보존되도록 보장.
+   - **저장소 계층 락 보호 단일 갱신 함수 도입**: `StorageManager`([storage.py](../custom_components/esphome_ota/storage.py))에 `_artifact_lock: asyncio.Lock`을 추가하고, 단일 기기 갱신 전용 비동기 함수 `async_save_artifact(device_id, artifact)`를 신설하여 읽기-수정-쓰기 전 과정을 원자적으로 보호.
+   - **빌드·복구·재게시·업로드 공통 적용**: `JobRunner`의 빌드 완료([jobs.py:397](../custom_components/esphome_ota/jobs.py#L397)), 복구 완료([jobs.py:688](../custom_components/esphome_ota/jobs.py#L688)), 프라이빗 재게시([jobs.py:776](../custom_components/esphome_ota/jobs.py#L776)), 수동 펌웨어 업로드([http.py:83](../custom_components/esphome_ota/http.py#L83)) 전 영역에서 `async_save_artifact`를 호출하도록 통일하여 동시 배포 시에도 모든 기기의 배포 이력과 정리 타이머 복원 메타데이터가 완벽히 보존되도록 보장.
 4. **[P2] 이전 버전의 정리 타이머가 새로 게시한 펌웨어를 삭제하는 결함 해결**:
    - `monitor.py:228`에서 새 펌웨어 게시 작업(`async_publish`) 진행 중 이전 버전의 정리 타이머가 만료되면, 삭제 작업(`async_deactivate`)이 게시 잠금(`_slug_locks`)을 대기. 새 게시가 완료되어 잠금이 풀리는 즉시 삭제 작업이 실행되어 방금 배포된 새 버전의 바이너리를 삭제하고 매니페스트만 남겨두던 경쟁 상태 해결.
-   - **정리 작업 대상 식별자 기록 및 작업 추적**: `InstallationMonitor`([monitor.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/monitor.py))의 `schedule_cleanup`에 `artifact_id` 매개변수를 추가하여 대상 게시물의 `published_at` 타임스탬프를 보존. 만료 시 생성되는 비동기 삭제 태스크를 `_cleanup_tasks`에 등록하여 새 게시 예약이나 `cancel_cleanup` 시 대기 중인 삭제 태스크를 즉시 취소(`task.cancel()`).
-   - **디스크 매니페스트 우선 확인 및 언로드 객체 차단**: `ArtifactPublisher`([publisher.py](file:///Users/eigger/Documents/GitHub/hass-esphome-ota/custom_components/esphome_ota/publisher.py))의 `async_deactivate` 및 `_deactivate_sync`에서 통합 재로드 등으로 언로드된 이전 publisher의 정리 작업(`if self._unloaded`)을 즉시 차단. 삭제 대상 검증 시에도 메모리 캐시보다 파일시스템의 현재 매니페스트 JSON(`published_at`, `version`, `md5`)을 최우선으로 대조하여, 새 publisher 인스턴스가 1.0.1을 게시한 후 이전 publisher의 정리 작업이 실행되더라도 신규 배포 바이너리를 보존하도록 방어.
+   - **정리 작업 대상 식별자 기록 및 작업 추적**: `InstallationMonitor`([monitor.py](../custom_components/esphome_ota/monitor.py))의 `schedule_cleanup`에 `artifact_id` 매개변수를 추가하여 대상 게시물의 `published_at` 타임스탬프를 보존. 만료 시 생성되는 비동기 삭제 태스크를 `_cleanup_tasks`에 등록하여 새 게시 예약이나 `cancel_cleanup` 시 대기 중인 삭제 태스크를 즉시 취소(`task.cancel()`).
+   - **디스크 매니페스트 우선 확인 및 언로드 객체 차단**: `ArtifactPublisher`([publisher.py](../custom_components/esphome_ota/publisher.py))의 `async_deactivate` 및 `_deactivate_sync`에서 통합 재로드 등으로 언로드된 이전 publisher의 정리 작업(`if self._unloaded`)을 즉시 차단. 삭제 대상 검증 시에도 메모리 캐시보다 파일시스템의 현재 매니페스트 JSON(`published_at`, `version`, `md5`)을 최우선으로 대조하여, 새 publisher 인스턴스가 1.0.1을 게시한 후 이전 publisher의 정리 작업이 실행되더라도 신규 배포 바이너리를 보존하도록 방어.
 
 ---
 

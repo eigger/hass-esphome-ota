@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { escapeHtml } from "./html.js";
 import { bindModalAccessibility, captureModalFocus, definePanelElement, rememberModalFocus, restoreModalFocus } from "./elements.js";
 
 const css = `
@@ -198,16 +199,6 @@ button.primary:hover:not(:disabled) {
   button.primary:hover:not(:disabled) { background: #075985; border-color: #0284c7; }
 }
 `;
-
-function escapeHtml(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 const ANSI_STYLES = {
   1: "font-weight: 600;",

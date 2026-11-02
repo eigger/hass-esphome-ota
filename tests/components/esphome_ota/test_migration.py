@@ -333,6 +333,7 @@ async def test_migration_concurrent_modification_conflict_fails(
 ) -> None:
     """Migration must record device failure and preserve external changes on concurrent edits."""
     from unittest.mock import AsyncMock
+
     from custom_components.esphome_ota.models import ConfigConflictError
 
     esphome_dir = Path(hass.config.path("esphome"))
@@ -410,6 +411,7 @@ async def test_migration_partial_device_failure_does_not_mark_failed_devices_as_
 ) -> None:
     """When one device fails during YAML update, other devices continue and completed record is not stored."""
     from unittest.mock import AsyncMock
+
     from custom_components.esphome_ota.models import BuilderError
 
     esphome_dir = Path(hass.config.path("esphome"))

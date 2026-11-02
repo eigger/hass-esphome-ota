@@ -72,7 +72,11 @@ class ArtifactPublisher:
         """Get currently recorded active publication identifier for slug."""
         return self._active_artifacts.get(slug)
 
-    def _get_slug_lock(self, slug: str) -> asyncio.Lock:
+    def set_current_artifact_id(self, slug: str, published_at: str) -> None:
+        """Record the active publication identifier for slug."""
+        self._active_artifacts[slug] = published_at
+
+    def get_slug_lock(self, slug: str) -> asyncio.Lock:
         """Get or create an asyncio.Lock for a specific slug."""
         if slug not in self._slug_locks:
             self._slug_locks[slug] = asyncio.Lock()
@@ -119,7 +123,7 @@ class ArtifactPublisher:
         self._atomic_write_bytes(target, blob)
         return target
 
-    def _publish_sync(
+    def publish_sync(
         self,
         device_id: str,
         configuration: str,
@@ -326,13 +330,13 @@ class ArtifactPublisher:
         auto_hide: bool = True,
     ) -> PublishedArtifact:
         """Asynchronously publish firmware binary and manifest."""
-        lock = self._get_slug_lock(slug)
+        lock = self.get_slug_lock(slug)
         async with lock:
             done_event = asyncio.Event()
             started_event = asyncio.Event()
             loop = asyncio.get_running_loop()
             fut = self.hass.async_add_executor_job(
-                self._publish_sync,
+                self.publish_sync,
                 device_id,
                 configuration,
                 slug,
@@ -440,7 +444,7 @@ class ArtifactPublisher:
                 "Skipping deactivation for %s: publisher is unloaded", mask_slug(slug)
             )
             return False
-        async with self._get_slug_lock(slug):
+        async with self.get_slug_lock(slug):
             if self._unloaded:
                 _LOGGER.info(
                     "Skipping deactivation for %s: publisher is unloaded",

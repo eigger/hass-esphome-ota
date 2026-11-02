@@ -12,7 +12,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .redaction import install_redaction
 from .builder.client import BuilderClient
 from .builder.resolver import BuilderResolver
 from .const import (
@@ -35,6 +34,7 @@ from .models import BuilderAuthError, BuilderForbiddenError, BuilderSelection
 from .monitor import InstallationMonitor
 from .panel import PanelManager
 from .publisher import ArtifactPublisher
+from .redaction import install_redaction
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,14 +100,14 @@ class OtaManager:
             self.device_manager,
             self.publisher,
             self.cleanup_hours,
-            self._dispatch_event,
+            self.dispatch_event,
         )
         self.job_runner = JobRunner(
             hass,
             self.storage,
             self.device_manager,
             self.publisher,
-            self._dispatch_event,
+            self.dispatch_event,
             self.monitor,
         )
         self.resolver = BuilderResolver(hass, self.session, saved_selection)
@@ -149,13 +149,27 @@ class OtaManager:
 
         return _unsubscribe
 
-    def _dispatch_event(self, event_type: str, data: dict[str, Any]) -> None:
+    def dispatch_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Dispatch event to all active WebSocket subscribers."""
         for sub in list(self._subscribers):
             try:
                 sub(event_type, data)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("Error notifying subscriber: %s", err)
+
+    def _candidates_payload(self) -> list[dict[str, Any]]:
+        """Serialize the discovered Builder candidates for status events."""
+        return [
+            {
+                "slug": cand.slug,
+                "name": cand.name,
+                "host": cand.host,
+                "port": cand.port,
+                "source": cand.source,
+                "is_running": cand.is_running,
+            }
+            for cand in self.resolver.candidates
+        ]
 
     def _attach_connection_listener(self, client: BuilderClient) -> None:
         """Attach connection drop listener to client connection."""
@@ -169,7 +183,7 @@ class OtaManager:
             "ESPHome Builder connection lost. Initiating automatic reconnect."
         )
         self.resolver.status = STATUS_RECONNECTING
-        self._dispatch_event(
+        self.dispatch_event(
             "status_changed",
             {"status": STATUS_RECONNECTING, "candidate": None},
         )
@@ -247,7 +261,7 @@ class OtaManager:
                     if self.resolver.active_candidate
                     else "",
                 )
-                self._dispatch_event(
+                self.dispatch_event(
                     "status_changed",
                     {
                         "status": self.resolver.status,
@@ -256,20 +270,10 @@ class OtaManager:
                             if self.resolver.active_candidate
                             else None
                         ),
-                        "candidates": [
-                            {
-                                "slug": cand.slug,
-                                "name": cand.name,
-                                "host": cand.host,
-                                "port": cand.port,
-                                "source": cand.source,
-                                "is_running": cand.is_running,
-                            }
-                            for cand in self.resolver.candidates
-                        ],
+                        "candidates": self._candidates_payload(),
                     },
                 )
-                self._dispatch_event(
+                self.dispatch_event(
                     "devices_updated",
                     {"devices": self.device_manager.list_all()},
                 )
@@ -284,22 +288,12 @@ class OtaManager:
                 self._note_connect_failure(err)
                 _LOGGER.debug("Builder reconnect attempt failed: %s", err)
 
-                self._dispatch_event(
+                self.dispatch_event(
                     "status_changed",
                     {
                         "status": self.resolver.status,
                         "candidate": None,
-                        "candidates": [
-                            {
-                                "slug": cand.slug,
-                                "name": cand.name,
-                                "host": cand.host,
-                                "port": cand.port,
-                                "source": cand.source,
-                                "is_running": cand.is_running,
-                            }
-                            for cand in self.resolver.candidates
-                        ],
+                        "candidates": self._candidates_payload(),
                     },
                 )
 
@@ -333,7 +327,7 @@ class OtaManager:
         self._unloaded = True
         self._suppress_reload_count = 0
         # Tell open panels so they can resubscribe once the entry is back.
-        self._dispatch_event("unloaded", {})
+        self.dispatch_event("unloaded", {})
         self.publisher.async_unload()
         await self._cancel_reconnect_task()
         await self.job_runner.async_unload()
@@ -430,7 +424,7 @@ class OtaManager:
                 await self.resolver.async_disconnect()
                 return
             self.device_manager.update_builder_devices(devices)
-            self._dispatch_event(
+            self.dispatch_event(
                 "status_changed",
                 {
                     "status": self.resolver.status,
@@ -439,20 +433,10 @@ class OtaManager:
                         if self.resolver.active_candidate
                         else None
                     ),
-                    "candidates": [
-                        {
-                            "slug": cand.slug,
-                            "name": cand.name,
-                            "host": cand.host,
-                            "port": cand.port,
-                            "source": cand.source,
-                            "is_running": cand.is_running,
-                        }
-                        for cand in self.resolver.candidates
-                    ],
+                    "candidates": self._candidates_payload(),
                 },
             )
-            self._dispatch_event(
+            self.dispatch_event(
                 "devices_updated", {"devices": self.device_manager.list_all()}
             )
             if self._unloaded:
@@ -464,22 +448,12 @@ class OtaManager:
                 return
             self._note_connect_failure(err)
             _LOGGER.warning("Manual reconnect attempt failed: %s", err)
-            self._dispatch_event(
+            self.dispatch_event(
                 "status_changed",
                 {
                     "status": self.resolver.status,
                     "candidate": None,
-                    "candidates": [
-                        {
-                            "slug": cand.slug,
-                            "name": cand.name,
-                            "host": cand.host,
-                            "port": cand.port,
-                            "source": cand.source,
-                            "is_running": cand.is_running,
-                        }
-                        for cand in self.resolver.candidates
-                    ],
+                    "candidates": self._candidates_payload(),
                     "error": str(err),
                 },
             )
@@ -497,7 +471,7 @@ class OtaManager:
                 if self._unloaded:
                     return
                 self.device_manager.update_builder_devices(devices)
-                self._dispatch_event(
+                self.dispatch_event(
                     "devices_updated", {"devices": self.device_manager.list_all()}
                 )
             except Exception as err:  # noqa: BLE001

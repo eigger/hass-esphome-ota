@@ -3,6 +3,7 @@
  */
 
 import { t } from "./i18n.js";
+import { escapeHtml } from "./html.js";
 import { definePanelElement } from "./elements.js";
 import "./job-dialog.js";
 import "./device-dialog.js";
@@ -703,16 +704,6 @@ label.card-select-wrap {
   .btn-batch { grid-column: 1 / -1; }
 }
 `;
-
-function escapeHtml(str) {
-  if (str === null || str === undefined) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
 
 class EsphomeOtaManager extends HTMLElement {
   constructor() {

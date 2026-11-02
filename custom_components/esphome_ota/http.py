@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from functools import partial
 from copy import deepcopy
+from functools import partial
 from typing import Any
 
 from aiohttp import web
@@ -12,13 +12,13 @@ from aiohttp.http_exceptions import BadHttpMessage
 from homeassistant.components.http import HomeAssistantView, require_admin
 from homeassistant.core import HomeAssistant
 
-from .packages import NODE_RE, is_valid_device_id
-from .redaction import install_redaction
 from .const import DEFAULT_AUTO_CLEANUP_HOURS, MAX_UPLOAD_SIZE
-from .publisher import async_path_is_file, async_unlink_paths
 from .firmware import BinaryValidationError, inspect_binary
 from .jobs import record_publication
 from .manager import get_loaded_manager
+from .packages import NODE_RE, is_valid_device_id
+from .publisher import async_path_is_file, async_unlink_paths
+from .redaction import install_redaction
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
@@ -222,7 +222,7 @@ class FirmwareUploadView(HomeAssistantView):
                                 status=409,
                             )
                     if manager.monitor:
-                        timer = manager.monitor._cleanup_timers.get(clean_device_id)
+                        timer = manager.monitor.get_cleanup_timer(clean_device_id)
                         if timer:
                             previous_cleanup_delay = max(
                                 0.0, timer.when() - self.hass.loop.time()
@@ -263,7 +263,7 @@ class FirmwareUploadView(HomeAssistantView):
                     manager.storage,
                     manager.device_manager,
                     manager.monitor,
-                    manager._dispatch_event,
+                    manager.dispatch_event,
                     dev,
                     published,
                 )
@@ -372,7 +372,7 @@ class FirmwareUploadView(HomeAssistantView):
                         try:
                             dev.__dict__.update(deepcopy(previous_device.__dict__))
                             await manager.storage.async_save_devices(
-                                manager.device_manager._managed_devices
+                                manager.device_manager.managed_devices
                             )
                         except Exception:  # noqa: BLE001
                             _LOGGER.exception(

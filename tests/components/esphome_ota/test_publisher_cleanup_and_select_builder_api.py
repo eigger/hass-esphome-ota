@@ -73,7 +73,7 @@ def _make_valid_esp32_bin(version: str = "1.0.0") -> bytes:
 
 
 async def test_issue1_publisher_cleans_up_on_cancellation(hass: HomeAssistant) -> None:
-    """[P1] ArtifactPublisher._publish_sync aborts and cleans up public files when check_cancelled is True."""
+    """[P1] ArtifactPublisher.publish_sync aborts and cleans up public files when check_cancelled is True."""
     publisher = ArtifactPublisher(hass, publish_dir="test_pub_cancel")
     blob = _make_valid_esp32_bin("1.0.1")
     info = inspect_binary(blob, target_platform="esp32", expected_chip="ESP32")
@@ -96,7 +96,7 @@ async def test_issue1_publisher_cleans_up_on_cancellation(hass: HomeAssistant) -
 
 
 async def test_issue1_publisher_cleans_up_on_unload(hass: HomeAssistant) -> None:
-    """[P1] ArtifactPublisher._publish_sync aborts and cleans up if publisher was marked unloaded."""
+    """[P1] ArtifactPublisher.publish_sync aborts and cleans up if publisher was marked unloaded."""
     publisher = ArtifactPublisher(hass, publish_dir="test_pub_unload")
     publisher.async_unload()
     blob = _make_valid_esp32_bin("1.0.1")
@@ -140,7 +140,7 @@ async def test_issue1_delayed_executor_thread_does_not_publish_when_cancelled(
     thread_entered = threading.Event()
     thread_release = threading.Event()
 
-    original_publish_sync = publisher._publish_sync
+    original_publish_sync = publisher.publish_sync
 
     def _delayed_publish_sync(*args: Any, **kwargs: Any) -> Any:
         # Signal that executor thread reached publish
@@ -149,7 +149,7 @@ async def test_issue1_delayed_executor_thread_does_not_publish_when_cancelled(
         thread_release.wait(timeout=5.0)
         return original_publish_sync(*args, **kwargs)
 
-    publisher._publish_sync = _delayed_publish_sync  # type: ignore[assignment]
+    publisher.publish_sync = _delayed_publish_sync  # type: ignore[assignment]
 
     async with aiohttp.ClientSession() as session:
         conn = BuilderConnection("127.0.0.1", mock_builder.port, session)

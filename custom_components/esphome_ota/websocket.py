@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from functools import partial
-from pathlib import Path
 import re
 from datetime import datetime, timedelta, timezone
+from functools import partial
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -15,11 +15,16 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.loader import async_get_integration
 
-from .redaction import install_redaction
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
-from .manager import get_loaded_manager
 from .firmware import ensure_supported_platform, inspect_binary
+from .manager import get_loaded_manager
+from .models import (
+    BuilderConnectionError,
+    BuilderTimeoutError,
+    ConfigConflictError,
+    UnsupportedPlatformError,
+)
 from .packages import NODE_RE, TOKEN_RE, VERSION_RE, is_valid_device_id
 from .publisher import (
     async_any_path_exists,
@@ -27,12 +32,7 @@ from .publisher import (
     async_path_is_file,
     async_unlink_paths,
 )
-from .models import (
-    BuilderConnectionError,
-    BuilderTimeoutError,
-    ConfigConflictError,
-    UnsupportedPlatformError,
-)
+from .redaction import install_redaction
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
@@ -254,7 +254,7 @@ async def ws_set_publication_policy(
             if msg.get("save_as_default") or art:
                 dev.expires_at = expires_at
                 await manager.storage.async_save_devices(
-                    manager.device_manager._managed_devices
+                    manager.device_manager.managed_devices
                 )
                 saved = True
         finally:
@@ -262,10 +262,10 @@ async def ws_set_publication_policy(
                 # Defaults are already applied in memory; persist them even
                 # when the publication update is aborted or raises.
                 await manager.storage.async_save_devices(
-                    manager.device_manager._managed_devices
+                    manager.device_manager.managed_devices
                 )
     connection.send_result(msg["id"], {"success": True, "expires_at": expires_at})
-    manager._dispatch_event(
+    manager.dispatch_event(
         "devices_updated", {"devices": manager.device_manager.list_all()}
     )
 
@@ -627,10 +627,10 @@ async def ws_deactivate(
         if is_private:
             dev.expires_at = None
             await manager.storage.async_save_devices(
-                manager.device_manager._managed_devices
+                manager.device_manager.managed_devices
             )
     connection.send_result(msg["id"], {"success": True, "removed": removed})
-    manager._dispatch_event(
+    manager.dispatch_event(
         "devices_updated",
         {"devices": manager.device_manager.list_all()},
     )
@@ -832,7 +832,7 @@ async def ws_set_token(
                 if new_artifact:
                     dev.expires_at = new_artifact.expires_at
                 await manager.storage.async_save_devices(
-                    manager.device_manager._managed_devices
+                    manager.device_manager.managed_devices
                 )
             else:
                 dev = await manager.device_manager.async_register_or_update(
@@ -953,7 +953,7 @@ async def ws_set_token(
                 dev.slug = old_slug
                 try:
                     await manager.storage.async_save_devices(
-                        manager.device_manager._managed_devices
+                        manager.device_manager.managed_devices
                     )
                 except Exception as rollback_err:  # noqa: BLE001
                     rollback_errors.append(str(rollback_err))
@@ -980,7 +980,7 @@ async def ws_set_token(
             connection.send_error(msg["id"], "token_update_failed", detail)
             return
 
-        manager._dispatch_event(
+        manager.dispatch_event(
             "devices_updated", {"devices": manager.device_manager.list_all()}
         )
         connection.send_result(
@@ -1161,7 +1161,7 @@ async def _remove_ota_locked(
     await manager.device_manager.async_remove_device(dev.device_id)
     await manager.refresh_devices()
     await manager.monitor.async_refresh_monitoring()
-    manager._dispatch_event(
+    manager.dispatch_event(
         "devices_updated",
         {"devices": manager.device_manager.list_all()},
     )
@@ -1328,7 +1328,7 @@ async def ws_migrate_execute(
     """Execute migration from legacy add-on."""
     manager = _get_manager(hass)
     result = await manager.migration_manager.async_migrate()
-    manager._dispatch_event(
+    manager.dispatch_event(
         "devices_updated",
         {"devices": manager.device_manager.list_all()},
     )

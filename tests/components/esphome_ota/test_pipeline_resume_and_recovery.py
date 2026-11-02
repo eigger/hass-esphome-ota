@@ -15,9 +15,9 @@ import io
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
+import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-import pytest
 
 from custom_components.esphome_ota.builder.client import BuilderClient
 from custom_components.esphome_ota.builder.connection import BuilderConnection
@@ -411,7 +411,9 @@ async def test_issue6_publish_and_install_dispatch_devices_updated(
         await conn.disconnect()
 
 
+@pytest.mark.parametrize("pre_timer", [False, True])
 async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_devices_updated(
+    pre_timer: bool,
     hass: HomeAssistant,
     mock_builder: MockBuilderServer,
     monkeypatch: pytest.MonkeyPatch,
@@ -449,7 +451,7 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
             self.storage = storage
             self.monitor = monitor
 
-        def _dispatch_event(self, name: str, payload: dict) -> None:
+        def dispatch_event(self, name: str, payload: dict) -> None:
             events.append((name, payload))
 
     monkeypatch.setattr(
@@ -497,12 +499,24 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
         async def multipart(self) -> MockMultipartReader:
             return MockMultipartReader(self._data)
 
+    if pre_timer:
+        # An existing timer exercises the upload view's previous-delay lookup.
+        existing = device_manager.get_device("livingroom")
+        assert existing is not None
+        monitor.schedule_cleanup("livingroom", existing.slug)
+        assert monitor.get_cleanup_timer("livingroom") is not None
+    else:
+        assert monitor.get_cleanup_timer("livingroom") is None
+
     req = MockRequest(valid_blob)
     resp = await view.post(req, "livingroom")  # type: ignore[arg-type]
     assert resp.status == 200
 
     # Verify cleanup timer was scheduled
     assert "livingroom" in monitor._cleanup_timers
+    assert (
+        monitor.get_cleanup_timer("livingroom") is monitor._cleanup_timers["livingroom"]
+    )
 
     # Verify devices_updated was dispatched
     dev_events = [e for e in events if e[0] == "devices_updated"]
