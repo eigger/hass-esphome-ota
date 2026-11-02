@@ -27,7 +27,7 @@ from .models import ManagedDevice, PipelineJob, PublishedArtifact
 _LOGGER = logging.getLogger(__name__)
 
 
-_CACHE_KEY = "esphome_ota_storage_cache"
+STORAGE_CACHE_KEY = "esphome_ota_storage_cache"
 _TERMINAL_STAGES = (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED)
 TERMINAL_LOG_TAIL_LINES = 50
 
@@ -51,19 +51,29 @@ class StorageManager:
         )
         self._artifact_lock: asyncio.Lock = asyncio.Lock()
         # Every write goes through this class, so the last loaded or saved
-        # payload per store key is authoritative. The cache lives in hass.data
-        # so that multiple StorageManager instances stay consistent.
-        self._cache: dict[str, Any] = hass.data.setdefault(_CACHE_KEY, {})
+        # payload per store key is authoritative (memory is the source of
+        # truth; HA Store only schedules the disk write). The cache lives in
+        # hass.data so StorageManager instances share the same values; it does
+        # not make read-modify-write sequences atomic across instances.
+        self._cache: dict[str, Any] = hass.data.setdefault(STORAGE_CACHE_KEY, {})
 
     async def _async_load(self, store: Store[dict[str, Any]]) -> Any:
         """Load a store once, then serve independent copies from memory."""
         key = store.key
         if key not in self._cache:
-            self._cache[key] = deepcopy(await store.async_load())
+            data = await store.async_load()
+            # A concurrent save may have populated the cache while we were
+            # reading the disk; never overwrite that newer value.
+            self._cache.setdefault(key, deepcopy(data))
         return deepcopy(self._cache[key])
 
     async def _async_save(self, store: Store[dict[str, Any]], data: Any) -> None:
-        """Save a store and refresh the in-memory copy."""
+        """Save a store and refresh the in-memory copy.
+
+        HA's Store does not raise on disk write failures (it only schedules the
+        write), so the cache is authoritative. If an exception does propagate
+        (e.g. cancellation), the entry is dropped and re-read from disk.
+        """
         key = store.key
         self._cache[key] = deepcopy(data)
         try:

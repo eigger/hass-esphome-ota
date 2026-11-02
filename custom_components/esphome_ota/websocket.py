@@ -208,45 +208,49 @@ async def ws_set_publication_policy(
             dev.publication_cleanup_hours = cleanup_hours
             dev.auto_hide = msg["auto_hide"]
             dev.updated_at = datetime.now(timezone.utc).isoformat()
-        if art:
-            # The artifact-store lock serializes this policy update with expiry
-            # transitions while preserving whichever visibility state won.
-            latest = await manager.storage.async_update_artifact_policy_if_current(
-                device_id,
-                art.published_at,
-                cleanup_hours=cleanup_hours,
-                expires_at=expires_at,
-                auto_hide=msg["auto_hide"],
-            )
-            if not latest:
-                if msg.get("save_as_default"):
-                    # Defaults were already applied in memory; persist them
-                    # even though the publication-specific update is aborted.
-                    await manager.storage.async_save_devices(
-                        manager.device_manager._managed_devices
-                    )
-                connection.send_error(
-                    msg["id"],
-                    "publication_changed",
-                    "The publication changed; reload and try again.",
+        saved = False
+        try:
+            if art:
+                # The artifact-store lock serializes this policy update with expiry
+                # transitions while preserving whichever visibility state won.
+                latest = await manager.storage.async_update_artifact_policy_if_current(
+                    device_id,
+                    art.published_at,
+                    cleanup_hours=cleanup_hours,
+                    expires_at=expires_at,
+                    auto_hide=msg["auto_hide"],
                 )
-                return
-            if manager.monitor:
-                if latest.is_public:
-                    manager.monitor.schedule_cleanup(
-                        device_id,
-                        dev.slug,
-                        artifact_id=latest.published_at,
-                        expires_at=expires_at,
-                        cleanup_hours=cleanup_hours,
+                if not latest:
+                    connection.send_error(
+                        msg["id"],
+                        "publication_changed",
+                        "The publication changed; reload and try again.",
                     )
-                else:
-                    manager.monitor.cancel_cleanup(device_id)
-        if msg.get("save_as_default") or art:
-            dev.expires_at = expires_at
-            await manager.storage.async_save_devices(
-                manager.device_manager._managed_devices
-            )
+                    return
+                if manager.monitor:
+                    if latest.is_public:
+                        manager.monitor.schedule_cleanup(
+                            device_id,
+                            dev.slug,
+                            artifact_id=latest.published_at,
+                            expires_at=expires_at,
+                            cleanup_hours=cleanup_hours,
+                        )
+                    else:
+                        manager.monitor.cancel_cleanup(device_id)
+            if msg.get("save_as_default") or art:
+                dev.expires_at = expires_at
+                await manager.storage.async_save_devices(
+                    manager.device_manager._managed_devices
+                )
+                saved = True
+        finally:
+            if msg.get("save_as_default") and not saved:
+                # Defaults are already applied in memory; persist them even
+                # when the publication update is aborted or raises.
+                await manager.storage.async_save_devices(
+                    manager.device_manager._managed_devices
+                )
     connection.send_result(msg["id"], {"success": True, "expires_at": expires_at})
     manager._dispatch_event(
         "devices_updated", {"devices": manager.device_manager.list_all()}

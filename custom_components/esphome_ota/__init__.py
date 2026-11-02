@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
+from .storage import STORAGE_CACHE_KEY
 from .const import DOMAIN
 from .http import FirmwareUploadView
 from .manager import OtaManager
@@ -58,6 +59,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await manager.async_unload()
 
     hass.data.pop(DOMAIN, None)
+    # Drop cached storage so a reload re-reads from disk.
+    hass.data.pop(STORAGE_CACHE_KEY, None)
     return True
 
 

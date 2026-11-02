@@ -48,8 +48,8 @@ class DeviceManager:
         self._builder_devices: list[dict[str, Any]] = []
         self._device_locks: dict[str, asyncio.Lock] = {}
         self._registration_lock = asyncio.Lock()
-        # (dir mtime_ns, trusted, slugs) cache for public binary existence.
-        self._public_scan: tuple[int, bool, set[str]] | None = None
+        # (dir inode/mtime/ctime, trusted, slugs) cache for public binary existence.
+        self._public_scan: tuple[tuple[int, int, int], bool, set[str]] | None = None
 
     def get_lock(self, device_id: str) -> asyncio.Lock:
         """Return a persistent asyncio.Lock for a specific device."""
@@ -187,12 +187,14 @@ class DeviceManager:
         """
         try:
             pub_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
-            mtime_ns = pub_dir.stat().st_mtime_ns
+            st = pub_dir.stat()
+            mtime_ns = st.st_mtime_ns
+            key = (st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
         except Exception:
             self._public_scan = None
             return set()
         cached = self._public_scan
-        if cached is not None and cached[0] == mtime_ns and cached[1]:
+        if cached is not None and cached[0] == key and cached[1]:
             return cached[2]
         slugs: set[str] = set()
         try:
@@ -204,7 +206,7 @@ class DeviceManager:
             self._public_scan = None
             return set()
         settled = time.time_ns() - mtime_ns > _PUBLIC_SCAN_SETTLE_NS
-        self._public_scan = (mtime_ns, settled, slugs)
+        self._public_scan = (key, settled, slugs)
         return slugs
 
     def list_all(self) -> list[dict[str, Any]]:
