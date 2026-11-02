@@ -14,7 +14,7 @@ async def async_get_config_entry_diagnostics(
     """Return sanitized diagnostics for a config entry."""
     manager = getattr(entry, "runtime_data", None)
 
-    if not manager:
+    if not manager or manager._unloaded:
         return {"status": "unloaded"}
 
     # Redact tokens and confidential info

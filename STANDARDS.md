@@ -12,7 +12,7 @@
 - 중앙 현황 갱신일: 미등록 (중앙 리포 미수정)
 - 조율: 메인 에이전트; 독립 리뷰·검증: Opus 서브 에이전트
 - 테스트 경로: `tests/components/esphome_ota/`
-- 지원 최소 HA / 선언 근거: `hacs.json` `homeassistant: 2024.11.0` (README 배지 동일). 이전 선언 2024.1.0은 코드(`StaticPathConfig` 2024.6+, `ConfigFlowResult` 2024.4+, `runtime_data` 2024.5+, 인자 없는 `OptionsFlow` 2024.11+)와 불일치해 2024.11.0으로 상향
+- 지원 최소 HA / 선언 근거: `hacs.json` `homeassistant: 2024.11.0` (README 배지 동일). 이전 선언 2024.1.0은 코드(`StaticPathConfig` 2024.6+, `ConfigFlowResult` 2024.4+, `runtime_data` 2024.5+, 인자 없는 `OptionsFlow` 2024.11+)와 불일치해 2024.11.0으로 상향 (승인: @eigger, PR #55)
 - current HA 테스트 환경: Python 3.14 / HA 2026.10.2 / pytest-homeassistant-custom-component 0.13.373 / pytest-timeout 2.4.0 (`requirements_test.txt`)
 - 최소 HA 검증 환경: 구성하지 못함 — 아래 예외 참조
 - 최소 package 검증: 해당 없음 (`manifest.requirements=[]`, 외부 Python 의존성 없음 → dependency-update 워크플로 미도입)

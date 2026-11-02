@@ -14,7 +14,7 @@
 | 구현 서브 에이전트 / 독립 리뷰·검증 서브 에이전트 | 없음(메인 직접 구현, 예외) / Opus 서브 에이전트 |
 | 중앙 현황표 반영일 / 기록 | 2026-10-18 / [중앙 현황표 행](https://github.com/eigger/hass-repo-standards/blob/main/docs/adoption-status.md) (#29 병합 직후 갱신) |
 | 지원 최소 HA / 근거 파일 | 2024.11.0 / hacs.json (이전 2024.1.0은 코드와 불일치해 상향) |
-| 유지·변경할 지원 최소 / 근거·승인 | 유지(변경 없음). 상향은 별도 승인 필요 |
+| 유지·변경할 지원 최소 / 근거·승인 | 상향(2024.11.0) / 근거: API 도입 버전 / 승인: @eigger, PR #55 |
 | current 테스트 HA / 호환 Python·플러그인 | 2026.10.2 / 3.14 / 0.13.373 |
 | 최소 테스트 HA / 호환 Python·플러그인 | 구성 불가 — TEST-04 예외 |
 | profile / 테스트 경로 | integration / ha, `tests/components/esphome_ota/` |
@@ -101,7 +101,7 @@
 
 | 규칙 ID / TODO | 남은 작업 | 완료 근거 |
 |---|---|---|
-| TEST-04 | 지원 최소 결정(상향 또는 호환 코드) 후 정확한 최소 job 추가 | 사용자 승인 + CI |
+| TEST-04 | HA 2024.11.0 정확한 최소 환경 job 추가 | CI |
 | HA-03 (권장) | websocket/http 게시·롤백 로직 중복 및 모듈 간 private 속성 접근 정리, `DeviceManager.list_all()`의 기기별 `is_file()`(이벤트 루프) 제거 | 후속 PR·테스트 |
 
 CI 성공만으로 실물 기기 검증을 주장하지 않습니다. 실물 검증은 수행하지 않았습니다.

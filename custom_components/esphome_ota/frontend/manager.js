@@ -817,6 +817,7 @@ class EsphomeOtaManager extends HTMLElement {
       this._unsubEvents = null;
     }
     this._subscriptionAttempted = false;
+    clearTimeout(this._resubTimer);
   }
 
   async loadMigrationPreview() {
@@ -847,6 +848,18 @@ class EsphomeOtaManager extends HTMLElement {
     } finally {
       this._subscriptionPending = false;
     }
+  }
+
+  _resubscribeSoon(attempt) {
+    clearTimeout(this._resubTimer);
+    if (attempt >= 5) return;
+    this._resubTimer = setTimeout(async () => {
+      if (!this.isConnected || this._unsubEvents) return;
+      this._subscriptionAttempted = false;
+      await this.subscribe();
+      // subscribe() swallows errors; retry while still not subscribed.
+      if (!this._unsubEvents) this._resubscribeSoon(attempt + 1);
+    }, 2000);
   }
 
   async loadInitialFallback() {
@@ -889,6 +902,11 @@ class EsphomeOtaManager extends HTMLElement {
       this.devicesLoaded = true;
       this.jobs = data.jobs || [];
       this.render();
+    } else if (event === "unloaded") {
+      // Integration is reloading: the server dropped our subscription.
+      this._unsubEvents = null;
+      this._subscriptionAttempted = false;
+      this._resubscribeSoon(0);
     } else if (event === "status_changed" && data) {
       this.status = data.status;
       if (data.candidates) this.candidates = data.candidates;

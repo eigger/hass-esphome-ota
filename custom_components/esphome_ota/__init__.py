@@ -42,6 +42,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OtaConfigEntry) -> bool:
             await manager.async_unload()
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Failed cleaning up after ESPHome OTA setup error")
+        finally:
+            # runtime_data stays on the entry; make sure it is never served.
+            manager._unloaded = True
         raise
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
