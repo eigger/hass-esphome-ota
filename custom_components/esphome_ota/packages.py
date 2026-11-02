@@ -10,8 +10,15 @@ from .const import DEFAULT_PUBLISH_DIR
 _PROJECT_NAME_MAX = 32
 
 NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\Z")
-TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
-VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
+# An empty token is valid: it reverts the slug to the plain node name.
+TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{0,64}\Z")
+VERSION_RE = re.compile(r"^[^\x00-\x1f\x7f\"'\\]{1,64}\Z")
+_DEVICE_ID_RE = re.compile(r"^[^\x00-\x1f\x7f/\\]{1,128}\Z")
+
+
+def is_valid_device_id(value: str) -> bool:
+    """Return True if ``value`` is safe to use as a device ID / file stem."""
+    return bool(_DEVICE_ID_RE.match(value)) and ".." not in value
 
 
 def yaml_dq(value: str) -> str:
@@ -111,30 +118,4 @@ def generate_inline_ota_yaml(
         name: "Firmware"
         source: "${{ota_base_url}}/local/{publish_dir}/${{ota_slug}}.json"
         update_interval: 6h
-"""
-
-
-def generate_device_wrapper_yaml(
-    node: str,
-    token: str = "",
-    version: str = "1.0.0",
-    package_file: str = "update.yaml",
-    package_dir: str = "ota_server",
-) -> str:
-    """Generate legacy device wrapper YAML."""
-    slug = f"{node}_{token}" if token else node
-    p_name = project_name(node)
-    return f"""\
-{HEADER}
-substitutions:
-  ota_device: {node}
-  ota_slug: {slug}
-
-esphome:
-  project:
-    name: "{p_name}"
-    version: "{version}"
-
-packages:
-  ota_base: !include ../{package_file}
 """

@@ -18,7 +18,7 @@ from .redaction import install_redaction
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
 from .firmware import inspect_binary
-from .packages import NODE_RE, TOKEN_RE, VERSION_RE
+from .packages import NODE_RE, TOKEN_RE, VERSION_RE, is_valid_device_id
 from .publisher import (
     async_any_path_exists,
     async_path_exists,
@@ -34,8 +34,15 @@ from .models import (
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
 
-_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.() -]{0,127}\Z")
-DEVICE_ID = vol.All(str, vol.Match(_DEVICE_ID_RE))
+
+def _device_id(value: Any) -> str:
+    """Validate a device ID."""
+    if not isinstance(value, str) or not is_valid_device_id(value):
+        raise vol.Invalid("invalid device_id")
+    return value
+
+
+DEVICE_ID = _device_id
 TOKEN = vol.All(str, vol.Strip, vol.Match(TOKEN_RE))
 TARGET_VERSION = vol.All(str, vol.Strip, vol.Match(VERSION_RE))
 
@@ -100,8 +107,8 @@ async def _async_ensure_managed_device(manager: Any, device_id: str) -> Any | No
 
 def _www_path(www_dir: Path, filename: str) -> Path:
     """Return a path inside the public directory or raise ValueError."""
-    path = (www_dir / filename).resolve()
-    if not path.is_relative_to(www_dir.resolve()):
+    path = www_dir / filename
+    if Path(filename).name != filename or filename in ("", ".", ".."):
         raise ValueError(f"Path escapes the public directory: {filename}")
     return path
 
@@ -422,14 +429,6 @@ async def ws_build(
         )
         return
 
-    if target_version is not None:
-        target_version = str(target_version).strip()
-        if not target_version:
-            connection.send_error(
-                msg["id"], "invalid_version", "Target version cannot be empty"
-            )
-            return
-
     dev = await _async_ensure_managed_device(manager, device_id)
     if not dev:
         connection.send_error(msg["id"], "device_not_found", "Device not found")
@@ -648,6 +647,15 @@ async def ws_set_token(
         www_dir = manager.publisher.www_dir
         try:
             old_binary_path = _www_path(www_dir, f"{old_slug}.ota.bin")
+            old_md5_path = _www_path(www_dir, f"{old_slug}.ota.bin.md5")
+            old_manifest_path = _www_path(www_dir, f"{old_slug}.json")
+            old_ota_manifest_path = _www_path(www_dir, f"{old_slug}.ota.json")
+        except ValueError:
+            connection.send_error(
+                msg["id"], "invalid_stored_slug", "Stored device slug is invalid"
+            )
+            return
+        try:
             new_binary_path = _www_path(www_dir, f"{new_slug}.ota.bin")
             new_md5_path = _www_path(www_dir, f"{new_slug}.ota.bin.md5")
             new_manifest_path = _www_path(www_dir, f"{new_slug}.json")
@@ -675,9 +683,9 @@ async def ws_set_token(
                     await async_any_path_exists(
                         hass,
                         old_binary_path,
-                        manager.publisher.www_dir / f"{old_slug}.ota.bin.md5",
-                        manager.publisher.www_dir / f"{old_slug}.json",
-                        manager.publisher.www_dir / f"{old_slug}.ota.json",
+                        old_md5_path,
+                        old_manifest_path,
+                        old_ota_manifest_path,
                     )
                 )
                 if old_public_state_exists and not client:
@@ -801,8 +809,8 @@ async def ws_set_token(
                 try:
                     await async_unlink_paths(
                         hass,
-                        manager.publisher.www_dir / f"{old_slug}.json",
-                        manager.publisher.www_dir / f"{old_slug}.ota.json",
+                        old_manifest_path,
+                        old_ota_manifest_path,
                     )
                 except OSError as cleanup_err:
                     _LOGGER.warning(
@@ -815,8 +823,8 @@ async def ws_set_token(
                     await manager.publisher.async_deactivate(new_slug)
                     await async_unlink_paths(
                         hass,
-                        manager.publisher.www_dir / f"{new_slug}.json",
-                        manager.publisher.www_dir / f"{new_slug}.ota.json",
+                        new_manifest_path,
+                        new_ota_manifest_path,
                     )
                     if artifact:
                         await manager.storage.async_save_artifact(
