@@ -516,7 +516,6 @@ async def test_entity_registry_events_filtered_and_debounced(
 
     with patch.object(monitor, "async_refresh_monitoring", AsyncMock()):
         # Debouncer captured the original bound function, so patch it directly.
-        monitor._refresh_debouncer.function = monitor.async_refresh_monitoring
         for eid in ("light.a", "sensor.b"):
             hass.bus.async_fire(
                 er.EVENT_ENTITY_REGISTRY_UPDATED,
@@ -546,3 +545,34 @@ async def test_entity_registry_events_filtered_and_debounced(
         assert monitor.async_refresh_monitoring.await_count == 1
 
     monitor.async_unload()
+
+
+async def test_unload_during_refresh_attaches_no_listener(
+    hass: HomeAssistant,
+) -> None:
+    """A refresh in flight at unload is cancelled and cannot add listeners."""
+    import asyncio
+    from unittest.mock import patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+
+    started = asyncio.Event()
+
+    async def slow_refresh() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    with patch.object(monitor, "async_refresh_monitoring", slow_refresh):
+        await monitor._async_debounced_refresh()
+        await started.wait()
+        task = next(iter(monitor._tasks))
+        monitor.async_unload()
+        await asyncio.gather(task, return_exceptions=True)
+        assert task.cancelled()
+
+    # Even a direct call after unload cannot attach a listener.
+    monitor._attach_listener("d", "update.x")
+    assert monitor._unsub_listeners == []

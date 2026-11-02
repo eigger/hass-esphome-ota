@@ -68,8 +68,12 @@ class InstallationMonitor:
             _LOGGER,
             cooldown=REFRESH_DEBOUNCE_SECONDS,
             immediate=False,
-            function=self.async_refresh_monitoring,
+            function=self._async_debounced_refresh,
         )
+
+    async def _async_debounced_refresh(self) -> None:
+        """Run the refresh as a tracked task so unload cancels it."""
+        self._track_task(self.async_refresh_monitoring())
 
     def _track_task(
         self, coro: Coroutine[Any, Any, Any], *, cancel_on_unload: bool = True
@@ -172,6 +176,8 @@ class InstallationMonitor:
         devices = self.device_manager.list_all()
 
         for dev_data in devices:
+            if self._unloaded:
+                return
             device_id = dev_data["device_id"]
             dev_name = dev_data["name"]
             dev_friendly = dev_data.get("friendly_name") or dev_name
@@ -426,6 +432,8 @@ class InstallationMonitor:
 
     def _attach_listener(self, device_id: str, entity_id: str) -> None:
         """Attach state change listener for an Update entity."""
+        if self._unloaded:
+            return
 
         @callback
         def _state_changed(event: Event) -> None:
