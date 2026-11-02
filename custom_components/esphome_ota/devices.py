@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import logging
+import os
 import re
 import secrets
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,10 @@ _LOGGER = logging.getLogger(__name__)
 _COPY_SUFFIX_RE = re.compile(r"\(\d+\)$")
 
 
+_PUBLIC_BIN_SUFFIX = ".ota.bin"
+_PUBLIC_SCAN_SETTLE_NS = 3_000_000_000
+
+
 class DeviceManager:
     """Manages the inventory of ESPHome devices and their OTA statuses."""
 
@@ -42,6 +48,8 @@ class DeviceManager:
         self._builder_devices: list[dict[str, Any]] = []
         self._device_locks: dict[str, asyncio.Lock] = {}
         self._registration_lock = asyncio.Lock()
+        # (dir mtime_ns, trusted, slugs) cache for public binary existence.
+        self._public_scan: tuple[int, bool, set[str]] | None = None
 
     def get_lock(self, device_id: str) -> asyncio.Lock:
         """Return a persistent asyncio.Lock for a specific device."""
@@ -167,24 +175,47 @@ class DeviceManager:
         ambiguous = [item[1] for item in scored if item[1] != stem]
         return stem, cfg_file, raw, ambiguous
 
+    def _public_binary_slugs(self) -> set[str]:
+        """Return slugs with a public ``<slug>.ota.bin`` file.
+
+        One ``stat`` of the publish directory replaces a per-device ``is_file``
+        call on every event. The directory mtime changes whenever a file is
+        created, removed or renamed in it (including by external tools), so the
+        cached listing is reused until then. A directory modified within the
+        last ``_PUBLIC_SCAN_SETTLE_NS`` is rescanned each time because coarse
+        filesystem timestamps could hide a further change in the same tick.
+        """
+        try:
+            pub_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
+            mtime_ns = pub_dir.stat().st_mtime_ns
+        except Exception:
+            self._public_scan = None
+            return set()
+        cached = self._public_scan
+        if cached is not None and cached[0] == mtime_ns and cached[1]:
+            return cached[2]
+        slugs: set[str] = set()
+        try:
+            with os.scandir(pub_dir) as entries:
+                for entry in entries:
+                    if entry.name.endswith(_PUBLIC_BIN_SUFFIX) and entry.is_file():
+                        slugs.add(entry.name[: -len(_PUBLIC_BIN_SUFFIX)])
+        except Exception:
+            self._public_scan = None
+            return set()
+        settled = time.time_ns() - mtime_ns > _PUBLIC_SCAN_SETTLE_NS
+        self._public_scan = (mtime_ns, settled, slugs)
+        return slugs
+
     def list_all(self) -> list[dict[str, Any]]:
         """Combine Builder devices and managed records into a unified list."""
         results: list[dict[str, Any]] = []
         seen_configurations: set[str] = set()
 
-        pub_dir: Path | None = None
-        try:
-            pub_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
-        except Exception:
-            pub_dir = None
+        public_slugs = self._public_binary_slugs()
 
         def _has_public_bin(slug: str) -> bool:
-            if not pub_dir:
-                return False
-            try:
-                return (pub_dir / f"{slug}.ota.bin").is_file()
-            except Exception:
-                return False
+            return slug in public_slugs
 
         # Iterate over devices reported by Builder
         for raw in self._builder_devices:

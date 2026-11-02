@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import partial
 from pathlib import Path
 import re
 from datetime import datetime, timedelta, timezone
@@ -207,9 +208,6 @@ async def ws_set_publication_policy(
             dev.publication_cleanup_hours = cleanup_hours
             dev.auto_hide = msg["auto_hide"]
             dev.updated_at = datetime.now(timezone.utc).isoformat()
-            await manager.storage.async_save_devices(
-                manager.device_manager._managed_devices
-            )
         if art:
             # The artifact-store lock serializes this policy update with expiry
             # transitions while preserving whichever visibility state won.
@@ -221,6 +219,12 @@ async def ws_set_publication_policy(
                 auto_hide=msg["auto_hide"],
             )
             if not latest:
+                if msg.get("save_as_default"):
+                    # Defaults were already applied in memory; persist them
+                    # even though the publication-specific update is aborted.
+                    await manager.storage.async_save_devices(
+                        manager.device_manager._managed_devices
+                    )
                 connection.send_error(
                     msg["id"],
                     "publication_changed",
@@ -708,11 +712,14 @@ async def ws_set_token(
                         raise RuntimeError(
                             f"The current artifact for '{old_slug}' cannot be recovered; refusing to rotate the token."
                         ) from artifact_err
-                    binary_info = inspect_binary(
-                        blob=firmware_blob,
-                        target_platform=target_platform,
-                        expected_chip=artifact.chip_family,
-                        reserved_version=artifact.version,
+                    binary_info = await hass.async_add_executor_job(
+                        partial(
+                            inspect_binary,
+                            blob=firmware_blob,
+                            target_platform=target_platform,
+                            expected_chip=artifact.chip_family,
+                            reserved_version=artifact.version,
+                        )
                     )
 
             # Prepare the YAML update and keep a rollback copy until all other
