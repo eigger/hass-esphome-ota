@@ -18,6 +18,7 @@ from .redaction import install_redaction
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
 from .firmware import inspect_binary
+from .packages import NODE_RE, TOKEN_RE, VERSION_RE
 from .publisher import (
     async_any_path_exists,
     async_path_exists,
@@ -32,6 +33,11 @@ from .models import (
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
+
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.() -]{0,127}\Z")
+DEVICE_ID = vol.All(str, vol.Match(_DEVICE_ID_RE))
+TOKEN = vol.All(str, vol.Strip, vol.Match(TOKEN_RE))
+TARGET_VERSION = vol.All(str, vol.Strip, vol.Match(VERSION_RE))
 
 
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
@@ -66,6 +72,38 @@ def _get_manager(hass: HomeAssistant) -> Any:
     if not entry_data or "manager" not in entry_data:
         raise websocket_api.WebSocketError("not_loaded", "ESPHome OTA is not loaded")
     return entry_data["manager"]
+
+
+async def _async_ensure_managed_device(manager: Any, device_id: str) -> Any | None:
+    """Return the managed device, registering it from Builder info if needed.
+
+    Returns None when the device is unknown to the Builder or its name is not a
+    valid node name, so arbitrary IDs are never registered as managed devices.
+    """
+    dev = manager.device_manager.get_device(device_id)
+    if dev:
+        return dev
+    raw_info = manager.device_manager.get_builder_raw(device_id)
+    if not raw_info:
+        return None
+    dev_name = raw_info.get("name")
+    if not isinstance(dev_name, str) or not NODE_RE.match(dev_name):
+        return None
+    return await manager.device_manager.async_register_or_update(
+        device_id=device_id.replace(".yaml", ""),
+        configuration=manager.device_manager.get_configuration(device_id),
+        name=dev_name,
+        friendly_name=raw_info.get("friendly_name") or dev_name,
+        target_platform=raw_info.get("target_platform", "esp32"),
+    )
+
+
+def _www_path(www_dir: Path, filename: str) -> Path:
+    """Return a path inside the public directory or raise ValueError."""
+    path = (www_dir / filename).resolve()
+    if not path.is_relative_to(www_dir.resolve()):
+        raise ValueError(f"Path escapes the public directory: {filename}")
+    return path
 
 
 def _candidate_payload(candidate: Any) -> dict[str, Any]:
@@ -128,7 +166,7 @@ async def ws_status(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/set_publication_policy",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
         vol.Required("cleanup_hours"): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=168)
         ),
@@ -226,7 +264,7 @@ async def ws_devices(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/device_detail",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
     }
 )
 @websocket_api.async_response
@@ -266,7 +304,7 @@ async def ws_device_detail(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/prepare_ota",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
     }
 )
 @websocket_api.async_response
@@ -285,25 +323,12 @@ async def ws_prepare_ota(
         )
         return
 
-    config_file = manager.device_manager.get_configuration(device_id)
-    raw_info = manager.device_manager.get_builder_raw(device_id)
-    yaml_content = await client.get_config(config_file)
-    dev = manager.device_manager.get_device(device_id)
+    dev = await _async_ensure_managed_device(manager, device_id)
     if not dev:
-        dev_name = raw_info.get("name") if raw_info else device_id.replace(".yaml", "")
-        friendly = (
-            (raw_info.get("friendly_name") or raw_info.get("name"))
-            if raw_info
-            else dev_name
-        )
-        plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
-        dev = await manager.device_manager.async_register_or_update(
-            device_id=device_id.replace(".yaml", ""),
-            configuration=config_file,
-            name=dev_name,
-            friendly_name=friendly,
-            target_platform=plat,
-        )
+        connection.send_error(msg["id"], "device_not_found", "Device not found")
+        return
+    config_file = manager.device_manager.get_configuration(device_id)
+    yaml_content = await client.get_config(config_file)
 
     target_ver = dev.own_project_version or dev.managed_version or "1.0.0"
     diff_res = apply_ota_patch(
@@ -331,7 +356,7 @@ async def ws_prepare_ota(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/apply_ota",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
         vol.Required("content"): str,
         vol.Optional("expected"): str,
     }
@@ -369,9 +394,9 @@ async def ws_apply_ota(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/build",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
         vol.Optional("request_id"): str,
-        vol.Optional("target_version"): str,
+        vol.Optional("target_version"): TARGET_VERSION,
         vol.Optional("cleanup_hours"): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=168)
         ),
@@ -405,24 +430,10 @@ async def ws_build(
             )
             return
 
-    dev = manager.device_manager.get_device(device_id)
+    dev = await _async_ensure_managed_device(manager, device_id)
     if not dev:
-        config_file = manager.device_manager.get_configuration(device_id)
-        raw_info = manager.device_manager.get_builder_raw(device_id)
-        dev_name = raw_info.get("name") if raw_info else device_id.replace(".yaml", "")
-        friendly = (
-            (raw_info.get("friendly_name") or raw_info.get("name"))
-            if raw_info
-            else dev_name
-        )
-        plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
-        dev = await manager.device_manager.async_register_or_update(
-            device_id=device_id.replace(".yaml", ""),
-            configuration=config_file,
-            name=dev_name,
-            friendly_name=friendly,
-            target_platform=plat,
-        )
+        connection.send_error(msg["id"], "device_not_found", "Device not found")
+        return
 
     try:
         job_id = await manager.job_runner.async_start_build_pipeline(
@@ -443,7 +454,7 @@ async def ws_build(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/batch_build",
-        vol.Required("device_ids"): [str],
+        vol.Required("device_ids"): [DEVICE_ID],
     }
 )
 @websocket_api.async_response
@@ -464,24 +475,10 @@ async def ws_batch_build(
 
     job_ids: dict[str, str] = {}
     for dev_id in device_ids:
-        dev = manager.device_manager.get_device(dev_id)
+        dev = await _async_ensure_managed_device(manager, dev_id)
         if not dev:
-            config_file = manager.device_manager.get_configuration(dev_id)
-            raw_info = manager.device_manager.get_builder_raw(dev_id)
-            dev_name = raw_info.get("name") if raw_info else dev_id.replace(".yaml", "")
-            friendly = (
-                (raw_info.get("friendly_name") or raw_info.get("name"))
-                if raw_info
-                else dev_name
-            )
-            plat = raw_info.get("target_platform", "esp32") if raw_info else "esp32"
-            dev = await manager.device_manager.async_register_or_update(
-                device_id=dev_id.replace(".yaml", ""),
-                configuration=config_file,
-                name=dev_name,
-                friendly_name=friendly,
-                target_platform=plat,
-            )
+            _LOGGER.warning("Batch build skipped unknown device %s", dev_id)
+            continue
         try:
             j_id = await manager.job_runner.async_start_build_pipeline(
                 device=dev, client=client, base_url=manager.base_url
@@ -497,7 +494,7 @@ async def ws_batch_build(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/republish",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
     }
 )
 @websocket_api.async_response
@@ -542,7 +539,7 @@ async def ws_republish(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/deactivate",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
     }
 )
 @websocket_api.async_response
@@ -596,8 +593,8 @@ async def ws_deactivate(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/set_token",
-        vol.Required("device_id"): str,
-        vol.Required("token"): str,
+        vol.Required("device_id"): DEVICE_ID,
+        vol.Required("token"): TOKEN,
     }
 )
 @websocket_api.async_response
@@ -621,6 +618,9 @@ async def ws_set_token(
             return
 
         name = dev.name if dev else (raw_info.get("name") or clean_dev_id)
+        if not isinstance(name, str) or not NODE_RE.match(name):
+            connection.send_error(msg["id"], "invalid_name", "Invalid device name")
+            return
         configuration = (
             dev.configuration
             if dev
@@ -645,19 +645,22 @@ async def ws_set_token(
         cleanup_update_attempted = False
         firmware_blob = None
         binary_info = None
-        old_binary_path = manager.publisher.www_dir / f"{old_slug}.ota.bin"
+        www_dir = manager.publisher.www_dir
+        try:
+            old_binary_path = _www_path(www_dir, f"{old_slug}.ota.bin")
+            new_binary_path = _www_path(www_dir, f"{new_slug}.ota.bin")
+            new_md5_path = _www_path(www_dir, f"{new_slug}.ota.bin.md5")
+            new_manifest_path = _www_path(www_dir, f"{new_slug}.json")
+            new_ota_manifest_path = _www_path(www_dir, f"{new_slug}.ota.json")
+        except ValueError:
+            connection.send_error(msg["id"], "invalid_name", "Invalid device name")
+            return
         old_cleanup_artifact_id = manager.publisher.get_current_artifact_id(old_slug)
 
         try:
             artifacts = await manager.storage.async_load_artifacts()
             artifact = artifacts.get(clean_dev_id) if dev else None
             if old_slug != new_slug:
-                new_binary_path = manager.publisher.www_dir / f"{new_slug}.ota.bin"
-                new_md5_path = manager.publisher.www_dir / f"{new_slug}.ota.bin.md5"
-                new_manifest_path = manager.publisher.www_dir / f"{new_slug}.json"
-                new_ota_manifest_path = (
-                    manager.publisher.www_dir / f"{new_slug}.ota.json"
-                )
                 if await async_any_path_exists(
                     hass,
                     new_binary_path,
@@ -930,7 +933,7 @@ async def ws_set_token(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "esphome_ota/remove_ota",
-        vol.Required("device_id"): str,
+        vol.Required("device_id"): DEVICE_ID,
     }
 )
 @websocket_api.async_response

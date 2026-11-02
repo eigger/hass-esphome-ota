@@ -481,6 +481,7 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
     class MockRequest(dict):
         match_info = {"device_id": "livingroom"}
         can_read_body = True
+        content_type = "multipart/form-data"
 
         def __init__(self, data: bytes) -> None:
             super().__init__()

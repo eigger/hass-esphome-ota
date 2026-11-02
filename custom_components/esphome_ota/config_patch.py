@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 from .models import YamlDiff
-from .packages import generate_inline_ota_yaml
+from .packages import generate_inline_ota_yaml, yaml_dq
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -809,7 +809,7 @@ def set_package_ota_slug(content: str, new_slug: str) -> tuple[str, bool]:
                     nl = "\n"
                 else:
                     nl = ""
-                lines[idx] = f'{indent}ota_slug: "{new_slug}"{nl}'
+                lines[idx] = f"{indent}ota_slug: {yaml_dq(new_slug)}{nl}"
                 changed = True
 
     if changed:

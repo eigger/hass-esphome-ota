@@ -44,9 +44,16 @@ class FirmwareUploadView(HomeAssistantView):
         if not request.can_read_body:
             return web.json_response({"error": "No body in request"}, status=400)
 
-        reader = await request.multipart()
-        field = await reader.next()
-        if not field:
+        if not request.content_type.startswith("multipart/"):
+            return web.json_response(
+                {"error": "Content-Type must be multipart/form-data"}, status=400
+            )
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+        except (AssertionError, ValueError):
+            return web.json_response({"error": "Invalid multipart request"}, status=400)
+        if not field or getattr(field, "name", None) != "file":
             return web.json_response(
                 {"error": "No file field found in multipart request"}, status=400
             )

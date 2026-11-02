@@ -9,7 +9,16 @@ from .const import DEFAULT_PUBLISH_DIR
 
 _PROJECT_NAME_MAX = 32
 
-NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$")
+NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\Z")
+TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
+VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\Z")
+
+
+def yaml_dq(value: str) -> str:
+    """Return ``value`` as a double-quoted YAML scalar with escaping."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    escaped = escaped.replace("\n", "\\n").replace("\r", "\\r")
+    return f'"{escaped}"'
 
 
 def project_name(node: str) -> str:
@@ -80,14 +89,14 @@ def generate_inline_ota_yaml(
     if use_project and node and version:
         proj_block = f"""    esphome:
       project:
-        name: "{project_name(node)}"
-        version: "{version}"\n"""
+        name: {yaml_dq(project_name(node))}
+        version: {yaml_dq(version)}\n"""
 
     return f"""\
   esphome_ota:
     substitutions:
-      ota_base_url: "{clean_base_url}"
-      ota_slug: "{slug}"
+      ota_base_url: {yaml_dq(clean_base_url)}
+      ota_slug: {yaml_dq(slug)}
 {proj_block}    http_request:
       timeout: 60s
 
