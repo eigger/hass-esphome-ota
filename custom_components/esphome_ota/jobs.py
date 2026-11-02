@@ -611,7 +611,7 @@ class JobRunner:
                 )
                 return
             if job.builder_job_id:
-                await client.cancel_job(job.builder_job_id)
+                await self._cancel_remote(client, job)
             await self._update_stage(job, STAGE_CANCELLED)
         except BuilderConnectionError as err:
             _LOGGER.warning(
@@ -922,7 +922,7 @@ class JobRunner:
             if self._unloaded:
                 return
             if job.builder_job_id:
-                await client.cancel_job(job.builder_job_id)
+                await self._cancel_remote(client, job)
             await self._update_stage(job, STAGE_CANCELLED)
         except BuilderConnectionError as err:
             _LOGGER.warning(
@@ -957,9 +957,20 @@ class JobRunner:
             except (asyncio.CancelledError, Exception) as err:  # noqa: BLE001
                 _LOGGER.debug("Cancelled task for job %s completed: %s", job_id, err)
         elif client and job.builder_job_id:
-            await client.cancel_job(job.builder_job_id)
+            await self._cancel_remote(client, job)
 
         await self._update_stage(job, STAGE_CANCELLED)
+
+    async def _cancel_remote(self, client: BuilderClient, job: PipelineJob) -> None:
+        """Best-effort Builder cancel; local cancellation must never depend on it."""
+        if not job.builder_job_id:
+            return
+        try:
+            await client.cancel_job(job.builder_job_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug(
+                "Remote cancel of builder job %s failed: %s", job.builder_job_id, err
+            )
 
     async def _cancel_if_device_removed(
         self,
@@ -975,7 +986,7 @@ class JobRunner:
         )
         self._cancelled_jobs.add(job.job_id)
         if client and job.builder_job_id:
-            await client.cancel_job(job.builder_job_id)
+            await self._cancel_remote(client, job)
         await self._update_stage(job, STAGE_CANCELLED)
         return True
 

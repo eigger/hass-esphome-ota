@@ -353,3 +353,44 @@ async def test_log_lines_emit_incremental_events_without_heartbeat(
     assert events == [
         ("job_log", {"job_id": "j", "device_id": "d", "line": "Compiling"})
     ]
+
+
+async def test_cancel_paths_survive_remote_cancel_failure(hass: HomeAssistant) -> None:
+    """A failing Builder cancel still lets the job reach CANCELLED."""
+    from custom_components.esphome_ota.models import BuilderConnectionError
+
+    class _Client:
+        async def cancel_job(self, _id: str) -> None:
+            raise BuilderConnectionError("down")
+
+    runner = _make_runner(hass)
+    dev = ManagedDevice(
+        device_id="gone",
+        configuration="gone.yaml",
+        name="gone",
+        friendly_name="Gone",
+        token="t",
+        slug="gone_t",
+    )
+    j1 = PipelineJob(
+        job_id="j1",
+        device_id="gone",
+        configuration="gone.yaml",
+        request_id="r1",
+        builder_job_id="b1",
+    )
+    runner._active_jobs["j1"] = j1
+    assert await runner._cancel_if_device_removed(j1, dev, _Client()) is True  # type: ignore[arg-type]
+    assert j1.stage == STAGE_CANCELLED
+
+    j2 = PipelineJob(
+        job_id="j2",
+        device_id="gone",
+        configuration="gone.yaml",
+        request_id="r2",
+        builder_job_id="b2",
+        stage=STAGE_BUILDING,
+    )
+    runner._active_jobs["j2"] = j2
+    await runner.async_cancel_job("j2", _Client())  # type: ignore[arg-type]
+    assert j2.stage == STAGE_CANCELLED
