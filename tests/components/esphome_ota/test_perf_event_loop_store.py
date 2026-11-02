@@ -414,6 +414,6 @@ async def test_upload_inspects_binary_in_executor(
         form.add_field("file", b"x" * 2048, filename="f.bin")
         with patch.object(http, "inspect_binary", spy):
             resp = await client.post("/api/esphome_ota/upload/livingroom", data=form)
-        assert resp.status == 400
+        assert resp.status == 422
     assert seen
     assert loop_thread not in seen
