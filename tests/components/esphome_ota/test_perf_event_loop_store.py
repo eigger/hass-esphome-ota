@@ -132,26 +132,65 @@ async def test_public_binary_lookup_tracks_directory(hass: HomeAssistant) -> Non
         )
     }
 
-    def has_public() -> bool:
+    async def has_public() -> bool:
+        await dm.async_refresh_public_scan()
         return dm.list_all()[0]["has_public_binary"]
 
-    assert has_public() is False
+    assert await has_public() is False
     binfile = pub / "a_tok.ota.bin"
     binfile.write_bytes(b"x")
     (pub / "a_tok.ota.bin.md5").write_text("m")
-    assert has_public() is True
+    assert await has_public() is True
+    # Let the rescan scheduled for the unsettled directory finish first.
+    if dm._public_scan_task is not None:
+        await dm._public_scan_task
     # Cached scan is reused while the directory is unchanged.
     with patch("custom_components.esphome_ota.devices.os.scandir") as scandir:
-        scandir.side_effect = AssertionError("rescan")
         # Make the entry look settled so the cache is trusted.
         mtime, _trusted, slugs = dm._public_scan
         dm._public_scan = (mtime, True, slugs)
-        assert has_public() is True
+        assert dm.list_all()[0]["has_public_binary"] is True
+        scandir.assert_not_called()
     binfile.unlink()
     # Force a distinct directory mtime regardless of filesystem granularity.
     st = pub.stat()
     os.utime(pub, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
-    assert has_public() is False
+    assert await has_public() is False
+
+
+async def test_public_binary_scan_runs_off_event_loop(hass: HomeAssistant) -> None:
+    """list_all never scans on the loop; a background scan updates and notifies."""
+    pub = Path(hass.config.path("www", DEFAULT_PUBLISH_DIR))
+    pub.mkdir(parents=True, exist_ok=True)
+    (pub / "a_tok.ota.bin").write_bytes(b"x")
+    dm = DeviceManager(hass, StorageManager(hass))
+    dm._managed_devices = {
+        "a": ManagedDevice(
+            device_id="a",
+            name="a",
+            friendly_name="A",
+            token="t",
+            configuration="a.yaml",
+            slug="a_tok",
+        )
+    }
+    loop_thread = threading.get_ident()
+    scan_threads: list[int] = []
+    real = DeviceManager._scan_public_dir
+
+    def spy(pub_dir: Path) -> set[str] | None:
+        scan_threads.append(threading.get_ident())
+        return real(pub_dir)
+
+    notified: list[bool] = []
+    dm.public_scan_listener = lambda: notified.append(True)
+    with patch.object(DeviceManager, "_scan_public_dir", staticmethod(spy)):
+        dm.list_all()
+        await hass.async_block_till_done()
+    assert scan_threads
+    assert all(t != loop_thread for t in scan_threads)
+    assert notified == [True]
+    assert dm.list_all()[0]["has_public_binary"] is True
 
 
 async def test_public_binary_lookup_missing_dir(hass: HomeAssistant) -> None:

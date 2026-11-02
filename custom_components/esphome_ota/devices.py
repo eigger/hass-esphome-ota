@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,10 @@ class DeviceManager:
         self._registration_lock = asyncio.Lock()
         # (dir inode/mtime/ctime, trusted, slugs) cache for public binary existence.
         self._public_scan: tuple[tuple[int, int, int], bool, set[str]] | None = None
+        self._public_scan_task: asyncio.Task[None] | None = None
+        self._scan_seq = 0
+        # Called when a background rescan changed the public binary listing.
+        self.public_scan_listener: Callable[[], None] | None = None
 
     def get_lock(self, device_id: str) -> asyncio.Lock:
         """Return a persistent asyncio.Lock for a specific device."""
@@ -60,6 +65,9 @@ class DeviceManager:
     async def async_load(self) -> None:
         """Load stored devices from storage."""
         self._managed_devices = await self.storage.async_load_devices()
+        # Prime the public-binary cache off the event loop so the first
+        # ``list_all`` already reports correct values.
+        await self.async_refresh_public_scan()
         artifacts = await self.storage.async_load_artifacts()
         repaired = False
         for device_id, dev in self._managed_devices.items():
@@ -180,8 +188,74 @@ class DeviceManager:
         ambiguous = [item[1] for item in scored if item[1] != stem]
         return stem, cfg_file, raw, ambiguous
 
+    @staticmethod
+    def _scan_public_dir(pub_dir: Path) -> set[str] | None:
+        """List public binary slugs in ``pub_dir`` (blocking; run in executor)."""
+        slugs: set[str] = set()
+        try:
+            with os.scandir(pub_dir) as entries:
+                for entry in entries:
+                    if entry.name.endswith(_PUBLIC_BIN_SUFFIX) and entry.is_file():
+                        slugs.add(entry.name[: -len(_PUBLIC_BIN_SUFFIX)])
+        except Exception:  # noqa: BLE001
+            return None
+        return slugs
+
+    def _public_dir_state(self) -> tuple[Path, int, tuple[int, int, int]] | None:
+        """Stat the publish directory; ``None`` when it is unavailable."""
+        try:
+            pub_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
+            st = pub_dir.stat()
+        except Exception:  # noqa: BLE001
+            return None
+        return pub_dir, st.st_mtime_ns, (st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
+
+    async def async_refresh_public_scan(self) -> None:
+        """Rescan the publish directory in the executor and update the cache."""
+        state = self._public_dir_state()
+        if state is None:
+            self._public_scan = None
+            return
+        pub_dir, mtime_ns, key = state
+        self._scan_seq += 1
+        seq = self._scan_seq
+        slugs = await self.hass.async_add_executor_job(self._scan_public_dir, pub_dir)
+        if seq != self._scan_seq:
+            # A newer scan started meanwhile; its result supersedes this one.
+            return
+        if slugs is None:
+            self._public_scan = None
+            return
+        settled = time.time_ns() - mtime_ns > _PUBLIC_SCAN_SETTLE_NS
+        self._public_scan = (key, settled, slugs)
+
+    def async_unload(self) -> None:
+        """Cancel any in-flight background scan."""
+        self.public_scan_listener = None
+        task = self._public_scan_task
+        self._public_scan_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _async_background_public_scan(self) -> None:
+        """Refresh the cache and notify listeners when the result changed."""
+        before = self._public_scan[2] if self._public_scan else set()
+        try:
+            await self.async_refresh_public_scan()
+        finally:
+            self._public_scan_task = None
+        after = self._public_scan[2] if self._public_scan else set()
+        if after != before and self.public_scan_listener is not None:
+            self.public_scan_listener()
+
     def _public_binary_slugs(self) -> set[str]:
         """Return slugs with a public ``<slug>.ota.bin`` file.
+
+        Never touches the directory contents on the event loop: when the cache
+        is stale a background executor scan is scheduled and the previous
+        listing is returned until it completes (``public_scan_listener`` fires
+        if the result changed). Callers that do not subscribe to that listener
+        may therefore see one stale read right after a change.
 
         One ``stat`` of the publish directory replaces a per-device ``is_file``
         call on every event. The directory mtime changes whenever a file is
@@ -190,29 +264,26 @@ class DeviceManager:
         last ``_PUBLIC_SCAN_SETTLE_NS`` is rescanned each time because coarse
         filesystem timestamps could hide a further change in the same tick.
         """
-        try:
-            pub_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
-            st = pub_dir.stat()
-            mtime_ns = st.st_mtime_ns
-            key = (st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
-        except Exception:  # noqa: BLE001
+        state = self._public_dir_state()
+        if state is None:
             self._public_scan = None
             return set()
+        _, _, key = state
         cached = self._public_scan
         if cached is not None and cached[0] == key and cached[1]:
             return cached[2]
-        slugs: set[str] = set()
-        try:
-            with os.scandir(pub_dir) as entries:
-                for entry in entries:
-                    if entry.name.endswith(_PUBLIC_BIN_SUFFIX) and entry.is_file():
-                        slugs.add(entry.name[: -len(_PUBLIC_BIN_SUFFIX)])
-        except Exception:  # noqa: BLE001
-            self._public_scan = None
-            return set()
-        settled = time.time_ns() - mtime_ns > _PUBLIC_SCAN_SETTLE_NS
-        self._public_scan = (key, settled, slugs)
-        return slugs
+        task = self._public_scan_task
+        # A task that already finished (eager start) must not block rescans.
+        if task is None or task.done():
+            task = self.hass.async_create_task(self._async_background_public_scan())
+            # An eagerly started task may already have finished (and cleared
+            # the attribute) before this assignment.
+            if task.done():
+                self._public_scan_task = None
+                # Finished eagerly: the cache already holds the fresh listing.
+                return self._public_scan[2] if self._public_scan else set()
+            self._public_scan_task = task
+        return cached[2] if cached is not None else set()
 
     def list_all(self) -> list[dict[str, Any]]:
         """Combine Builder devices and managed records into a unified list."""
