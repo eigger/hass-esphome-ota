@@ -991,13 +991,22 @@ class EsphomeOtaManager extends HTMLElement {
         device_ids: requestedIds,
       });
       const jobs = result?.jobs && typeof result.jobs === "object" ? result.jobs : {};
+      const errors = result?.errors && typeof result.errors === "object" ? result.errors : {};
       const queuedIds = requestedIds.filter((id) => Object.hasOwn(jobs, id));
-      const failedIds = requestedIds.filter((id) => !Object.hasOwn(jobs, id));
+      const unsupportedIds = requestedIds.filter((id) => errors[id] === "unsupported_platform");
+      // Unsupported devices can never succeed, so they are not kept selected for retry
+      const failedIds = requestedIds.filter(
+        (id) => !Object.hasOwn(jobs, id) && errors[id] !== "unsupported_platform"
+      );
       queuedIds.forEach((id) => this.selectedDevices.delete(id));
+      unsupportedIds.forEach((id) => this.selectedDevices.delete(id));
       this._renderDeviceList();
-      const message = failedIds.length
+      let message = failedIds.length
         ? this._formatText("batch_partial", { queued: queuedIds.length, failed: failedIds.length })
         : this._formatText("batch_queued", { count: queuedIds.length });
+      if (unsupportedIds.length) {
+        message += " " + this._formatText("batch_unsupported", { count: unsupportedIds.length });
+      }
       this.showToast(message);
     } catch (err) {
       this.showToast(`Batch build error: ${err.message || err}`);

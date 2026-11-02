@@ -18,7 +18,7 @@ from homeassistant.loader import async_get_integration
 from .redaction import install_redaction
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
-from .firmware import inspect_binary
+from .firmware import ensure_supported_platform, inspect_binary
 from .packages import NODE_RE, TOKEN_RE, VERSION_RE, is_valid_device_id
 from .publisher import (
     async_any_path_exists,
@@ -81,6 +81,17 @@ def _get_manager(hass: HomeAssistant) -> Any:
     if not entry_data or "manager" not in entry_data:
         raise websocket_api.WebSocketError("not_loaded", "ESPHome OTA is not loaded")
     return entry_data["manager"]
+
+
+def _ensure_platform_supported(manager: Any, device_id: str) -> None:
+    """Raise UnsupportedPlatformError before registering or touching an RP device."""
+    dev = manager.device_manager.get_device(device_id)
+    if dev:
+        ensure_supported_platform(dev.target_platform)
+        return
+    raw_info = manager.device_manager.get_builder_raw(device_id)
+    if raw_info:
+        ensure_supported_platform(raw_info.get("target_platform") or "")
 
 
 async def _async_ensure_managed_device(manager: Any, device_id: str) -> Any | None:
@@ -339,6 +350,11 @@ async def ws_prepare_ota(
         )
         return
 
+    try:
+        _ensure_platform_supported(manager, device_id)
+    except UnsupportedPlatformError as err:
+        connection.send_error(msg["id"], "unsupported_platform", str(err))
+        return
     dev = await _async_ensure_managed_device(manager, device_id)
     if not dev:
         connection.send_error(msg["id"], "device_not_found", "Device not found")
@@ -396,6 +412,11 @@ async def ws_apply_ota(
         )
         return
 
+    try:
+        _ensure_platform_supported(manager, device_id)
+    except UnsupportedPlatformError as err:
+        connection.send_error(msg["id"], "unsupported_platform", str(err))
+        return
     config_file = manager.device_manager.get_configuration(device_id)
     try:
         await client.update_config(config_file, content, expected)
@@ -438,6 +459,11 @@ async def ws_build(
         )
         return
 
+    try:
+        _ensure_platform_supported(manager, device_id)
+    except UnsupportedPlatformError as err:
+        connection.send_error(msg["id"], "unsupported_platform", str(err))
+        return
     dev = await _async_ensure_managed_device(manager, device_id)
     if not dev:
         connection.send_error(msg["id"], "device_not_found", "Device not found")
@@ -484,7 +510,14 @@ async def ws_batch_build(
         return
 
     job_ids: dict[str, str] = {}
+    errors: dict[str, str] = {}
     for dev_id in device_ids:
+        try:
+            _ensure_platform_supported(manager, dev_id)
+        except UnsupportedPlatformError as err:
+            _LOGGER.warning("Batch build skipped %s: %s", dev_id, err)
+            errors[dev_id] = "unsupported_platform"
+            continue
         dev = await _async_ensure_managed_device(manager, dev_id)
         if not dev:
             _LOGGER.warning("Batch build skipped unknown device %s", dev_id)
@@ -497,7 +530,10 @@ async def ws_batch_build(
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Batch build error for %s: %s", dev_id, err)
 
-    connection.send_result(msg["id"], {"jobs": job_ids})
+    result: dict[str, Any] = {"jobs": job_ids}
+    if errors:
+        result["errors"] = errors
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.require_admin

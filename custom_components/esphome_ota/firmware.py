@@ -27,8 +27,9 @@ VARIANTS = {
     "rp2350": "RP2350",
 }
 
-# Platforms whose images carry no verifiable header (RP2040/RP2350 firmware is a
-# raw ARM binary), so chip identity cannot be checked before publishing.
+# RP2040/RP2350 are listed in VARIANTS for chip naming only. Publishing for them
+# is unsupported as a product decision (their images are raw ARM binaries with no
+# header to verify the chip against).
 UNSUPPORTED_PLATFORMS = frozenset({"rp2040", "rp2350"})
 
 CHIP_FAMILIES = sorted(set(VARIANTS.values()))
@@ -123,7 +124,13 @@ def chip_family(
         sniffed = CHIP_IDS.get(chip_id) if chip_id is not None else None
         if sniffed:
             return sniffed, "binary"
-        if mapped == "ESP8266" and len(blob) >= 8 and blob[0] == ESP_IMAGE_MAGIC:
+        if (
+            mapped == "ESP8266"
+            and len(blob) >= 8
+            and blob[0] == ESP_IMAGE_MAGIC
+            # An ESP32-style extended header is never an ESP8266 image
+            and chip_id_from_binary(blob) is None
+        ):
             return "ESP8266", "binary"
         return None, "invalid"
 

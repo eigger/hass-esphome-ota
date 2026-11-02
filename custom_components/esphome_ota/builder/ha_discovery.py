@@ -12,6 +12,8 @@ from ..models import BuilderCandidate
 
 _LOGGER = logging.getLogger(__name__)
 
+_WARNED_DASHBOARD_FORMAT = False
+
 KNOWN_ESPHOME_SLUGS = (
     "5c53de3b_esphome",
     "5c53de3b_esphome-dev",
@@ -163,7 +165,14 @@ class HaDiscoveryAdapter:
                             )
                         )
                     else:
-                        _LOGGER.warning(
+                        global _WARNED_DASHBOARD_FORMAT  # noqa: PLW0603
+                        log = (
+                            _LOGGER.debug
+                            if _WARNED_DASHBOARD_FORMAT
+                            else _LOGGER.warning
+                        )
+                        _WARNED_DASHBOARD_FORMAT = True
+                        log(
                             "Ignoring unexpected esphome.dashboard storage format; "
                             "Home Assistant core may have changed it"
                         )

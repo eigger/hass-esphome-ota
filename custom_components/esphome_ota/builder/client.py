@@ -28,16 +28,36 @@ from .connection import BuilderConnection
 _LOGGER = logging.getLogger(__name__)
 
 
+# Builder error codes known to be unrelated to CAS conflicts.
+_NON_CONFLICT_CODES = frozenset(
+    {
+        "INVALID_ARGUMENT",
+        "INVALID_REQUEST",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "UNAUTHORIZED",
+        "TIMEOUT",
+        "INTERNAL",
+        "INTERNAL_ERROR",
+        "UNKNOWN_COMMAND",
+    }
+)
+
+
 def _is_cas_conflict(err: BuilderError) -> bool:
     """Classify an update_config failure as a CAS conflict.
 
     A structured error_code from the Builder is authoritative. Message keywords
     are only a fallback for Builders that do not supply one.
     """
-    code = getattr(err, "error_code", None)
+    code = (getattr(err, "error_code", None) or "").upper()
     if code:
-        code = code.upper()
-        return "CONFLICT" in code or "MISMATCH" in code or "PRECONDITION" in code
+        if "CONFLICT" in code or "MISMATCH" in code or "PRECONDITION" in code:
+            return True
+        if code in _NON_CONFLICT_CODES:
+            return False
+        # Unknown/generic code: the Builder may report CAS failures under it,
+        # so fall through to the message check.
     msg = str(err).lower()
     return "conflict" in msg or "mismatch" in msg or "expected" in msg
 
