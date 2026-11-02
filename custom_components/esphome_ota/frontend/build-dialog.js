@@ -445,7 +445,9 @@ class EsphomeOtaBuildDialog extends HTMLElement {
         && this._sessionId === sessionId
         && this.device?.device_id === targetDevice.device_id;
       if (!stillShowingTarget) return;
-      this.error = err.message || String(err);
+      this.error = err?.code === "unsupported_platform"
+        ? t(this.hass, "unsupported_platform")
+        : err.message || String(err);
       this.submitting = false;
       this.render();
     }

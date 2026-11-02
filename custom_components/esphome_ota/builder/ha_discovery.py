@@ -12,17 +12,14 @@ from ..models import BuilderCandidate
 
 _LOGGER = logging.getLogger(__name__)
 
+_WARNED_DASHBOARD_FORMAT = False
+
 KNOWN_ESPHOME_SLUGS = (
     "5c53de3b_esphome",
     "5c53de3b_esphome-dev",
     "5c53de3b_esphome-beta",
     "esphome",
 )
-
-
-def _is_loopback(host: str) -> bool:
-    """Check if host is a loopback address."""
-    return host in ("127.0.0.1", "localhost", "::1")
 
 
 def _sanitize_host(host: str) -> str:
@@ -133,22 +130,51 @@ class HaDiscoveryAdapter:
             try:
                 from homeassistant.helpers.storage import Store  # noqa: PLC0415
 
+                # Private core storage format (esphome.dashboard); may change between
+                # HA releases, so every access below is shape-checked.
                 store: Store[dict[str, Any]] = Store(self.hass, 1, "esphome.dashboard")
                 data = await store.async_load()
-                if data and (info := data.get("info")):
-                    host = _sanitize_host(info.get("host", "127.0.0.1"))
-                    port = info.get("port")
-                    slug = info.get("addon_slug", "esphome")
-                    if port and isinstance(port, int):
+                info = data.get("info") if isinstance(data, dict) else None
+                if info is not None:
+                    host = (
+                        info.get("host", "127.0.0.1")
+                        if isinstance(info, dict)
+                        else None
+                    )
+                    port = info.get("port") if isinstance(info, dict) else None
+                    slug = (
+                        info.get("addon_slug", "esphome")
+                        if isinstance(info, dict)
+                        else None
+                    )
+                    if (
+                        isinstance(host, str)
+                        and isinstance(slug, str)
+                        and isinstance(port, int)
+                        and not isinstance(port, bool)
+                        and 0 < port < 65536
+                    ):
                         candidates.append(
                             BuilderCandidate(
                                 slug=slug,
                                 name=f"ESPHome Dashboard ({slug})",
-                                host=host,
+                                host=_sanitize_host(host),
                                 port=port,
                                 source="dashboard",
                                 is_running=True,
                             )
+                        )
+                    else:
+                        global _WARNED_DASHBOARD_FORMAT  # noqa: PLW0603
+                        log = (
+                            _LOGGER.debug
+                            if _WARNED_DASHBOARD_FORMAT
+                            else _LOGGER.warning
+                        )
+                        _WARNED_DASHBOARD_FORMAT = True
+                        log(
+                            "Ignoring unexpected esphome.dashboard storage format; "
+                            "Home Assistant core may have changed it"
                         )
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("ESPHome dashboard storage check failed: %s", err)

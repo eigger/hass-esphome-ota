@@ -39,7 +39,7 @@ from .const import (
     STAGE_VERIFYING,
 )
 from .devices import DeviceManager
-from .firmware import inspect_binary
+from .firmware import ensure_supported_platform, inspect_binary
 from .models import (
     BuilderConnectionError,
     BuilderError,
@@ -298,6 +298,7 @@ class JobRunner:
 
         Returns job_id immediately.
         """
+        ensure_supported_platform(device.target_platform)
         req_id = request_id or str(uuid.uuid4())
         device_req_key = f"{device.device_id}:{req_id}"
         if device_req_key in self._in_flight_requests:

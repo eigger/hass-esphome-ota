@@ -7,7 +7,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from .models import BinaryValidationError
+from .models import BinaryValidationError, UnsupportedPlatformError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +26,11 @@ VARIANTS = {
     "rp2040": "RP2040",
     "rp2350": "RP2350",
 }
+
+# RP2040/RP2350 are listed in VARIANTS for chip naming only. Publishing for them
+# is unsupported as a product decision (their images are raw ARM binaries with no
+# header to verify the chip against).
+UNSUPPORTED_PLATFORMS = frozenset({"rp2040", "rp2350"})
 
 CHIP_FAMILIES = sorted(set(VARIANTS.values()))
 
@@ -75,6 +80,21 @@ def normalise_platform(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (value or "").lower())
 
 
+def is_supported_platform(target_platform: str) -> bool:
+    """Return whether firmware for this platform can be verified and published."""
+    return normalise_platform(target_platform) not in UNSUPPORTED_PLATFORMS
+
+
+def ensure_supported_platform(target_platform: str) -> None:
+    """Raise UnsupportedPlatformError when the platform cannot be verified."""
+    if not is_supported_platform(target_platform):
+        name = VARIANTS.get(normalise_platform(target_platform)) or target_platform
+        raise UnsupportedPlatformError(
+            f"Platform {name} is not supported: its firmware cannot be verified "
+            "and published"
+        )
+
+
 def chip_id_from_binary(blob: bytes) -> int | None:
     """Read esp_image_header_t.chip_id, or None when this isn't an ESP32 image."""
     if len(blob) < ESP_IMAGE_HEADER_LEN or blob[0] != ESP_IMAGE_MAGIC:
@@ -104,7 +124,13 @@ def chip_family(
         sniffed = CHIP_IDS.get(chip_id) if chip_id is not None else None
         if sniffed:
             return sniffed, "binary"
-        if mapped == "ESP8266" and len(blob) >= 8 and blob[0] == ESP_IMAGE_MAGIC:
+        if (
+            mapped == "ESP8266"
+            and len(blob) >= 8
+            and blob[0] == ESP_IMAGE_MAGIC
+            # An ESP32-style extended header is never an ESP8266 image
+            and chip_id_from_binary(blob) is None
+        ):
             return "ESP8266", "binary"
         return None, "invalid"
 
@@ -216,6 +242,7 @@ def inspect_binary(
     Raises:
         BinaryValidationError: If binary is invalid, corrupted, or chip family mismatches.
     """
+    ensure_supported_platform(target_platform)
     if len(blob) < 1024:
         raise BinaryValidationError(f"Binary is too small: {len(blob)} bytes")
 

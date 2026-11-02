@@ -21,6 +21,7 @@
 - Automatic, zero-config discovery of the ESPHome Builder add-on and a live device list.
 - Safe, diff-based YAML preparation (`packages.esphome_ota`) that preserves `!secret`, `!include`, and comments.
 - Compile, verify, and publish pipeline with live logs, binary integrity checks, and atomic publishing to `/local/esphome_ota/`.
+- Supported targets: ESP32 family and ESP8266. RP2040/RP2350 devices are not supported (their firmware has no verifiable header) and are rejected before a build starts.
 - Sidebar panel with batch builds, job cancellation, and first-install guidance; manual firmware upload; import from the legacy add-on.
 
 More detail and the architecture overview: [docs/features.md](docs/features.md).

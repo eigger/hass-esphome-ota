@@ -15,8 +15,8 @@ from .redaction import install_redaction
 from .config_patch import apply_ota_patch
 from .const import DEFAULT_PUBLISH_DIR, YAML_MODE_INLINE_PACKAGE
 from .devices import DeviceManager
-from .firmware import inspect_binary
-from .models import BuilderConnectionError
+from .firmware import ensure_supported_platform, inspect_binary
+from .models import BinaryValidationError, BuilderConnectionError
 from .publisher import ArtifactPublisher
 from .storage import StorageManager
 
@@ -94,8 +94,18 @@ class MigrationManager:
             data["migrated_at"] = record.get("migrated_at")
         return data
 
-    def _execute_migration_sync(self) -> dict[str, Any]:
-        """Migrate legacy devices and public files into modern storage format."""
+    def _execute_migration_sync(
+        self, targets: dict[str, dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """Migrate legacy devices and public files into modern storage format.
+
+        ``targets`` maps legacy node -> {"device_id", "configuration", "platform"}
+        as resolved against Builder, so artifacts are keyed like the devices and
+        each binary is inspected against its real platform (e.g. ESP8266).
+        Returns the platform detected from the binary for nodes Builder lacks.
+        """
+        targets = targets or {}
+        detected_platforms: dict[str, str] = {}
         esphome_dir = Path(self.hass.config.path("esphome"))
         legacy_reg_path = esphome_dir / "ota_server" / "registered.json"
         www_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
@@ -122,11 +132,29 @@ class MigrationManager:
             if bin_path.is_file():
                 try:
                     blob = bin_path.read_bytes()
-                    info = inspect_binary(blob=blob, reserved_version=version)
+                    target = targets.get(node, {})
+                    plat = target.get("platform")
+                    if plat:
+                        info = inspect_binary(
+                            blob=blob, target_platform=plat, reserved_version=version
+                        )
+                    else:
+                        # Platform unknown (device not in Builder): try ESP32
+                        # first, then ESP8266, whose images carry a different header.
+                        try:
+                            info = inspect_binary(blob=blob, reserved_version=version)
+                            detected_platforms[node] = "esp32"
+                        except BinaryValidationError:
+                            info = inspect_binary(
+                                blob=blob,
+                                target_platform="esp8266",
+                                reserved_version=version,
+                            )
+                            detected_platforms[node] = "esp8266"
                     # Archive into private storage
                     self.publisher._publish_sync(
-                        device_id=node,
-                        configuration=f"{node}.yaml",
+                        device_id=target.get("device_id", node),
+                        configuration=target.get("configuration", f"{node}.yaml"),
                         slug=slug,
                         blob=blob,
                         info=info,
@@ -138,13 +166,45 @@ class MigrationManager:
 
         return {
             "migrated_artifacts": migrated_artifacts,
+            "detected_platforms": detected_platforms,
         }
+
+    async def _async_legacy_targets(self) -> dict[str, dict[str, Any]]:
+        """Resolve legacy registry nodes to Builder device_id, config and platform."""
+        reg_path = (
+            Path(self.hass.config.path("esphome")) / "ota_server" / "registered.json"
+        )
+        if not await async_path_is_file(self.hass, reg_path):
+            return {}
+        try:
+            content = await self.hass.async_add_executor_job(
+                reg_path.read_text, "utf-8"
+            )
+            registered = json.loads(content)
+        except Exception:  # noqa: BLE001
+            return {}
+        targets: dict[str, dict[str, Any]] = {}
+        if not isinstance(registered, dict):
+            return targets
+        for node, rec in registered.items():
+            token = (rec.get("token", "") if isinstance(rec, dict) else "") or ""
+            device_id, configuration, raw, _ = (
+                self.device_manager.resolve_legacy_configuration(node, token)
+            )
+            targets[node] = {
+                "device_id": device_id,
+                "configuration": configuration,
+                "platform": raw.get("target_platform") if raw else None,
+            }
+        return targets
 
     async def async_migrate(self) -> dict[str, Any]:
         """Execute legacy migration and update storage."""
+        targets = await self._async_legacy_targets()
         sync_result = await self.hass.async_add_executor_job(
-            self._execute_migration_sync
+            self._execute_migration_sync, targets
         )
+        detected_platforms: dict[str, str] = sync_result.get("detected_platforms", {})
         migrated_artifacts: list[str] = sync_result.get("migrated_artifacts", [])
 
         # Reload devices in device_manager, matching Builder YAML when possible
@@ -184,6 +244,20 @@ class MigrationManager:
                     )
                     if ambiguous:
                         ambiguous_matches[node] = ambiguous
+
+                    # Builder's platform wins; otherwise the one detected from
+                    # the legacy binary (e.g. ESP8266 for devices Builder lacks)
+                    plat = (
+                        (raw or {}).get("target_platform")
+                        or detected_platforms.get(node)
+                        or "esp32"
+                    )
+                    try:
+                        ensure_supported_platform(plat)
+                    except BinaryValidationError as plat_err:
+                        _LOGGER.warning("Skipping migration for %s: %s", node, plat_err)
+                        failed_devices[node] = str(plat_err)
+                        continue
 
                     # Avoid attaching two legacy nodes to the same Builder config
                     if configuration in claimed_configs:
@@ -257,7 +331,6 @@ class MigrationManager:
                             }:
                                 await self.device_manager.async_remove_device(node)
 
-                        plat = raw.get("target_platform", "esp32") if raw else "esp32"
                         await self.device_manager.async_register_or_update(
                             device_id=device_id,
                             configuration=configuration,

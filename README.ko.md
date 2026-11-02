@@ -21,6 +21,7 @@
 - Builder 애드온 Zero-Config 자동 탐색과 기기 목록 실시간 동기화.
 - `!secret`, `!include`, 주석을 보존하는 Diff 기반 YAML OTA 준비(`packages.esphome_ota`).
 - 실시간 로그, 바이너리 무결성 검사, `/local/esphome_ota/` 원자적 게시를 포함한 컴파일·게시 파이프라인.
+- 지원 대상: ESP32 계열과 ESP8266. RP2040/RP2350은 검증 가능한 펌웨어 헤더가 없어 지원하지 않으며 빌드 시작 전에 거부됩니다.
 - 일괄 빌드·작업 취소·최초 설치 안내 사이드바 패널, 수동 펌웨어 업로드, 기존 애드온 데이터 이전.
 
 상세 기능과 시스템 구조: [docs/features.ko.md](docs/features.ko.md).

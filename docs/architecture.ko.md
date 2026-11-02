@@ -189,7 +189,7 @@ preparing → validating → submitting → queued → building
                                                      ↓
                              installing → installed / install_failed
 
-각 단계: failed / cancelling / cancelled / recovery_required
+각 단계: failed / cancelled / recovery_required
 ```
 
 `published`가 빌드·게시 작업의 성공이다. 설치는 별도 사용자 동작과 상태다. Builder `firmware/install`은 기기에 직접 upload하는 동작이므로 원격 HTTP OTA의 기본 빌드에 사용하지 않는다. 빌드는 `firmware/compile`을 사용한다.
