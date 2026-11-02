@@ -12,6 +12,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
+    STAGE_CANCELLED,
+    STAGE_FAILED,
+    STAGE_PUBLISHED,
     STORAGE_KEY_ARTIFACTS,
     STORAGE_KEY_DEVICES,
     STORAGE_KEY_JOBS,
@@ -21,6 +24,10 @@ from .const import (
 from .models import ManagedDevice, PipelineJob, PublishedArtifact
 
 _LOGGER = logging.getLogger(__name__)
+
+
+_TERMINAL_STAGES = (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED)
+TERMINAL_LOG_TAIL_LINES = 50
 
 
 class StorageManager:
@@ -72,6 +79,10 @@ class StorageManager:
     async def async_save_jobs(self, jobs: dict[str, PipelineJob]) -> None:
         """Save pipeline jobs to storage."""
         data = {job_id: job.to_dict() for job_id, job in jobs.items()}
+        for item in data.values():
+            # Finished jobs only need a short log in storage.
+            if item.get("stage") in _TERMINAL_STAGES:
+                item["log_tail"] = item["log_tail"][-TERMINAL_LOG_TAIL_LINES:]
         await self._job_store.async_save(data)
 
     async def async_load_artifacts(self) -> dict[str, PublishedArtifact]:

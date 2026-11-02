@@ -960,6 +960,9 @@ async def ws_remove_ota(
 
     # Stop in-flight builds first (they hold the device lock while running),
     # then serialize the removal against other mutations of this device.
+    # Cancelling before the YAML step is intentional: the build would otherwise
+    # hold the lock and could publish a binary for a device being removed, so
+    # a later failure of the removal leaves those jobs cancelled.
     await manager.job_runner.async_cancel_device_jobs(
         dev.device_id, manager.resolver.active_client
     )
@@ -975,6 +978,11 @@ async def _remove_ota_locked(
     dev: Any,
 ) -> None:
     """Remove managed OTA config while holding the device lock."""
+    # Jobs queued behind the lock before we acquired it are not holding it, so
+    # cancelling them again here cannot deadlock.
+    await manager.job_runner.async_cancel_device_jobs(
+        dev.device_id, manager.resolver.active_client
+    )
     device_id = msg["device_id"]
     config_file = manager.device_manager.get_configuration(device_id)
     esphome_file = Path(hass.config.path("esphome", config_file))

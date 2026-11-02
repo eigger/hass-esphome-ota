@@ -416,18 +416,24 @@ async def test_remove_ota_cancels_jobs_and_removes_private_artifacts(
         priv.mkdir(parents=True, exist_ok=True)
         (priv / "abc.bin").write_bytes(b"x")
 
-        cancelled: list[str] = []
+        from custom_components.esphome_ota.models import PipelineJob
 
-        async def _fake_cancel(device_id: str, client: object = None) -> None:
-            cancelled.append(device_id)
+        manager.job_runner._active_jobs["jx"] = PipelineJob(
+            job_id="jx",
+            device_id="rm_node",
+            configuration="rm_node.yaml",
+            request_id="r",
+            stage="building",
+        )
 
         ws = await hass_ws_client(hass)
-        with patch.object(manager.job_runner, "async_cancel_device_jobs", _fake_cancel):
+        with patch.object(manager.monitor, "cancel_cleanup") as cancel_cleanup:
             await ws.send_json(
                 {"id": 30, "type": "esphome_ota/remove_ota", "device_id": "rm_node"}
             )
             msg = await ws.receive_json()
         assert msg["success"] is True
-        assert cancelled == ["rm_node"]
+        cancel_cleanup.assert_called_with("rm_node")
+        assert manager.job_runner._active_jobs["jx"].stage == "cancelled"
         assert not priv.exists()
         await ws.close()

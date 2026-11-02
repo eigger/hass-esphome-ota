@@ -59,9 +59,8 @@ def _is_unresolved_version(version: str | None) -> bool:
     return bool(version and ("$" in version or "{" in version or "}" in version))
 
 
-# Terminal job retention: keep the most recent N per device, with trimmed logs.
+# Terminal job retention: keep the most recent N finished jobs per device.
 MAX_TERMINAL_JOBS_PER_DEVICE = 5
-TERMINAL_LOG_TAIL_LINES = 50
 _TERMINAL_STAGES = (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED)
 # Transitions that are cheap to rebuild on resume (a builder_job_id is already
 # checkpointed by then), so they are only broadcast, not persisted on their own.
@@ -222,18 +221,23 @@ class JobRunner:
             job.checkpoint.update(checkpoint_data)
         self._active_jobs[job.job_id] = job
         if stage in _TERMINAL_STAGES:
-            self._prune_jobs()
+            pruned = self._prune_jobs()
+            if pruned and self.event_callback and not self._unloaded:
+                self.event_callback("jobs_pruned", {"job_ids": pruned})
         if stage not in _EPHEMERAL_STAGES:
             await self.storage.async_save_jobs(self._active_jobs)
         self._notify_job_update(job)
 
-    def _prune_jobs(self) -> None:
-        """Bound memory/storage: trim finished jobs' logs and keep recent ones only."""
+    def _prune_jobs(self) -> list[str]:
+        """Keep only recent finished jobs per device; return the removed job ids.
+
+        Log trimming for finished jobs happens at persist time (see storage), so
+        a just-failed job keeps its full in-memory log for the UI.
+        """
+        removed: list[str] = []
         by_device: dict[str, list[PipelineJob]] = {}
         for job in self._active_jobs.values():
             if job.stage in _TERMINAL_STAGES:
-                if len(job.log_tail) > TERMINAL_LOG_TAIL_LINES:
-                    job.log_tail = job.log_tail[-TERMINAL_LOG_TAIL_LINES:]
                 by_device.setdefault(job.device_id, []).append(job)
         for jobs in by_device.values():
             jobs.sort(key=lambda j: j.updated_at, reverse=True)
@@ -242,6 +246,8 @@ class JobRunner:
                     continue
                 self._active_jobs.pop(old.job_id, None)
                 self._cancelled_jobs.discard(old.job_id)
+                removed.append(old.job_id)
+        return removed
 
     async def async_record_publication(
         self, device: ManagedDevice, published: PublishedArtifact
@@ -362,6 +368,8 @@ class JobRunner:
 
         try:
             async with lock:
+                if await self._cancel_if_device_removed(job, device):
+                    return
                 # 1. Preparing YAML configuration and managing version under lock
                 await self._update_stage(job, STAGE_PREPARING)
                 current_yaml = await client.get_config(device.configuration)
@@ -719,6 +727,10 @@ class JobRunner:
                 ):
                     matching = matching_candidates[0]
                     job.builder_job_id = str(matching["job_id"])
+                    # Persist the recovered id now: later BUILDING/DOWNLOADING/
+                    # VERIFYING transitions are not saved on their own.
+                    job.checkpoint["builder_job_id"] = job.builder_job_id
+                    await self.storage.async_save_jobs(self._active_jobs)
                     _LOGGER.info(
                         "Recovered builder_job_id=%s for job %s",
                         job.builder_job_id,
@@ -775,6 +787,8 @@ class JobRunner:
 
         try:
             async with lock:
+                if await self._cancel_if_device_removed(job, device, client):
+                    return
                 assert job.builder_job_id is not None
                 b_job_id = job.builder_job_id
 
@@ -946,6 +960,24 @@ class JobRunner:
             await client.cancel_job(job.builder_job_id)
 
         await self._update_stage(job, STAGE_CANCELLED)
+
+    async def _cancel_if_device_removed(
+        self,
+        job: PipelineJob,
+        device: ManagedDevice,
+        client: BuilderClient | None = None,
+    ) -> bool:
+        """Cancel a job that was waiting on the device lock while it was removed."""
+        if self.device_manager.get_device(device.device_id) is not None:
+            return False
+        _LOGGER.info(
+            "Device %s removed; cancelling job %s", device.device_id, job.job_id
+        )
+        self._cancelled_jobs.add(job.job_id)
+        if client and job.builder_job_id:
+            await client.cancel_job(job.builder_job_id)
+        await self._update_stage(job, STAGE_CANCELLED)
+        return True
 
     async def async_cancel_device_jobs(
         self, device_id: str, client: BuilderClient | None = None
