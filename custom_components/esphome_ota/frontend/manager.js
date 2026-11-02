@@ -832,7 +832,7 @@ class EsphomeOtaManager extends HTMLElement {
     }
   }
 
-  async subscribe() {
+  async subscribe({ fallback = true } = {}) {
     if (this._subscriptionAttempted || this._subscriptionPending) return;
     this._subscriptionAttempted = true;
     this._subscriptionPending = true;
@@ -844,7 +844,7 @@ class EsphomeOtaManager extends HTMLElement {
       await this.loadMigrationPreview();
     } catch (err) {
       console.error("Subscription error:", err);
-      await this.loadInitialFallback();
+      if (fallback) await this.loadInitialFallback();
     } finally {
       this._subscriptionPending = false;
     }
@@ -856,7 +856,8 @@ class EsphomeOtaManager extends HTMLElement {
     this._resubTimer = setTimeout(async () => {
       if (!this.isConnected || this._unsubEvents) return;
       this._subscriptionAttempted = false;
-      await this.subscribe();
+      // Show the error fallback only when the last attempt fails.
+      await this.subscribe({ fallback: attempt >= 4 });
       // subscribe() swallows errors; retry while still not subscribed.
       if (!this._unsubEvents) this._resubscribeSoon(attempt + 1);
     }, 2000);
@@ -904,8 +905,18 @@ class EsphomeOtaManager extends HTMLElement {
       this.render();
     } else if (event === "unloaded") {
       // Integration is reloading: the server dropped our subscription.
+      // Release the old subscription first so reloads never stack handlers, but
+      // keep _subscriptionAttempted true: only _resubscribeSoon may resubscribe
+      // (the hass setter would otherwise race the not-yet-registered backend).
+      const old = this._unsubEvents;
       this._unsubEvents = null;
-      this._subscriptionAttempted = false;
+      if (old) {
+        try {
+          old();
+        } catch (_) {
+          /* connection may already be gone */
+        }
+      }
       this._resubscribeSoon(0);
     } else if (event === "status_changed" && data) {
       this.status = data.status;
