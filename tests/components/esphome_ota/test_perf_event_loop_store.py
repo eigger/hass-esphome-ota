@@ -141,14 +141,17 @@ async def test_public_binary_lookup_tracks_directory(hass: HomeAssistant) -> Non
     binfile.write_bytes(b"x")
     (pub / "a_tok.ota.bin.md5").write_text("m")
     assert await has_public() is True
+    # Let the rescan scheduled for the unsettled directory finish first.
+    if dm._public_scan_task is not None:
+        await dm._public_scan_task
     # Cached scan is reused while the directory is unchanged.
     with patch("custom_components.esphome_ota.devices.os.scandir") as scandir:
-        scandir.side_effect = AssertionError("rescan")
         # Make the entry look settled so the cache is trusted.
         mtime, _trusted, slugs = dm._public_scan
         dm._public_scan = (mtime, True, slugs)
         assert dm.list_all()[0]["has_public_binary"] is True
         assert dm._public_scan_task is None
+        scandir.assert_not_called()
     binfile.unlink()
     # Force a distinct directory mtime regardless of filesystem granularity.
     st = pub.stat()

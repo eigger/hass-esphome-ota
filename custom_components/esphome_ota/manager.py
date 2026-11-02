@@ -341,6 +341,7 @@ class OtaManager:
         await self._cancel_reconnect_task()
         await self.job_runner.async_unload()
         self.monitor.async_unload()
+        self.device_manager.async_unload()
         self.panel_manager.async_unregister()
         await self.resolver.async_disconnect()
         self._subscribers.clear()

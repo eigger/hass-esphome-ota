@@ -223,6 +223,14 @@ class DeviceManager:
         settled = time.time_ns() - mtime_ns > _PUBLIC_SCAN_SETTLE_NS
         self._public_scan = (key, settled, slugs)
 
+    def async_unload(self) -> None:
+        """Cancel any in-flight background scan."""
+        self.public_scan_listener = None
+        task = self._public_scan_task
+        self._public_scan_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
     async def _async_background_public_scan(self) -> None:
         """Refresh the cache and notify listeners when the result changed."""
         before = self._public_scan[2] if self._public_scan else set()
@@ -240,7 +248,8 @@ class DeviceManager:
         Never touches the directory contents on the event loop: when the cache
         is stale a background executor scan is scheduled and the previous
         listing is returned until it completes (``public_scan_listener`` fires
-        if the result changed).
+        if the result changed). Callers that do not subscribe to that listener
+        may therefore see one stale read right after a change.
 
         One ``stat`` of the publish directory replaces a per-device ``is_file``
         call on every event. The directory mtime changes whenever a file is
@@ -257,7 +266,9 @@ class DeviceManager:
         cached = self._public_scan
         if cached is not None and cached[0] == key and cached[1]:
             return cached[2]
-        if self._public_scan_task is None:
+        task = self._public_scan_task
+        # A task that already finished (eager start) must not block rescans.
+        if task is None or task.done():
             self._public_scan_task = self.hass.async_create_task(
                 self._async_background_public_scan()
             )

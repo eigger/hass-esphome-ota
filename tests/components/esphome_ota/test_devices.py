@@ -206,12 +206,14 @@ async def test_list_all_has_public_binary(hass: HomeAssistant) -> None:
     bin_file = pub_dir / f"{dev.slug}.ota.bin"
     bin_file.write_bytes(b"dummy")
 
+    await manager.async_refresh_public_scan()
     devices = manager.list_all()
     dev_entry = next(d for d in devices if d["device_id"] == "office")
     assert dev_entry["has_public_binary"] is True
 
     # 3. When binary is deactivated / removed
     bin_file.unlink()
+    await manager.async_refresh_public_scan()
     devices = manager.list_all()
     dev_entry = next(d for d in devices if d["device_id"] == "office")
     assert dev_entry["has_public_binary"] is False
