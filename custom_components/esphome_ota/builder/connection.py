@@ -162,6 +162,9 @@ class BuilderConnection:
             raise BuilderConnectionError(
                 "Timed out waiting for Builder server info"
             ) from err
+        finally:
+            # Later frames without a message_id would otherwise pile up here.
+            self._queues.pop("", None)
 
     async def _read_loop(self) -> None:
         """Background loop reading incoming frames and routing to message queues."""

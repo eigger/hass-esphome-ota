@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timezone
 from typing import Any
 
@@ -156,6 +156,10 @@ class JobRunner:
         self._in_flight_requests: set[str] = set()
         self._cancelled_jobs: set[str] = set()
         self._unloaded = False
+
+    def _spawn(self, coro: Coroutine[Any, Any, None], name: str) -> asyncio.Task[None]:
+        """Run a pipeline coroutine as a Home Assistant tracked background task."""
+        return self.hass.async_create_background_task(coro, name)
 
     async def async_unload(self) -> None:
         """Cancel and clean up all active pipeline tasks on integration unload."""
@@ -349,8 +353,9 @@ class JobRunner:
         await self.storage.async_save_jobs(self._active_jobs)
         self._notify_job_update(job)
 
-        task = asyncio.create_task(
-            self._run_pipeline(job, device, client, base_url, device_req_key)
+        task = self._spawn(
+            self._run_pipeline(job, device, client, base_url, device_req_key),
+            f"esphome_ota pipeline {job_id}",
         )
         self._active_tasks[job_id] = task
         return job_id
@@ -641,6 +646,8 @@ class JobRunner:
     ) -> None:
         """Resume in-flight jobs after Builder reconnection or HA restart."""
         for job in list(self._active_jobs.values()):
+            if self._unloaded:
+                return
             if job.stage in (STAGE_PUBLISHED, STAGE_FAILED, STAGE_CANCELLED):
                 continue
 
@@ -736,8 +743,9 @@ class JobRunner:
                         job.builder_job_id,
                         job.job_id,
                     )
-                    self._active_tasks[job.job_id] = asyncio.create_task(
-                        self._resume_pipeline(job, device, client, base_url)
+                    self._active_tasks[job.job_id] = self._spawn(
+                        self._resume_pipeline(job, device, client, base_url),
+                        f"esphome_ota resume {job.job_id}",
                     )
                     continue
                 else:
@@ -762,8 +770,9 @@ class JobRunner:
                     job.job_id,
                     job.builder_job_id,
                 )
-                self._active_tasks[job.job_id] = asyncio.create_task(
-                    self._resume_pipeline(job, device, client, base_url)
+                self._active_tasks[job.job_id] = self._spawn(
+                    self._resume_pipeline(job, device, client, base_url),
+                    f"esphome_ota resume {job.job_id}",
                 )
             elif job.stage in (STAGE_PREPARING, STAGE_VALIDATING):
                 _LOGGER.warning(

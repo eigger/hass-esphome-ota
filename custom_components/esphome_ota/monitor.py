@@ -13,6 +13,7 @@ from typing import Any
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .redaction import install_redaction, mask_slug
@@ -22,6 +23,12 @@ from .publisher import ArtifactPublisher, async_path_exists
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
+
+# Entity registry bursts (startup, bulk edits) collapse into one refresh.
+REFRESH_DEBOUNCE_SECONDS = 2.0
+# Smallest re-arm delay when the monotonic timer fires before the wall clock
+# reaches the stored expiry.
+EXPIRY_RECHECK_MIN_SECONDS = 0.05
 
 
 def _identifier_values(identifiers: Any) -> list[str]:
@@ -55,6 +62,13 @@ class InstallationMonitor:
         self._cleanup_tasks: dict[str, asyncio.Task[Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._unloaded = False
+        self._refresh_debouncer = Debouncer(
+            hass,
+            _LOGGER,
+            cooldown=REFRESH_DEBOUNCE_SECONDS,
+            immediate=False,
+            function=self.async_refresh_monitoring,
+        )
 
     def _track_task(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Run a coroutine as a task that is cancelled on unload."""
@@ -72,7 +86,16 @@ class InstallationMonitor:
         # Listen for new or updated entities in the entity registry
         @callback
         def _on_entity_registry_updated(event: Event) -> None:
-            self._track_task(self.async_refresh_monitoring())
+            # Only Update entities can be matched to a managed device.
+            data = event.data
+            entity_ids = (data.get("entity_id"), data.get("old_entity_id"))
+            if not any(
+                isinstance(eid, str) and eid.startswith("update.") for eid in entity_ids
+            ):
+                return
+            if self._unloaded:
+                return
+            self._refresh_debouncer.async_schedule_call()
 
         unsub_er = self.hass.bus.async_listen(
             er.EVENT_ENTITY_REGISTRY_UPDATED, _on_entity_registry_updated
@@ -321,7 +344,7 @@ class InstallationMonitor:
                 dev = self.device_manager.get_device(device_id)
                 if dev and dev.update_entity_id != matched_entity_id:
                     dev.update_entity_id = matched_entity_id
-                    self.hass.async_create_task(
+                    self._track_task(
                         self.device_manager.storage.async_save_devices(
                             self.device_manager._managed_devices
                         )
@@ -490,7 +513,7 @@ class InstallationMonitor:
                             },
                         )
 
-                self.hass.async_create_task(_mark_and_notify_verified())
+                self._track_task(_mark_and_notify_verified())
             elif dev.last_installed_version != installed_version:
                 _LOGGER.info(
                     "Discovered installed version %s for %s",
@@ -510,7 +533,7 @@ class InstallationMonitor:
                             {"devices": self.device_manager.list_all()},
                         )
 
-                self.hass.async_create_task(_mark_and_notify_updated())
+                self._track_task(_mark_and_notify_updated())
 
         unsub = async_track_state_change_event(self.hass, [entity_id], _state_changed)
         self._unsub_listeners.append(unsub)
@@ -550,6 +573,28 @@ class InstallationMonitor:
 
         @callback
         def _run_cleanup() -> None:
+            if self._unloaded:
+                return
+            if expires_at:
+                # call_later uses the monotonic clock; if the wall clock is
+                # behind (e.g. adjusted backwards) the store would refuse to
+                # deactivate and the binary would stay public. Re-arm instead.
+                try:
+                    expiry = datetime.fromisoformat(expires_at)
+                    if expiry.tzinfo is None:
+                        expiry = expiry.replace(tzinfo=timezone.utc)
+                    remaining = (expiry - datetime.now(timezone.utc)).total_seconds()
+                except ValueError:
+                    remaining = 0.0
+                if remaining > 0:
+                    self.schedule_cleanup(
+                        device_id,
+                        slug,
+                        delay_seconds=max(remaining, EXPIRY_RECHECK_MIN_SECONDS),
+                        artifact_id=target_artifact_id,
+                        expires_at=expires_at,
+                    )
+                    return
             _LOGGER.info(
                 "Running automatic cleanup for %s (slug=%s, target_artifact=%s)",
                 device_id,
@@ -573,6 +618,8 @@ class InstallationMonitor:
 
                     @callback
                     def _retry_cleanup() -> None:
+                        if self._unloaded:
+                            return
                         self.schedule_cleanup(
                             device_id,
                             slug,
@@ -702,6 +749,7 @@ class InstallationMonitor:
     def async_unload(self) -> None:
         """Clean up all listeners, timers and tasks on unload."""
         self._unloaded = True
+        self._refresh_debouncer.async_shutdown()
         for tracked in list(self._tasks):
             tracked.cancel()
         self._tasks.clear()

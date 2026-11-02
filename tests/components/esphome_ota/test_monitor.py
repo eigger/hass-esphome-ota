@@ -406,3 +406,80 @@ async def test_refresh_monitoring_tolerates_non_pair_identifiers(
         == "update.esp_node_3_fw"
     )
     monitor.async_unload()
+
+
+async def test_cleanup_timer_firing_early_reschedules_until_expiry(
+    hass: HomeAssistant,
+) -> None:
+    """A timer that fires before the wall-clock expiry re-arms instead of giving up."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock, patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=0.4)).isoformat()
+    with patch.object(
+        monitor, "_async_deactivate_artifact", AsyncMock(return_value=True)
+    ) as deactivate:
+        # Monotonic timer fires long before the stored expiry.
+        monitor.schedule_cleanup(
+            "livingroom",
+            "livingroom_slug",
+            delay_seconds=0,
+            artifact_id="pub1",
+            expires_at=expires_at,
+        )
+        await asyncio.sleep(0.15)
+        deactivate.assert_not_awaited()
+        assert "livingroom" in monitor._cleanup_timers
+
+        await asyncio.sleep(0.6)
+        deactivate.assert_awaited_once()
+
+    monitor.async_unload()
+
+
+async def test_entity_registry_events_filtered_and_debounced(
+    hass: HomeAssistant,
+) -> None:
+    """Only update-domain registry events trigger one debounced refresh."""
+    from unittest.mock import AsyncMock, patch
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    from datetime import timedelta
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_setup()
+
+    with patch.object(monitor, "async_refresh_monitoring", AsyncMock()):
+        # Debouncer captured the original bound function, so patch it directly.
+        monitor._refresh_debouncer.function = monitor.async_refresh_monitoring
+        for eid in ("light.a", "sensor.b"):
+            hass.bus.async_fire(
+                er.EVENT_ENTITY_REGISTRY_UPDATED,
+                {"action": "update", "entity_id": eid},
+            )
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+        await hass.async_block_till_done()
+        monitor.async_refresh_monitoring.assert_not_awaited()
+
+        for _ in range(3):
+            hass.bus.async_fire(
+                er.EVENT_ENTITY_REGISTRY_UPDATED,
+                {"action": "create", "entity_id": "update.x_firmware"},
+            )
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+        await hass.async_block_till_done()
+        assert monitor.async_refresh_monitoring.await_count == 1
+
+    monitor.async_unload()
