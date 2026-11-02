@@ -95,6 +95,7 @@ class OtaManager:
         self.storage = StorageManager(hass)
         self.publisher = ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
         self.device_manager = DeviceManager(hass, self.storage)
+        self.device_manager.public_scan_listener = self._on_public_scan_changed
         self.monitor = InstallationMonitor(
             hass,
             self.device_manager,
@@ -148,6 +149,14 @@ class OtaManager:
                 self._subscribers.remove(callback)
 
         return _unsubscribe
+
+    def _on_public_scan_changed(self) -> None:
+        """Push the refreshed device list after a background publish-dir rescan."""
+        if self._unloaded:
+            return
+        self.dispatch_event(
+            "devices_updated", {"devices": self.device_manager.list_all()}
+        )
 
     def dispatch_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Dispatch event to all active WebSocket subscribers."""
