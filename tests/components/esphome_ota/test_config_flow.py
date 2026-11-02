@@ -121,3 +121,80 @@ async def test_options_flow(
     assert result2["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result2["data"][CONF_BASE_URL] == "https://updated.duckdns.org"
     assert result2["data"][CONF_AUTO_CLEANUP_HOURS] == 24
+
+
+async def _run_options_flow(
+    hass: HomeAssistant, entry: MockConfigEntry, user_input: dict, candidates: list
+) -> dict:
+    """Run the options flow with a patched discovery and a counting listener."""
+    with patch(
+        "custom_components.esphome_ota.config_flow.HaDiscoveryAdapter.async_discover_all",
+        return_value=candidates,
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        return await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input
+        )
+
+
+async def test_options_builder_change_updates_once_and_consistently(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Changing the Builder fires the update listener once with consistent state."""
+    mock_config_entry.add_to_hass(hass)
+    seen: list[tuple[str | None, str | None]] = []
+
+    async def _listener(hass_: HomeAssistant, entry: MockConfigEntry) -> None:
+        seen.append(
+            (entry.data.get(CONF_BUILDER_SLUG), entry.options.get(CONF_BUILDER_SLUG))
+        )
+
+    mock_config_entry.add_update_listener(_listener)
+    cand = BuilderCandidate(
+        slug="new_builder", name="New", host="10.0.0.5", port=6052, source="addon"
+    )
+    result = await _run_options_flow(
+        hass,
+        mock_config_entry,
+        {
+            CONF_BASE_URL: "https://my-ha.duckdns.org",
+            CONF_AUTO_CLEANUP_HOURS: 12,
+            CONF_BUILDER_SLUG: "new_builder",
+        },
+        [cand],
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert seen == [("new_builder", "new_builder")]
+    assert mock_config_entry.options[CONF_BUILDER_SLUG] == "new_builder"
+    assert mock_config_entry.data[CONF_BUILDER_SLUG] == "new_builder"
+
+
+async def test_options_auto_clears_legacy_data_slug_once(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Selecting auto removes the legacy data slug so the manager really auto-detects."""
+    mock_config_entry.add_to_hass(hass)
+    calls = 0
+
+    async def _listener(hass_: HomeAssistant, entry: MockConfigEntry) -> None:
+        nonlocal calls
+        calls += 1
+
+    mock_config_entry.add_update_listener(_listener)
+    await _run_options_flow(
+        hass,
+        mock_config_entry,
+        {
+            CONF_BASE_URL: "https://my-ha.duckdns.org",
+            CONF_AUTO_CLEANUP_HOURS: 12,
+            CONF_BUILDER_SLUG: "auto",
+        },
+        [],
+    )
+    await hass.async_block_till_done()
+
+    assert calls == 1
+    assert CONF_BUILDER_SLUG not in mock_config_entry.data
+    assert CONF_BUILDER_SLUG not in mock_config_entry.options

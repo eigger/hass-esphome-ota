@@ -7,17 +7,14 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return sanitized diagnostics for a config entry."""
-    entry_data = hass.data.get(DOMAIN, {})
-    manager = entry_data.get("manager")
+    manager = getattr(entry, "runtime_data", None)
 
-    if not manager:
+    if not manager or manager._unloaded:
         return {"status": "unloaded"}
 
     # Redact tokens and confidential info

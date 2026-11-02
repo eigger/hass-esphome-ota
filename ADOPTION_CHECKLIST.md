@@ -13,8 +13,8 @@
 | 검토일 / 조율 담당 | 2026-10-18 / 메인 에이전트 |
 | 구현 서브 에이전트 / 독립 리뷰·검증 서브 에이전트 | 없음(메인 직접 구현, 예외) / Opus 서브 에이전트 |
 | 중앙 현황표 반영일 / 기록 | 2026-10-18 / [중앙 현황표 행](https://github.com/eigger/hass-repo-standards/blob/main/docs/adoption-status.md) (#29 병합 직후 갱신) |
-| 변경 전 지원 최소 HA / 근거 파일 | 2024.1.0 / hacs.json |
-| 유지·변경할 지원 최소 / 근거·승인 | 유지(변경 없음). 상향은 별도 승인 필요 |
+| 지원 최소 HA / 근거 파일 | 2024.11.0 / hacs.json (이전 2024.1.0은 코드와 불일치해 상향) |
+| 유지·변경할 지원 최소 / 근거·승인 | 상향(2024.11.0) / 근거: API 도입 버전 / 승인: @eigger, PR #55 |
 | current 테스트 HA / 호환 Python·플러그인 | 2026.10.2 / 3.14 / 0.13.373 |
 | 최소 테스트 HA / 호환 Python·플러그인 | 구성 불가 — TEST-04 예외 |
 | profile / 테스트 경로 | integration / ha, `tests/components/esphome_ota/` |
@@ -48,7 +48,7 @@
 | TEST-02, TEST-03, DEP-07 | 실제 HA·호환 플러그인과 `hass`/`enable_custom_integrations` fixture 사용, HA core stub/복사본/`--no-deps`로 대체하지 않음 | PASS | 실제 HA 2026.10.2·플러그인 0.13.373, `enable_custom_integrations`(conftest.py). test_builder_discovery.py의 `sys.modules` 가짜 모듈을 실제 `esphome.dashboard.async_get_dashboard` 패치로 교체(ha-components에 esphome 추가) |
 | TEST-09 | 실제 loader·config entry manager로 setup/플랫폼 로딩, HA 상태·registry·service/action으로 결과 검증 | PASS | config_entries.async_setup/async_setup_component를 쓰는 테스트 9개 파일, 167 passed |
 | TEST-01, TEST-06, TEST-07 | 구현 기능별 성공·실패·중복·migration·unload·복구 회귀 검증, 외부 통신 경계만 mock, skip 사유 | PASS | 기존 테스트 삭제 없음, 외부 Builder 경계 mock |
-| TEST-04, HACS-01 | 변경 전 지원 최소·current·각 Python/플러그인 분리, 선언한 정확한 최소 검증, 상향 시 비호환 근거·명시적 승인 확인 | EXCEPTION | STANDARDS.md 예외: 선언 최소 2024.1.0이 코드와 불일치. 최소 상향 안 함 |
+| TEST-04, HACS-01 | 변경 전 지원 최소·current·각 Python/플러그인 분리, 선언한 정확한 최소 검증, 상향 시 비호환 근거·명시적 승인 확인 | EXCEPTION | STANDARDS.md 예외: 최소를 2024.11.0으로 상향했으나 정확한 최소 환경 job 미추가(미검증) |
 | TEST-05, HA-10, DEP-02, DEP-05 | imagespec·blesession 등 최소/현재 라이브러리 별도 환경, 실제 HA 테스트·정확한 설치값·API 경계 검증 | N/A | 외부 Python 라이브러리 없음(`requirements: []`), Bluetooth 미사용 |
 | DEP-01, DEP-06 | Python runtime은 manifest requirements, HA domain은 dependencies/after_dependencies, 테스트·린트 requirements는 별도 | PASS | requirements_test.txt / requirements_lint.txt 분리, manifest는 dependencies 사용 |
 | DEP-07, CI-06 | 실제 사용하는 HA 구성요소의 requirements·필수 재귀 의존성·선택 로딩 경로 설치, resolver·`pip check` 통과 | PASS | `ha-components: frontend panel_custom websocket_api http esphome`; 로컬 `pip check` No broken requirements(리뷰 에이전트 확인). CI 설치 결과는 대기 |
@@ -96,12 +96,12 @@
 
 | 규칙 ID | 예외 위치 / 이유 | 담당자 | 재검토 조건 |
 |---|---|---|---|
-| TEST-04, HACS-01 | STANDARDS.md 예외: 선언 최소 2024.1.0 미동작 | @eigger | 최소 상향 승인 또는 호환 코드 도입 시 |
+| TEST-04, HACS-01 | STANDARDS.md 예외: 선언 최소 2024.11.0 정확한 최소 환경 미검증 | @eigger | 정확한 최소 환경 확인 후 minimum-ha job 추가 시 |
 | GOV-05 | STANDARDS.md 예외: 구현을 서브 에이전트에 위임하지 않음 | @eigger | 다음 재검토 |
 
 | 규칙 ID / TODO | 남은 작업 | 완료 근거 |
 |---|---|---|
-| TEST-04 | 지원 최소 결정(상향 또는 호환 코드) 후 정확한 최소 job 추가 | 사용자 승인 + CI |
+| TEST-04 | HA 2024.11.0 정확한 최소 환경 job 추가 | CI |
 | HA-03 (권장) | websocket/http 게시·롤백 로직 중복 및 모듈 간 private 속성 접근 정리, `DeviceManager.list_all()`의 기기별 `is_file()`(이벤트 루프) 제거 | 후속 PR·테스트 |
 
 CI 성공만으로 실물 기기 검증을 주장하지 않습니다. 실물 검증은 수행하지 않았습니다.

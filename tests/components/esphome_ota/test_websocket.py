@@ -29,7 +29,7 @@ async def test_websocket_api_commands(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         # Manually register a device for testing
         await manager.device_manager.async_register_or_update(
             device_id="livingroom",
@@ -133,7 +133,7 @@ async def test_remove_ota_when_yaml_does_not_exist(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         await manager.device_manager.async_register_or_update(
             device_id="ghost_device",
             configuration="ghost_device.yaml",
@@ -170,7 +170,7 @@ async def test_remove_ota_builder_conflict_or_timeout_must_fail(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         await manager.device_manager.async_register_or_update(
             device_id="conflict_node",
             configuration="conflict_node.yaml",
@@ -264,7 +264,7 @@ async def test_prepare_ota_includes_project_version_in_package(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         mock_client = AsyncMock()
         mock_client.get_config.return_value = (
             "esphome:\n"
@@ -311,7 +311,7 @@ async def test_set_token_syncs_yaml_and_republishes(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         dev = await manager.device_manager.async_register_or_update(
             device_id="esp-tab",
             configuration="esp-tab.yaml",
@@ -405,7 +405,7 @@ async def test_remove_ota_cancels_jobs_and_removes_private_artifacts(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         dev = await manager.device_manager.async_register_or_update(
             device_id="rm_node",
             configuration="rm_node.yaml",

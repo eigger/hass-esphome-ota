@@ -24,6 +24,7 @@ from .const import (
     CONF_BUILDER_SLUG,
     DEFAULT_AUTO_CLEANUP_HOURS,
     DEFAULT_PUBLISH_DIR,
+    DOMAIN,
     STATUS_RECONNECTING,
     STATUS_SELECTION_REQUIRED,
 )
@@ -331,6 +332,8 @@ class OtaManager:
         """Clean up resources on integration unload."""
         self._unloaded = True
         self._suppress_reload_count = 0
+        # Tell open panels so they can resubscribe once the entry is back.
+        self._dispatch_event("unloaded", {})
         self.publisher.async_unload()
         await self._cancel_reconnect_task()
         await self.job_runner.async_unload()
@@ -501,3 +504,20 @@ class OtaManager:
                 if self._unloaded:
                     return
                 _LOGGER.debug("Failed refreshing devices: %s", err)
+
+
+type OtaConfigEntry = ConfigEntry[OtaManager]
+
+
+def get_loaded_manager(hass: HomeAssistant) -> OtaManager | None:
+    """Return the live manager, or None when not set up or already unloaded.
+
+    The manager is usable (and the panel visible) while the entry is still in
+    SETUP_IN_PROGRESS, so liveness is decided by runtime_data plus ``_unloaded``
+    rather than by the entry state.
+    """
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        manager = getattr(entry, "runtime_data", None)
+        if manager is not None and not manager._unloaded:
+            return manager
+    return None

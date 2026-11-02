@@ -368,7 +368,7 @@ async def _setup_ws(hass, hass_ws_client, mock_config_entry, builder_devices):
     ):
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-    manager = hass.data[DOMAIN]["manager"]
+    manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
     manager.device_manager.update_builder_devices(builder_devices)
     manager.resolver.active_client = AsyncMock()
     return manager, await hass_ws_client(hass)

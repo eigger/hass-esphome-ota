@@ -27,7 +27,6 @@ from custom_components.esphome_ota.config_patch import (
     own_project_version,
 )
 from custom_components.esphome_ota.const import (
-    DOMAIN,
     STAGE_BUILDING,
     STAGE_CANCELLED,
     STAGE_FAILED,
@@ -413,7 +412,9 @@ async def test_issue6_publish_and_install_dispatch_devices_updated(
 
 
 async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_devices_updated(
-    hass: HomeAssistant, mock_builder: MockBuilderServer
+    hass: HomeAssistant,
+    mock_builder: MockBuilderServer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """[P2-7] Test that manual HTTP upload resets cleanup timer and notifies frontend."""
     storage = StorageManager(hass)
@@ -451,7 +452,10 @@ async def test_issue7_manual_http_upload_schedules_cleanup_and_dispatches_device
         def _dispatch_event(self, name: str, payload: dict) -> None:
             events.append((name, payload))
 
-    hass.data[DOMAIN] = {"manager": FakeManager()}
+    monkeypatch.setattr(
+        "custom_components.esphome_ota.http.get_loaded_manager",
+        lambda _hass: FakeManager(),
+    )
     view = FirmwareUploadView(hass)
 
     valid_blob = mock_builder.binary_blob

@@ -29,7 +29,7 @@ async def test_diagnostics_redacts_tokens(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         await manager.device_manager.async_register_or_update(
             device_id="secret_node",
             configuration="secret_node",

@@ -8,7 +8,7 @@
 <!-- hass-standards:badges:start -->
 [![Release](https://img.shields.io/github/v/release/eigger/hass-esphome-ota?style=flat)](https://github.com/eigger/hass-esphome-ota/releases)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat)](#설치)
-[![Home Assistant minimum](https://img.shields.io/badge/HA-%E2%89%A5%202024.1.0-41BDF5?style=flat)](hacs.json)
+[![Home Assistant minimum](https://img.shields.io/badge/HA-%E2%89%A5%202024.11.0-41BDF5?style=flat)](hacs.json)
 [![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-esphome-ota/tests.yml?branch=main&style=flat&label=Tests)](https://github.com/eigger/hass-esphome-ota/actions/workflows/tests.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-esphome-ota/validate.yml?branch=main&style=flat&label=Validate)](https://github.com/eigger/hass-esphome-ota/actions/workflows/validate.yml)
 [![License](https://img.shields.io/github/license/eigger/hass-esphome-ota?style=flat)](LICENSE)
@@ -29,7 +29,7 @@
 ## 요구사항
 
 - ESPHome Device Builder 애드온이 있는 Home Assistant(HA OS / Supervised).
-- `hacs.json`의 최소 HA는 2024.1.0으로 선언되어 있으나 현재 코드는 더 새로운 버전이 필요합니다([docs/development.md](docs/development.md#verified-environments), 영문). CI는 HA 2026.10.2에서 검증합니다.
+- Home Assistant 2024.11.0 이상이 필요합니다(`hacs.json`, [docs/development.md](docs/development.md#verified-environments) 참고, 영문). CI는 HA 2026.10.2에서 검증합니다.
 - ESPHome 기기가 접근할 수 있는 Base URL.
 
 ## 설치

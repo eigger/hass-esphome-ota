@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .storage import STORAGE_CACHE_KEY
 from .const import DOMAIN
 from .http import FirmwareUploadView
-from .manager import OtaManager
+from .manager import OtaConfigEntry, OtaManager
+from .storage import STORAGE_CACHE_KEY
 from .websocket import async_register_websocket_commands
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -30,10 +29,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: OtaConfigEntry) -> bool:
     """Set up ESPHome OTA from a config entry."""
     manager = OtaManager(hass, entry)
-    hass.data.setdefault(DOMAIN, {})["manager"] = manager
+    entry.runtime_data = manager
 
     try:
         await manager.async_setup()
@@ -43,31 +42,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await manager.async_unload()
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Failed cleaning up after ESPHome OTA setup error")
-        hass.data.pop(DOMAIN, None)
+        finally:
+            # runtime_data stays on the entry; make sure it is never served.
+            manager._unloaded = True
         raise
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: OtaConfigEntry) -> bool:
     """Unload an ESPHome OTA config entry."""
-    entry_data = hass.data.get(DOMAIN, {})
-    manager: OtaManager | None = entry_data.get("manager")
-
-    if manager:
-        await manager.async_unload()
-
-    hass.data.pop(DOMAIN, None)
+    await entry.runtime_data.async_unload()
     # Drop cached storage so a reload re-reads from disk.
     hass.data.pop(STORAGE_CACHE_KEY, None)
     return True
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(hass: HomeAssistant, entry: OtaConfigEntry) -> None:
     """Reload config entry when options are updated."""
-    entry_data = hass.data.get(DOMAIN, {})
-    manager: OtaManager | None = entry_data.get("manager")
+    manager = getattr(entry, "runtime_data", None)
     if manager and manager.should_suppress_reload():
         return
     await hass.config_entries.async_reload(entry.entry_id)

@@ -813,10 +813,12 @@ class EsphomeOtaManager extends HTMLElement {
     this.panelObserver = null;
     window.removeEventListener("resize", this.resizePanel);
     if (this._unsubEvents) {
-      this._unsubEvents();
+      const old = this._unsubEvents;
       this._unsubEvents = null;
+      Promise.resolve().then(old).catch(() => {});
     }
     this._subscriptionAttempted = false;
+    clearTimeout(this._resubTimer);
   }
 
   async loadMigrationPreview() {
@@ -831,7 +833,7 @@ class EsphomeOtaManager extends HTMLElement {
     }
   }
 
-  async subscribe() {
+  async subscribe({ fallback = true } = {}) {
     if (this._subscriptionAttempted || this._subscriptionPending) return;
     this._subscriptionAttempted = true;
     this._subscriptionPending = true;
@@ -843,10 +845,23 @@ class EsphomeOtaManager extends HTMLElement {
       await this.loadMigrationPreview();
     } catch (err) {
       console.error("Subscription error:", err);
-      await this.loadInitialFallback();
+      if (fallback) await this.loadInitialFallback();
     } finally {
       this._subscriptionPending = false;
     }
+  }
+
+  _resubscribeSoon(attempt) {
+    clearTimeout(this._resubTimer);
+    if (attempt >= 5) return;
+    this._resubTimer = setTimeout(async () => {
+      if (!this.isConnected || this._unsubEvents) return;
+      this._subscriptionAttempted = false;
+      // Show the error fallback only when the last attempt fails.
+      await this.subscribe({ fallback: attempt >= 4 });
+      // subscribe() swallows errors; retry while still not subscribed.
+      if (!this._unsubEvents) this._resubscribeSoon(attempt + 1);
+    }, 2000);
   }
 
   async loadInitialFallback() {
@@ -889,6 +904,16 @@ class EsphomeOtaManager extends HTMLElement {
       this.devicesLoaded = true;
       this.jobs = data.jobs || [];
       this.render();
+    } else if (event === "unloaded") {
+      // Integration is reloading: the server dropped our subscription.
+      // Release the old subscription first so reloads never stack handlers, but
+      // keep _subscriptionAttempted true: only _resubscribeSoon may resubscribe
+      // (the hass setter would otherwise race the not-yet-registered backend).
+      const old = this._unsubEvents;
+      this._unsubEvents = null;
+      // The unsubscribe function returns a Promise; swallow rejections (socket may be gone).
+      if (old) Promise.resolve().then(old).catch(() => {});
+      this._resubscribeSoon(0);
     } else if (event === "status_changed" && data) {
       this.status = data.status;
       if (data.candidates) this.candidates = data.candidates;

@@ -18,6 +18,7 @@ from homeassistant.loader import async_get_integration
 from .redaction import install_redaction
 from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
 from .const import DOMAIN
+from .manager import get_loaded_manager
 from .firmware import ensure_supported_platform, inspect_binary
 from .packages import NODE_RE, TOKEN_RE, VERSION_RE, is_valid_device_id
 from .publisher import (
@@ -77,10 +78,10 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 
 def _get_manager(hass: HomeAssistant) -> Any:
     """Retrieve active OtaManager instance."""
-    entry_data = hass.data.get(DOMAIN)
-    if not entry_data or "manager" not in entry_data:
+    manager = get_loaded_manager(hass)
+    if manager is None:
         raise websocket_api.WebSocketError("not_loaded", "ESPHome OTA is not loaded")
-    return entry_data["manager"]
+    return manager
 
 
 def _ensure_platform_supported(manager: Any, device_id: str) -> None:

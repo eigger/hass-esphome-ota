@@ -29,9 +29,9 @@ python -m pytest tests/components/esphome_ota/ -v --timeout 120
 | Environment | Home Assistant | pytest-homeassistant-custom-component | Python | Status |
 |---|---|---|---|---|
 | Current (CI `current` job) | 2026.10.2 | 0.13.373 | 3.14 | tested |
-| Declared minimum (`hacs.json`) | 2024.1.0 | none published for this exact version | 3.12 | **not supported by the code**, see below |
+| Declared minimum (`hacs.json`) | 2024.11.0 | not selected | 3.12 | derived from the code APIs, **not tested in CI**, see below |
 
-The code imports `StaticPathConfig` from `homeassistant.components.http` (panel registration), which does not exist in HA 2024.1.2, so the declared minimum of 2024.1.0 cannot be verified. The minimum was not raised automatically; changing it is a separate support-policy decision recorded in [STANDARDS.md](../STANDARDS.md).
+The minimum 2024.11.0 is derived from the APIs the code uses: `StaticPathConfig` (2024.6), `ConfigFlowResult` (2024.4), `ConfigEntry.runtime_data` (2024.5) and an `OptionsFlow` without `__init__` that relies on `self.config_entry` (2024.11). No exact-minimum CI job exists yet, so the minimum is not test-verified; see the exception in [STANDARDS.md](../STANDARDS.md).
 
 The integration has no external Python requirements (`manifest.json` `requirements` is empty). Not verified: a real ESPHome Builder add-on on Home Assistant OS beyond [validation.ko.md](validation.ko.md).
 

@@ -231,7 +231,7 @@ async def test_set_publication_policy_saves_devices_once(
     ):
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         await manager.device_manager.async_register_or_update(
             device_id="livingroom",
             configuration="livingroom",
@@ -265,7 +265,7 @@ async def _setup_ws(hass, hass_ws_client, entry):
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    manager = hass.data[DOMAIN]["manager"]
+    manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
     await manager.device_manager.async_register_or_update(
         device_id="livingroom",
         configuration="livingroom",
@@ -402,7 +402,7 @@ async def test_upload_inspects_binary_in_executor(
         mock_config_entry.add_to_hass(hass)
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         await manager.device_manager.async_register_or_update(
             device_id="livingroom",
             configuration="livingroom",

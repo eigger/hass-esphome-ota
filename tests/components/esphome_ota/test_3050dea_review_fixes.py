@@ -250,7 +250,7 @@ async def test_manager_select_builder_suppresses_automatic_entry_reload(
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        manager: OtaManager = hass.data[DOMAIN]["manager"]
+        manager: OtaManager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
 
         client = await hass_ws_client(hass)
         await client.send_json(
@@ -265,7 +265,7 @@ async def test_manager_select_builder_suppresses_automatic_entry_reload(
         assert resp["result"]["status"] == STATUS_READY
 
         # Check that original manager is still the active manager and was NOT unloaded
-        assert hass.data[DOMAIN]["manager"] is manager
+        assert hass.config_entries.async_entries(DOMAIN)[0].runtime_data is manager
         assert manager._unloaded is False
         assert manager.resolver.status == STATUS_READY
         assert manager.resolver.active_candidate is not None

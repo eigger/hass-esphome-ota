@@ -246,7 +246,7 @@ async def test_select_same_builder_restores_suppress_counter_and_allows_subseque
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        manager: OtaManager = hass.data[DOMAIN]["manager"]
+        manager: OtaManager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         assert manager._suppress_reload_count == 0
 
         # Select the SAME builder "c1"
