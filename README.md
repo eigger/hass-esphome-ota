@@ -8,7 +8,7 @@
 <!-- hass-standards:badges:start -->
 [![Release](https://img.shields.io/github/v/release/eigger/hass-esphome-ota?style=flat)](https://github.com/eigger/hass-esphome-ota/releases)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat)](#installation)
-[![Home Assistant minimum](https://img.shields.io/badge/HA-%E2%89%A5%202024.1.0-41BDF5?style=flat)](hacs.json)
+[![Home Assistant minimum](https://img.shields.io/badge/HA-%E2%89%A5%202024.11.0-41BDF5?style=flat)](hacs.json)
 [![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-esphome-ota/tests.yml?branch=main&style=flat&label=Tests)](https://github.com/eigger/hass-esphome-ota/actions/workflows/tests.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-esphome-ota/validate.yml?branch=main&style=flat&label=Validate)](https://github.com/eigger/hass-esphome-ota/actions/workflows/validate.yml)
 [![License](https://img.shields.io/github/license/eigger/hass-esphome-ota?style=flat)](LICENSE)
@@ -29,7 +29,7 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 ## Requirements
 
 - Home Assistant with the ESPHome Device Builder add-on (Home Assistant OS / Supervised).
-- `hacs.json` declares Home Assistant 2024.1.0 as the minimum, but the code currently needs a newer release (see [docs/development.md](docs/development.md#verified-environments)). CI verifies Home Assistant 2026.10.2.
+- Home Assistant 2024.11.0 or newer is required (`hacs.json`; see [docs/development.md](docs/development.md#verified-environments)). CI verifies Home Assistant 2026.10.2.
 - A Base URL that your ESPHome devices can reach.
 
 ## Installation

@@ -8,7 +8,7 @@ import random
 from collections.abc import Callable
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -24,6 +24,7 @@ from .const import (
     CONF_BUILDER_SLUG,
     DEFAULT_AUTO_CLEANUP_HOURS,
     DEFAULT_PUBLISH_DIR,
+    DOMAIN,
     STATUS_RECONNECTING,
     STATUS_SELECTION_REQUIRED,
 )
@@ -501,3 +502,14 @@ class OtaManager:
                 if self._unloaded:
                     return
                 _LOGGER.debug("Failed refreshing devices: %s", err)
+
+
+type OtaConfigEntry = ConfigEntry[OtaManager]
+
+
+def get_loaded_manager(hass: HomeAssistant) -> OtaManager | None:
+    """Return the manager of the loaded config entry, or None when not loaded."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.state is ConfigEntryState.LOADED:
+            return entry.runtime_data
+    return None

@@ -62,10 +62,7 @@ class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Handle initial setup step."""
-        # Enforce singleton config entry
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
-
+        # Single instance is enforced by manifest "single_config_entry".
         adapter = HaDiscoveryAdapter(self.hass)
         self._discovered_candidates = await adapter.async_discover_all()
 
@@ -233,8 +230,11 @@ class EsphomeOtaOptionsFlowHandler(config_entries.OptionsFlow):
                     clean_options.pop(CONF_BUILDER_NAME, None)
                     clean_options.pop(CONF_BUILDER_HOST, None)
                     clean_options.pop(CONF_BUILDER_PORT, None)
+                # Update data and options in ONE call so the update listener fires
+                # once and never sees a half-applied (new data / old options)
+                # state; async_create_entry below then finds options unchanged.
                 self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=new_data
+                    self.config_entry, data=new_data, options=clean_options
                 )
             return self.async_create_entry(title="", data=clean_options)
 

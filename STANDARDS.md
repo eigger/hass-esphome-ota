@@ -12,8 +12,7 @@
 - 중앙 현황 갱신일: 미등록 (중앙 리포 미수정)
 - 조율: 메인 에이전트; 독립 리뷰·검증: Opus 서브 에이전트
 - 테스트 경로: `tests/components/esphome_ota/`
-- 변경 전 지원 최소 HA / 선언 근거: `hacs.json` `homeassistant: 2024.1.0` (README에는 별도 선언 없음)
-- 적용 후 지원 최소 HA: 변경 없음 (2024.1.0 유지). 상향은 별도 명시적 사용자 승인 필요
+- 지원 최소 HA / 선언 근거: `hacs.json` `homeassistant: 2024.11.0` (README 배지 동일). 이전 선언 2024.1.0은 코드(`StaticPathConfig` 2024.6+, `ConfigFlowResult` 2024.4+, `runtime_data` 2024.5+, 인자 없는 `OptionsFlow` 2024.11+)와 불일치해 2024.11.0으로 상향
 - current HA 테스트 환경: Python 3.14 / HA 2026.10.2 / pytest-homeassistant-custom-component 0.13.373 / pytest-timeout 2.4.0 (`requirements_test.txt`)
 - 최소 HA 검증 환경: 구성하지 못함 — 아래 예외 참조
 - 최소 package 검증: 해당 없음 (`manifest.requirements=[]`, 외부 Python 의존성 없음 → dependency-update 워크플로 미도입)
@@ -23,7 +22,7 @@
 
 | 규칙 ID | 이유 | 담당자 | 재검토 조건 |
 |---|---|---|---|
-| TEST-04, HACS-01 | `hacs.json`이 선언한 최소 HA 2024.1.0에서 코드가 동작하지 않습니다. `panel.py`가 `homeassistant.components.http.StaticPathConfig`를 import하는데 HA 2024.1.2(해당 시점 플러그인 0.13.88, 정확한 2024.1.0용 플러그인 릴리스는 PyPI에 없음)에서 ImportError가 발생합니다. 따라서 별도 minimum-ha job을 만들지 않았고 선언 최소를 검증된 값으로 취급하지 않습니다. 최신화 요청만으로 최소를 상향하지 않습니다. | @eigger | 사용자가 지원 최소 상향(또는 하위 호환 코드 도입)을 승인하면 `hacs.json`·README·CI를 함께 변경하고 정확한 최소 환경 job을 추가 |
+| TEST-04, HACS-01 | 최소 HA를 코드 근거로 2024.11.0으로 맞췄으나 정확한 최소 환경(HA 2024.11.0 + 대응 플러그인)에서의 테스트는 실행해 검증하지 못했습니다. 따라서 minimum-ha CI job은 아직 없고 선언 최소는 테스트 검증된 값이 아닙니다. | @eigger | 정확한 최소 환경(HA 2024.11.0, Python 3.12, 대응 플러그인)을 확인한 뒤 minimum-ha job 추가 |
 | GOV-05 | 사용자 지시에 따라 구현은 메인 에이전트가 직접 수행하고 독립 리뷰만 별도 Opus 서브 에이전트에 위임 | @eigger | 다음 재검토 또는 후속 채택 작업 |
 
 ## HACS brand

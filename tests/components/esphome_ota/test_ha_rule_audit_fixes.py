@@ -60,7 +60,7 @@ async def _setup(hass: HomeAssistant, entry: MockConfigEntry) -> OtaManager:
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    return hass.data[DOMAIN]["manager"]
+    return hass.config_entries.async_entries(DOMAIN)[0].runtime_data
 
 
 def _firmware_blob() -> bytes:
@@ -77,7 +77,7 @@ async def test_upload_view_uses_current_manager_after_reload(
         old_manager = await _setup(hass, mock_config_entry)
         assert await hass.config_entries.async_reload(mock_config_entry.entry_id)
         await hass.async_block_till_done()
-        new_manager = hass.data[DOMAIN]["manager"]
+        new_manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         assert new_manager is not old_manager
 
         old_manager.device_manager.get_builder_raw = MagicMock(
@@ -106,7 +106,7 @@ async def test_partial_setup_failure_cleans_up(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """A failing setup tears down the panel, reconnect task and hass.data."""
+    """A failing setup tears down the panel, reconnect task and runtime_data."""
     created: list[OtaManager] = []
 
     def _factory(hass_: HomeAssistant, entry: Any) -> OtaManager:
@@ -126,7 +126,7 @@ async def test_partial_setup_failure_cleans_up(
         await hass.async_block_till_done()
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
-    assert DOMAIN not in hass.data
+    assert manager_module.get_loaded_manager(hass) is None
     manager = created[0]
     assert manager._unloaded is True
     assert manager.panel_manager._panel_registered is False
@@ -605,4 +605,4 @@ async def test_setup_cleanup_failure_still_raises_original(
     ):
         assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
-    assert DOMAIN not in hass.data
+    assert manager_module.get_loaded_manager(hass) is None

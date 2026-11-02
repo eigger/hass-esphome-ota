@@ -10,8 +10,8 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-# Tests current HA only. hacs.json declares HA 2024.1.0, which this code does
-# not run on (see STANDARDS.md exception); no minimum job until that is resolved.
+# Tests current HA only. hacs.json declares HA 2024.11.0 (derived from the APIs the
+# code uses); an exact-minimum job is not added yet (see STANDARDS.md exception).
 jobs:
   current:
     uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@v1.1.5 # reviewed standards commit

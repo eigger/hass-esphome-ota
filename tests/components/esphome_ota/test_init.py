@@ -26,8 +26,8 @@ async def test_setup_and_unload_entry(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        assert DOMAIN in hass.data
-        manager = hass.data[DOMAIN]["manager"]
+        assert hass.config_entries.async_entries(DOMAIN)[0].runtime_data is not None
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         assert manager is not None
         assert manager.panel_manager._panel_registered is True
 
@@ -35,7 +35,7 @@ async def test_setup_and_unload_entry(
         assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-        assert DOMAIN not in hass.data
+        assert not hasattr(mock_config_entry, "runtime_data")
         assert manager.panel_manager._panel_registered is False
 
 
@@ -63,6 +63,6 @@ async def test_update_options_reloads_entry(
         )
         await hass.async_block_till_done()
 
-        manager = hass.data[DOMAIN]["manager"]
+        manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         assert manager.base_url == "https://new-url.duckdns.org"
         assert manager.cleanup_hours == 24

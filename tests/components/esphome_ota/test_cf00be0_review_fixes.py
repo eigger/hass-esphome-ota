@@ -331,7 +331,7 @@ async def test_issue2_websocket_select_builder_resolves(
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        manager: OtaManager = hass.data[DOMAIN]["manager"]
+        manager: OtaManager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         # With multiple candidates and no saved selection, status is selection_required
         assert manager.resolver.status == STATUS_SELECTION_REQUIRED
 
@@ -400,7 +400,7 @@ async def test_issue2_websocket_reconnect_with_slug(
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-        manager: OtaManager = hass.data[DOMAIN]["manager"]
+        manager: OtaManager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
         assert manager.resolver.status == STATUS_SELECTION_REQUIRED
 
         client = await hass_ws_client(hass)

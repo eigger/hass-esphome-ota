@@ -14,10 +14,11 @@ from homeassistant.core import HomeAssistant
 
 from .packages import NODE_RE, is_valid_device_id
 from .redaction import install_redaction
-from .const import DEFAULT_AUTO_CLEANUP_HOURS, DOMAIN, MAX_UPLOAD_SIZE
+from .const import DEFAULT_AUTO_CLEANUP_HOURS, MAX_UPLOAD_SIZE
 from .publisher import async_path_is_file, async_unlink_paths
 from .firmware import BinaryValidationError, inspect_binary
 from .jobs import record_publication
+from .manager import get_loaded_manager
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
@@ -38,7 +39,7 @@ class FirmwareUploadView(HomeAssistantView):
         """Handle multipart firmware upload."""
         # The view is registered once; resolve the current manager per request so
         # a reloaded entry never serves uploads through a stale manager.
-        manager: Any = self.hass.data.get(DOMAIN, {}).get("manager")
+        manager: Any = get_loaded_manager(self.hass)
         if (
             manager is None
             or getattr(manager, "_unloaded", False)

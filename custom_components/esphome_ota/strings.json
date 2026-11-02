@@ -1,10 +1,6 @@
 {
   "config": {
     "step": {
-      "user": {
-        "title": "ESPHome OTA Setup",
-        "description": "Automatically discovering ESPHome Builder add-ons and services..."
-      },
       "select_builder": {
         "title": "Select ESPHome Builder",
         "description": "Multiple ESPHome Builder instances were discovered. Choose the one to manage OTA firmware with:",

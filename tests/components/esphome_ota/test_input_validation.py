@@ -102,7 +102,7 @@ async def _setup(hass: HomeAssistant, entry: MockConfigEntry):
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    return hass.data[DOMAIN]["manager"]
+    return hass.config_entries.async_entries(DOMAIN)[0].runtime_data
 
 
 async def test_ws_rejects_invalid_input(
