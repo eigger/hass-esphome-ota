@@ -269,9 +269,10 @@ class DeviceManager:
         task = self._public_scan_task
         # A task that already finished (eager start) must not block rescans.
         if task is None or task.done():
-            self._public_scan_task = self.hass.async_create_task(
-                self._async_background_public_scan()
-            )
+            task = self.hass.async_create_task(self._async_background_public_scan())
+            # An eagerly started task may already have finished (and cleared
+            # the attribute) before this assignment.
+            self._public_scan_task = None if task.done() else task
         return cached[2] if cached is not None else set()
 
     def list_all(self) -> list[dict[str, Any]]:

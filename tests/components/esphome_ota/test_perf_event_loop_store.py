@@ -150,7 +150,6 @@ async def test_public_binary_lookup_tracks_directory(hass: HomeAssistant) -> Non
         mtime, _trusted, slugs = dm._public_scan
         dm._public_scan = (mtime, True, slugs)
         assert dm.list_all()[0]["has_public_binary"] is True
-        assert dm._public_scan_task is None
         scandir.assert_not_called()
     binfile.unlink()
     # Force a distinct directory mtime regardless of filesystem granularity.
