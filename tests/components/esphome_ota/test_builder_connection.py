@@ -94,3 +94,14 @@ async def test_backoff_jitter() -> None:
         assert 1.5 <= delays[0] <= 2.5
         # Verify capped around 60s
         assert 45 <= delays[-1] <= 75
+
+
+async def test_handshake_queue_removed_after_server_info(
+    mock_builder: MockBuilderServer,
+) -> None:
+    """The message_id-less handshake queue is dropped once server info arrived."""
+    async with aiohttp.ClientSession() as session:
+        conn = BuilderConnection("127.0.0.1", mock_builder.port, session)
+        await conn.connect()
+        assert "" not in conn._queues
+        await conn.disconnect()

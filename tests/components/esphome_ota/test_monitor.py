@@ -406,3 +406,208 @@ async def test_refresh_monitoring_tolerates_non_pair_identifiers(
         == "update.esp_node_3_fw"
     )
     monitor.async_unload()
+
+
+async def test_cleanup_timer_firing_early_reschedules_until_expiry(
+    hass: HomeAssistant,
+) -> None:
+    """A timer that fires before the wall-clock expiry re-arms instead of giving up."""
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    fake_timer = MagicMock()
+    with (
+        patch.object(
+            monitor, "_async_deactivate_artifact", AsyncMock(return_value=True)
+        ) as deactivate,
+        patch.object(hass.loop, "call_later", return_value=fake_timer) as call_later,
+    ):
+        monitor.schedule_cleanup(
+            "livingroom",
+            "livingroom_slug",
+            delay_seconds=0,
+            artifact_id="pub1",
+            expires_at=expires_at,
+        )
+        # Fire the early (monotonic) timer by hand: expiry is still an hour away.
+        first_cb = call_later.call_args_list[0].args[1]
+        first_cb()
+        await hass.async_block_till_done()
+        deactivate.assert_not_awaited()
+        assert call_later.call_count == 2
+        assert call_later.call_args_list[1].args[0] > 3000
+
+        # Once the wall clock has passed the expiry the callback deactivates.
+        past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        monitor.schedule_cleanup(
+            "livingroom",
+            "livingroom_slug",
+            delay_seconds=0,
+            artifact_id="pub1",
+            expires_at=past,
+        )
+        call_later.call_args_list[-1].args[1]()
+        await hass.async_block_till_done()
+        deactivate.assert_awaited_once()
+
+    monitor.async_unload()
+
+
+async def test_unloaded_monitor_ignores_timer_event_and_retry(
+    hass: HomeAssistant,
+) -> None:
+    """After unload: registry events, fired timers and retry callbacks do nothing."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_setup()
+
+    with (
+        patch.object(
+            monitor, "_async_deactivate_artifact", AsyncMock(side_effect=OSError)
+        ),
+        patch.object(hass.loop, "call_later", return_value=MagicMock()) as call_later,
+    ):
+        monitor.schedule_cleanup("d", "slug", delay_seconds=0, artifact_id="p")
+        run_cleanup = call_later.call_args_list[0].args[1]
+        run_cleanup()
+        await hass.async_block_till_done()
+        retry = call_later.call_args_list[1].args[1]
+
+        monitor.async_unload()
+        calls = call_later.call_count
+        retry()
+        run_cleanup()
+        assert call_later.call_count == calls
+
+    with patch.object(monitor._refresh_debouncer, "async_schedule_call") as sched:
+        hass.bus.async_fire(
+            er.EVENT_ENTITY_REGISTRY_UPDATED,
+            {"action": "create", "entity_id": "update.x"},
+        )
+        await hass.async_block_till_done()
+        sched.assert_not_called()
+
+
+async def test_entity_registry_events_filtered_and_debounced(
+    hass: HomeAssistant,
+) -> None:
+    """Only update-domain registry events trigger one debounced refresh."""
+    from unittest.mock import AsyncMock, patch
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    from datetime import timedelta
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+    await monitor.async_setup()
+
+    with patch.object(monitor, "async_refresh_monitoring", AsyncMock()):
+        for eid in ("light.a", "sensor.b"):
+            hass.bus.async_fire(
+                er.EVENT_ENTITY_REGISTRY_UPDATED,
+                {"action": "update", "entity_id": eid},
+            )
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+        await hass.async_block_till_done()
+        monitor.async_refresh_monitoring.assert_not_awaited()
+
+        hass.bus.async_fire(
+            er.EVENT_ENTITY_REGISTRY_UPDATED,
+            {
+                "action": "update",
+                "entity_id": "sensor.renamed",
+                "old_entity_id": "update.old_firmware",
+            },
+        )
+        for _ in range(2):
+            hass.bus.async_fire(
+                er.EVENT_ENTITY_REGISTRY_UPDATED,
+                {"action": "create", "entity_id": "update.x_firmware"},
+            )
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+        await hass.async_block_till_done()
+        assert monitor.async_refresh_monitoring.await_count == 1
+
+    monitor.async_unload()
+
+
+async def test_unload_during_refresh_attaches_no_listener(
+    hass: HomeAssistant,
+) -> None:
+    """A refresh in flight at unload is cancelled and cannot add listeners."""
+    import asyncio
+    from unittest.mock import patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+
+    started = asyncio.Event()
+
+    async def slow_refresh() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    with patch.object(monitor, "async_refresh_monitoring", slow_refresh):
+        await monitor._async_debounced_refresh()
+        await started.wait()
+        task = next(iter(monitor._tasks))
+        monitor.async_unload()
+        await asyncio.gather(task, return_exceptions=True)
+        assert task.cancelled()
+
+    # Even a direct call after unload cannot attach a listener.
+    monitor._attach_listener("d", "update.x")
+    assert monitor._unsub_listeners == []
+
+
+async def test_debounced_refreshes_do_not_overlap(hass: HomeAssistant) -> None:
+    """A refresh longer than the cooldown is not run concurrently with the next."""
+    import asyncio
+    from unittest.mock import patch
+
+    storage = StorageManager(hass)
+    device_manager = DeviceManager(hass, storage)
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_mon_test")
+    monitor = InstallationMonitor(hass, device_manager, publisher)
+
+    running = 0
+    peak = 0
+    release = asyncio.Event()
+    runs = 0
+
+    async def slow_refresh() -> None:
+        nonlocal running, peak, runs
+        running += 1
+        runs += 1
+        peak = max(peak, running)
+        await release.wait()
+        running -= 1
+
+    with patch.object(monitor, "async_refresh_monitoring", slow_refresh):
+        await monitor._async_debounced_refresh()
+        await monitor._async_debounced_refresh()
+        await asyncio.sleep(0.05)
+        assert runs == 1
+        release.set()
+        await hass.async_block_till_done()
+        assert runs == 2
+        assert peak == 1
+
+    monitor.async_unload()
