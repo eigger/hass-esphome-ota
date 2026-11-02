@@ -52,6 +52,7 @@ class DeviceManager:
         # (dir inode/mtime/ctime, trusted, slugs) cache for public binary existence.
         self._public_scan: tuple[tuple[int, int, int], bool, set[str]] | None = None
         self._public_scan_task: asyncio.Task[None] | None = None
+        self._scan_seq = 0
         # Called when a background rescan changed the public binary listing.
         self.public_scan_listener: Callable[[], None] | None = None
 
@@ -216,7 +217,12 @@ class DeviceManager:
             self._public_scan = None
             return
         pub_dir, mtime_ns, key = state
+        self._scan_seq += 1
+        seq = self._scan_seq
         slugs = await self.hass.async_add_executor_job(self._scan_public_dir, pub_dir)
+        if seq != self._scan_seq:
+            # A newer scan started meanwhile; its result supersedes this one.
+            return
         if slugs is None:
             self._public_scan = None
             return
@@ -272,7 +278,11 @@ class DeviceManager:
             task = self.hass.async_create_task(self._async_background_public_scan())
             # An eagerly started task may already have finished (and cleared
             # the attribute) before this assignment.
-            self._public_scan_task = None if task.done() else task
+            if task.done():
+                self._public_scan_task = None
+                # Finished eagerly: the cache already holds the fresh listing.
+                return self._public_scan[2] if self._public_scan else set()
+            self._public_scan_task = task
         return cached[2] if cached is not None else set()
 
     def list_all(self) -> list[dict[str, Any]]:

@@ -185,10 +185,8 @@ async def test_public_binary_scan_runs_off_event_loop(hass: HomeAssistant) -> No
     notified: list[bool] = []
     dm.public_scan_listener = lambda: notified.append(True)
     with patch.object(DeviceManager, "_scan_public_dir", staticmethod(spy)):
-        assert dm.list_all()[0]["has_public_binary"] is False
-        task = dm._public_scan_task
-        assert task is not None
-        await task
+        dm.list_all()
+        await hass.async_block_till_done()
     assert scan_threads
     assert all(t != loop_thread for t in scan_threads)
     assert notified == [True]
