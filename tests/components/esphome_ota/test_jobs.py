@@ -249,6 +249,8 @@ async def test_pipeline_cancelled_when_device_removed_while_queued(
         configuration="gone.yaml",
         name="gone",
         friendly_name="Gone",
+        token="t",
+        slug="gone_t",
     )
     job = PipelineJob(
         job_id="j", device_id="gone", configuration="gone.yaml", request_id="r"
