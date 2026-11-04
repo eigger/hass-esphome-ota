@@ -1,11 +1,11 @@
 """Generate Home Assistant brand images for ESPHome OTA.
 
 The artwork is an original geometric brand mark on a dark navy rounded square:
-a cyan smart-home pentagon housing a white circuit-comb trace, paired with a
-golden OTA upload arrow badge (outlined in negative space) and wireless signal
-arcs. Drawn from geometric primitives at 4x scale and downsampled, so no source
-image, external font file, or network access is needed. Run with Pillow 12.3.0
-for reproducible PNGs.
+a centered cyan smart-home pentagon housing a white circuit-comb trace, paired
+with a golden OTA upload arrow badge outlined in negative space. Drawn from
+geometric primitives at 4x scale and downsampled, so no source image, external
+font file, or network access is needed. Run with Pillow 12.3.0 for reproducible
+PNGs.
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ SCALE = 4
 NAVY = "#1b2a41"
 CYAN = "#18bcf2"
 WHITE = "#ffffff"
-YELLOW = "#ffd23f"
 GOLD = "#f2a900"
 WORDMARK = "#18bcf2"
 
@@ -109,37 +108,6 @@ def _draw_thick_line(
     d.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=fill)
 
 
-def _draw_arc_ring(
-    d: ImageDraw.ImageDraw,
-    cx: float,
-    cy: float,
-    r_in: float,
-    r_out: float,
-    deg_start: float,
-    deg_end: float,
-    fill: str,
-) -> None:
-    """Draw a smooth annular sector."""
-    steps = 48
-    a0 = math.radians(deg_start)
-    a1 = math.radians(deg_end)
-    pts_out = [
-        (
-            cx + r_out * math.cos(a0 + (a1 - a0) * i / steps),
-            cy + r_out * math.sin(a0 + (a1 - a0) * i / steps),
-        )
-        for i in range(steps + 1)
-    ]
-    pts_in = [
-        (
-            cx + r_in * math.cos(a0 + (a1 - a0) * i / steps),
-            cy + r_in * math.sin(a0 + (a1 - a0) * i / steps),
-        )
-        for i in range(steps + 1)
-    ]
-    d.polygon(pts_out + list(reversed(pts_in)), fill=fill)
-
-
 def draw_icon() -> Image.Image:
     """Draw the 512px RGBA app icon."""
     s = SCALE
@@ -152,47 +120,40 @@ def draw_icon() -> Image.Image:
     # 1. Dark navy rounded square background.
     d.rounded_rectangle(box(0, 0, SIZE - 1, SIZE - 1), radius=104 * s, fill=NAVY)
 
-    # 2. Geometric cyan house pentagon.
+    # 2. Centered geometric cyan house pentagon (combined house+badge spans x=68..444, y=76..436).
     house_raw = [
-        (228 * s, 78 * s),
-        (392 * s, 212 * s),
-        (392 * s, 404 * s),
-        (64 * s, 404 * s),
-        (64 * s, 212 * s),
+        (240 * s, 76 * s),
+        (404 * s, 210 * s),
+        (404 * s, 402 * s),
+        (76 * s, 402 * s),
+        (76 * s, 210 * s),
     ]
     d.polygon(
-        _rounded_polygon(house_raw, [20 * s, 24 * s, 24 * s, 24 * s, 24 * s]), fill=CYAN
+        _rounded_polygon(house_raw, [20 * s, 24 * s, 24 * s, 24 * s, 24 * s]),
+        fill=CYAN,
     )
 
     # 3. Crisp white ESPHome-style serpentine circuit trace inside the house.
     trace_pts = [
-        (140 * s, 392 * s),
-        (140 * s, 198 * s),
-        (264 * s, 198 * s),
-        (264 * s, 242 * s),
-        (188 * s, 242 * s),
-        (188 * s, 286 * s),
-        (256 * s, 286 * s),
-        (256 * s, 330 * s),
-        (188 * s, 330 * s),
-        (188 * s, 374 * s),
-        (244 * s, 374 * s),
+        (152 * s, 390 * s),
+        (152 * s, 196 * s),
+        (276 * s, 196 * s),
+        (276 * s, 240 * s),
+        (200 * s, 240 * s),
+        (200 * s, 284 * s),
+        (268 * s, 284 * s),
+        (268 * s, 328 * s),
+        (200 * s, 328 * s),
+        (200 * s, 372 * s),
+        (256 * s, 372 * s),
     ]
     for i in range(len(trace_pts) - 1):
         _draw_thick_line(d, trace_pts[i], trace_pts[i + 1], width=22 * s, fill=WHITE)
     # Flush flat base at the bottom wall of the house.
-    d.rectangle([129 * s, 384 * s, 151 * s, 404 * s], fill=WHITE)
+    d.rectangle([141 * s, 382 * s, 163 * s, 402 * s], fill=WHITE)
 
-    # 4. Golden wireless OTA signal arcs at the upper right of the roof.
-    acx, acy = 336 * s, 166 * s
-    for r_in, r_out, col in (
-        (56 * s, 72 * s, YELLOW),
-        (86 * s, 102 * s, GOLD),
-    ):
-        _draw_arc_ring(d, acx, acy, r_in, r_out, -72, 12, fill=col)
-
-    # 5. Circular golden OTA upload badge at bottom-right with navy knockout ring.
-    bcx, bcy = 356 * s, 348 * s
+    # 4. Circular golden OTA upload badge at bottom-right with navy knockout ring.
+    bcx, bcy = 368 * s, 356 * s
     d.ellipse([bcx - 96 * s, bcy - 96 * s, bcx + 96 * s, bcy + 96 * s], fill=NAVY)
     d.ellipse([bcx - 76 * s, bcy - 76 * s, bcx + 76 * s, bcy + 76 * s], fill=GOLD)
 
