@@ -16,6 +16,8 @@
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
 
+![ESPHome OTA](custom_components/esphome_ota/brand/logo.png)
+
 ## 지원 기능
 
 - Builder 애드온 Zero-Config 자동 탐색과 기기 목록 실시간 동기화.
