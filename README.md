@@ -1,7 +1,7 @@
 <!-- hass-standards:header:start -->
 # ESPHome OTA for Home Assistant
 
-**ESPHome OTA** is a Home Assistant custom integration (HACS) for building and publishing ESPHome firmware over HTTP OTA. It connects to the **ESPHome Device Builder** add-on's trusted loopback listener inside Home Assistant OS, so no public ports, `leave_front_door_open`, or login tokens are needed. It is a HACS custom integration, not an official Home Assistant Core integration.
+A Home Assistant custom integration that builds and publishes ESPHome firmware over HTTP OTA through the ESPHome Device Builder add-on’s trusted loopback listener. It needs no public port, `leave_front_door_open` setting or login token.
 
 **English** | [한국어](README.ko.md)
 
@@ -30,9 +30,9 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 
 ## Requirements
 
-- Home Assistant with the ESPHome Device Builder add-on (Home Assistant OS / Supervised).
-- Home Assistant 2024.11.0 or newer is required (`hacs.json`; see [docs/development.md](docs/development.md#verified-environments)). CI verifies Home Assistant 2026.10.4.
-- A Base URL that your ESPHome devices can reach.
+- **Home Assistant:** 2024.11.0 or later.
+- **Add-on:** ESPHome Device Builder on Home Assistant OS or Supervised.
+- **Base URL:** An address your ESPHome devices can reach. See the [verified environments](docs/development.md#verified-environments).
 
 ## Installation
 
@@ -40,13 +40,17 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eigger&repository=hass-esphome-ota&category=integration)
 <!-- hass-standards:installation:end -->
 
-1. In HACS search for **ESPHome OTA** and download it (or use the button above).
-2. Restart Home Assistant.
-3. Go to **Settings** > **Devices & Services** > **Add Integration** and select **ESPHome OTA**.
+1. Click the badge above to open the repository in Marketplace.
+2. If you need to add it yourself, go to **Settings → Marketplace → Add from link** and enter <https://github.com/eigger/hass-esphome-ota>. Connect GitHub if prompted.
+3. Select **Install**. Restart Home Assistant if prompted, then continue to [Configuration](#configuration).
 
-Before it appears in the default HACS catalog you can add `https://github.com/eigger/hass-esphome-ota` under **Custom repositories** (category **Integration**) instead.
+## Configuration
 
-Manual installation: copy `custom_components/esphome_ota` into `<config>/custom_components/` and restart. To remove, delete the integration entry, then that folder (and, if no longer needed, the published firmware in `www/esphome_ota/` and the private archive `/config/esphome_ota/firmware/`; neither is removed automatically).
+Open **Settings → Devices & services → Add integration → ESPHome OTA**.
+
+### Uninstall
+
+Remove the integration entry and uninstall it from Marketplace. Published firmware in `www/esphome_ota/` and the private archive in `/config/esphome_ota/firmware/` are retained. Delete them only if they are no longer needed.
 
 ## Quick start
 
@@ -73,14 +77,11 @@ The import from the ESPHome OTA Publisher add-on has been removed. Stop or unins
 - [Design notes (Korean)](docs/architecture.ko.md)
 - [Live validation on HA OS (Korean)](docs/validation.ko.md)
 
-### Repository support
-
-Report bugs and request features through [GitHub Issues](https://github.com/eigger/hass-esphome-ota/issues). GitHub Discussions is not enabled for this repository.
-
 <!-- hass-standards:support:start -->
 ## Support
 
 - [Issues](https://github.com/eigger/hass-esphome-ota/issues): Report bugs or request features.
+- [Discussions](https://github.com/eigger/hass-esphome-ota/discussions): Ask questions and share your experience.
 <!-- hass-standards:support:end -->
 
 <!-- hass-standards:related-projects:start -->

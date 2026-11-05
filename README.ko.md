@@ -1,7 +1,7 @@
 <!-- hass-standards:header:start -->
 # ESPHome OTA for Home Assistant
 
-**ESPHome OTA**는 ESPHome 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합(HACS)입니다. HA OS 안에서 **ESPHome Device Builder** 애드온의 신뢰 루프백(trusted loopback listener)에 자동 연결하므로 공개 포트 매핑, `leave_front_door_open`, 로그인 토큰이 필요 없습니다. HACS 커스텀 통합이며 Home Assistant Core 공식 통합이 아닙니다.
+ESPHome Device Builder 애드온의 신뢰 루프백 리스너를 사용해 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합입니다. 공개 포트, `leave_front_door_open` 설정, 로그인 토큰 없이 연결합니다.
 
 [English](README.md) | **한국어**
 
@@ -30,9 +30,9 @@
 
 ## 요구사항
 
-- ESPHome Device Builder 애드온이 있는 Home Assistant(HA OS / Supervised).
-- Home Assistant 2024.11.0 이상이 필요합니다(`hacs.json`, [docs/development.md](docs/development.md#verified-environments) 참고, 영문). CI는 HA 2026.10.4에서 검증합니다.
-- ESPHome 기기가 접근할 수 있는 Base URL.
+- **Home Assistant:** 2024.11.0 이상.
+- **애드온:** Home Assistant OS 또는 Supervised의 ESPHome Device Builder.
+- **기본 URL:** ESPHome 기기가 접속할 수 있는 주소. [검증 환경](docs/development.md#verified-environments) 참고(영어).
 
 ## 설치
 
@@ -40,13 +40,17 @@
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eigger&repository=hass-esphome-ota&category=integration)
 <!-- hass-standards:installation:end -->
 
-1. HACS에서 **ESPHome OTA**를 검색해 다운로드합니다(또는 위 버튼 사용).
-2. Home Assistant를 재시작합니다.
-3. **설정** > **기기 및 서비스** > **통합 구성요소 추가**에서 **ESPHome OTA**를 선택합니다.
+1. 위 배지를 클릭해 마켓플레이스에서 저장소를 엽니다.
+2. 저장소를 직접 추가하려면 **설정 → 마켓플레이스 → 링크에서 추가**에서 <https://github.com/eigger/hass-esphome-ota>을 입력합니다. 안내가 표시되면 GitHub 계정을 연결합니다.
+3. **설치**를 선택합니다. 재시작 안내가 표시되면 Home Assistant를 재시작합니다. 설치가 끝나면 [설정](#설정)으로 이동합니다.
 
-HACS 기본 카탈로그에 등록되기 전이라면 **사용자 지정 저장소**에 `https://github.com/eigger/hass-esphome-ota`를 범주 **Integration**으로 추가해 설치할 수 있습니다.
+## 설정
 
-수동 설치: `custom_components/esphome_ota`를 `<config>/custom_components/`로 복사하고 재시작합니다. 제거하려면 통합 항목을 삭제한 뒤 해당 폴더를 삭제합니다. 게시한 펌웨어(`www/esphome_ota/`)와 프라이빗 보관본(`/config/esphome_ota/firmware/`)은 자동 삭제되지 않으므로 불필요하면 직접 삭제합니다.
+**설정 → 기기 및 서비스 → 통합 추가 → ESPHome OTA**를 선택합니다.
+
+### 제거
+
+통합 항목을 삭제하고 마켓플레이스에서 제거합니다. 게시한 펌웨어(`www/esphome_ota/`)와 프라이빗 보관본(`/config/esphome_ota/firmware/`)은 유지됩니다. 필요 없는 경우에만 해당 파일을 삭제하세요.
 
 ## 빠른 시작
 
@@ -73,14 +77,11 @@ ESPHome OTA Publisher 애드온 데이터 가져오기 기능은 제거되었습
 - [상세 설계](docs/architecture.ko.md)
 - [HA OS 실환경 검증](docs/validation.ko.md)
 
-### 저장소 지원
-
-버그 보고와 기능 제안은 [GitHub Issues](https://github.com/eigger/hass-esphome-ota/issues)를 이용하세요. 이 저장소는 GitHub Discussions를 사용하지 않습니다.
-
 <!-- hass-standards:support:start -->
 ## 지원
 
 - [Issues](https://github.com/eigger/hass-esphome-ota/issues): 버그를 신고하거나 기능을 요청하세요.
+- [Discussions](https://github.com/eigger/hass-esphome-ota/discussions): 질문하고 사용 경험을 공유하세요.
 <!-- hass-standards:support:end -->
 
 <!-- hass-standards:related-projects:start -->
