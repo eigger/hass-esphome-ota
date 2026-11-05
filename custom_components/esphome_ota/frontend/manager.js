@@ -7,7 +7,6 @@ import { escapeHtml } from "./html.js";
 import { definePanelElement } from "./elements.js";
 import "./job-dialog.js";
 import "./device-dialog.js";
-import "./migration-dialog.js";
 import "./build-dialog.js";
 
 // Matches the server-side MAX_LOG_TAIL_LINES rolling window.
@@ -111,8 +110,7 @@ h1 {
   gap: 10px;
   pointer-events: none;
 }
-.selection-banner,
-.migration-banner {
+.selection-banner {
   pointer-events: auto;
   padding: 12px 16px;
   border-radius: 10px;
@@ -146,28 +144,6 @@ h1 {
   background: var(--card-background-color, #ffffff);
   color: var(--primary-text-color, #1e293b);
   font-size: 0.85rem;
-}
-.migration-banner {
-  background: color-mix(in srgb, var(--info-color, #0284c7) 12%, var(--card-background-color, #ffffff));
-  border: 1px solid color-mix(in srgb, var(--info-color, #0284c7) 40%, transparent);
-  color: color-mix(in srgb, var(--info-color, #0369a1) 45%, var(--primary-text-color, #1e293b));
-}
-.migration-banner-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.migration-banner-icon {
-  font-size: 1.25rem;
-}
-.migration-banner-title {
-  font-weight: 600;
-  color: color-mix(in srgb, var(--info-color, #0369a1) 40%, var(--primary-text-color, #1e293b));
-}
-.migration-banner-desc {
-  font-size: 0.8rem;
-  color: color-mix(in srgb, var(--info-color, #0369a1) 45%, var(--primary-text-color, #1e293b));
-  margin-top: 2px;
 }
 
 .header-actions {
@@ -577,8 +553,7 @@ label.card-select-wrap {
   .status-connecting, .status-reconnecting, .status-waiting { background: rgba(234, 179, 8, 0.2); }
   .status-selection_required { background: rgba(249, 115, 22, 0.16); }
   .status-error, .status-unsupported { background: rgba(239, 68, 68, 0.16); }
-  .selection-banner, .migration-banner { background: var(--card-background-color, #ffffff); border-color: var(--divider-color, #cbd5e1); color: var(--primary-text-color, #1e293b); }
-  .migration-banner-title, .migration-banner-desc { color: var(--primary-text-color, #1e293b); }
+  .selection-banner { background: var(--card-background-color, #ffffff); border-color: var(--divider-color, #cbd5e1); color: var(--primary-text-color, #1e293b); }
   .selection-banner select { border-color: var(--secondary-text-color, #64748b); }
   button.primary { background: #0369a1; border-color: #0284c7; }
   button.primary:hover:not(:disabled) { background: #075985; border-color: #0284c7; }
@@ -726,8 +701,6 @@ class EsphomeOtaManager extends HTMLElement {
     this._subscriptionAttempted = false;
     this._subscriptionPending = false;
     this._domInitialized = false;
-    this._migrationPreview = null;
-    this._dismissedMigration = false;
     this._panel = null;
     this._backendVersion = null;
     this.resizePanel = null;
@@ -812,18 +785,6 @@ class EsphomeOtaManager extends HTMLElement {
     clearTimeout(this._resubTimer);
   }
 
-  async loadMigrationPreview() {
-    try {
-      const mig = await this.hass.callWS({ type: "esphome_ota/migrate_preview" });
-      if (mig) {
-        this._migrationPreview = mig;
-        this._renderMigrationBanner();
-      }
-    } catch (err) {
-      console.debug("Migration preview fetch error:", err);
-    }
-  }
-
   async subscribe({ fallback = true } = {}) {
     if (this._subscriptionAttempted || this._subscriptionPending) return;
     this._subscriptionAttempted = true;
@@ -833,7 +794,6 @@ class EsphomeOtaManager extends HTMLElement {
         (msg) => this.handleEvent(msg),
         { type: "esphome_ota/subscribe" }
       );
-      await this.loadMigrationPreview();
     } catch (err) {
       console.error("Subscription error:", err);
       if (fallback) await this.loadInitialFallback();
@@ -880,7 +840,6 @@ class EsphomeOtaManager extends HTMLElement {
     this.devicesLoaded = true;
     this._updateVersionTag();
     this.render();
-    await this.loadMigrationPreview();
   }
 
   handleEvent(msg) {
@@ -1106,7 +1065,6 @@ class EsphomeOtaManager extends HTMLElement {
           <span class="status-text"></span>
         </div>
         <div class="header-actions">
-          <button id="btn-migration">${escapeHtml(t(this.hass, "migration") || "Import")}</button>
           <button id="btn-reconnect">${escapeHtml(t(this.hass, "reconnect") || "Reconnect")}</button>
           <button class="btn-batch" id="btn-batch">${escapeHtml(t(this.hass, "batch_build") || "Batch Build")}</button>
         </div>
@@ -1134,18 +1092,13 @@ class EsphomeOtaManager extends HTMLElement {
 
       <div class="bottom-notifications">
         <div id="selection-banner" class="selection-banner" style="display: none;"></div>
-        <div id="migration-banner" class="migration-banner" style="display: none;"></div>
       </div>
 
       <esphome-ota-job-dialog></esphome-ota-job-dialog>
       <esphome-ota-device-dialog></esphome-ota-device-dialog>
-      <esphome-ota-migration-dialog></esphome-ota-migration-dialog>
       <esphome-ota-build-dialog></esphome-ota-build-dialog>
     `;
 
-    this.shadowRoot.getElementById("btn-migration")?.addEventListener("click", () => {
-      this.shadowRoot.querySelector("esphome-ota-migration-dialog")?.open(this.hass);
-    });
     this.shadowRoot.getElementById("btn-reconnect")?.addEventListener("click", () => this.refresh());
     this.shadowRoot.getElementById("btn-batch")?.addEventListener("click", () => this.batchBuild());
     this.shadowRoot.getElementById("btn-clear-selection")?.addEventListener("click", () => {
@@ -1179,14 +1132,6 @@ class EsphomeOtaManager extends HTMLElement {
         this._renderDeviceList();
       }
       await this.refresh();
-    });
-
-    const migDialog = this.shadowRoot.querySelector("esphome-ota-migration-dialog");
-    migDialog?.addEventListener("migration-completed", (e) => {
-      if (e.detail?.success) {
-        if (this._migrationPreview) this._migrationPreview.already_migrated = true;
-        this._renderMigrationBanner();
-      }
     });
 
     const buildDialog = this.shadowRoot.querySelector("esphome-ota-build-dialog");
@@ -1242,52 +1187,12 @@ class EsphomeOtaManager extends HTMLElement {
     }
   }
 
-  _renderMigrationBanner() {
-    const banner = this.shadowRoot.getElementById("migration-banner");
-    if (!banner) return;
-    const p = this._migrationPreview;
-    if (p && p.has_legacy_registry && p.device_count > 0 && !p.already_migrated && !this._dismissedMigration) {
-      banner.style.display = "flex";
-      const title = t(this.hass, "migration_banner_title");
-      const desc = t(this.hass, "migration_banner_desc");
-      const btnTxt = t(this.hass, "migration_btn_import");
-      banner.innerHTML = `
-        <div class="migration-banner-left">
-          <span class="migration-banner-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
-          </span>
-          <div>
-            <div class="migration-banner-title">${escapeHtml(title)} (${p.device_count})</div>
-            <div class="migration-banner-desc">${escapeHtml(desc)}</div>
-          </div>
-        </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <button class="primary" id="btn-start-migration">${escapeHtml(btnTxt)}</button>
-          <button id="btn-dismiss-migration" style="padding: 4px 6px; border: none; background: transparent; cursor: pointer; color: #64748b; display: inline-flex; align-items: center; justify-content: center;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-        </div>
-      `;
-      this.shadowRoot.getElementById("btn-start-migration")?.addEventListener("click", () => {
-        this.shadowRoot.querySelector("esphome-ota-migration-dialog")?.open(this.hass);
-      });
-      this.shadowRoot.getElementById("btn-dismiss-migration")?.addEventListener("click", () => {
-        this._dismissedMigration = true;
-        this._renderMigrationBanner();
-      });
-    } else {
-      banner.style.display = "none";
-      banner.innerHTML = "";
-    }
-  }
-
   render() {
     this._initDom();
     this._pruneSelection();
     this._updateVersionTag();
     this._updateStatusBadge();
     this._renderSelectionBanner();
-    this._renderMigrationBanner();
     this._renderDeviceList();
   }
 

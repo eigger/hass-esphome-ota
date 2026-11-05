@@ -11,7 +11,7 @@
 
 | 구분 | 검증 방식 | 결과 | 비고 |
 |---|---|---|---|
-| Builder 루프백 자동 탐색 | 모의 Discovery Adapter | **통과 (100%)** | Dashboard 및 Supervisor 서비스/애드온 탐색 검증 |
+| Builder 루프백 자동 탐색 | 모의 Discovery Adapter | **통과 (100%)** | Supervisor 서비스/애드온 탐색 검증 (코어 ESPHome 내부 미사용) |
 | WebSocket 핸드셰이크 & 다중화 | MockBuilderServer | **통과 (100%)** | 인증 요구(`requires_auth=true`) 차단 및 403 예외 처리 |
 | 명시적 컴파일 완료 검증 | MockBuilderServer | **통과 (100%)** | `completed`만 성공 처리 (`unknown`/`failed` 거부) |
 | 단일 사용 토큰 다운로드 | MockBuilderServer HTTP | **통과 (100%)** | 토큰 만료/불일치 시 401 거부 및 예외 처리 |
@@ -20,7 +20,6 @@
 | 원자적 게시 & 숨김 | 파일시스템 테스트 | **통과 (100%)** | Manifest-last 순서, 캐시버스터(`?v=`), 프라이빗 보존 |
 | 기기 상태 전이 & 잠금 | asyncio 동시성 테스트 | **통과 (100%)** | `needs_initial_install` 구분, 기기별 동시 빌드 직렬화 |
 | Update 엔티티 감시 & 만료 | HA State 머신 테스트 | **통과 (100%)** | `installed_version` 일치 감시, unavailable 제외, 만료 타이머 |
-| 레거시 애드온 데이터 이전 | 스토리지 마이그레이션 | **통과 (100%)** | 토큰·슬러그 보존, 바이너리 이전, 멱등성 검증 |
 | 웹소켓 API & 수동 업로드 | HA WS/HTTP 클라이언트 | **통과 (100%)** | 관리자 권한 확인, 스냅샷+델타 구독, 16MB 업로드 제한 |
 | **8대 P1 1차 결함 회귀 테스트** | [test_build_pipeline_basics.py](../tests/components/esphome_ota/test_build_pipeline_basics.py) | **통과 (100%)** | 파일명 확장자, 문자열 작업 ID, YAML 들여쓰기, 스냅샷 이벤트, 자동 재연결, 검증 스트림, 버전 반영, CAS expected |
 | **2ba3cab 리뷰 결함 8건 회귀 테스트** | [test_resolution_and_frontend_safety.py](../tests/components/esphome_ota/test_resolution_and_frontend_safety.py) | **통과 (100%)** | Builder 미선택 ingress 포트, 다이얼로그 DOM 보존, 치환문자열 버전, XSS 방지, 소켓 중단 복구, 락 내부 버전 할당, Update 엔티티 동적 감시, 자동 정리 타이머 복원 |

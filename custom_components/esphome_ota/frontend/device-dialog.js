@@ -735,7 +735,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
                 <button class="primary" id="btn-save-token" style="padding: 5px 12px; font-size: 0.8rem;">${escapeHtml(t(this.hass, "btn_save_token") || "Save")}</button>
               </div>
               <div style="font-size: 0.72rem; color: var(--secondary-text-color, #64748b); margin-top: 4px;">
-                ${escapeHtml(t(this.hass, "token_hint") || "URL obfuscation token. Leave blank for legacy plain device name.")}
+                ${escapeHtml(t(this.hass, "token_hint"))}
               </div>
             </td>
           </tr>
@@ -943,7 +943,17 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
     const targetDevice = this.device;
     const targetDeviceId = targetDevice.device_id;
     const request = this._deviceRequest;
-    const newToken = input.value.trim();
+    const newToken = input.value.trim().toLowerCase();
+    if (newToken && !/^[0-9a-f]{32,64}$/.test(newToken)) {
+      this.dispatchEvent(
+        new CustomEvent("hass-notification", {
+          detail: { message: t(this.hass, "token_invalid") },
+          bubbles: true,
+          composed: true,
+        })
+      );
+      return;
+    }
     const btn = this.shadowRoot.getElementById("btn-save-token");
     if (btn) btn.disabled = true;
     try {
@@ -959,6 +969,7 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         if (!stillShowingTarget) return;
         targetDevice.token = res.token;
         targetDevice.slug = res.slug;
+        input.value = res.token;
         const slugEl = this.shadowRoot.getElementById("token-slug-val");
         if (slugEl) slugEl.innerHTML = `<code>${escapeHtml(res.slug)}</code>`;
         this.dispatchEvent(new CustomEvent("device-updated", { bubbles: true, composed: true }));

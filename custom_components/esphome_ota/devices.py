@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
-import secrets
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -27,13 +25,10 @@ from .const import (
 )
 from .firmware import chip_family
 from .models import ManagedDevice
+from .packages import generate_token, is_valid_token, public_slug
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
-
-# ESPHome Dashboard may append "(1)" when a config name collides.
-_COPY_SUFFIX_RE = re.compile(r"\(\d+\)$")
-
 
 _PUBLIC_BIN_SUFFIX = ".ota.bin"
 _PUBLIC_SCAN_SETTLE_NS = 3_000_000_000
@@ -127,68 +122,6 @@ class DeviceManager:
         return f"{device_id}.yaml"
 
     @staticmethod
-    def _cfg_stem(configuration: str) -> str:
-        """Normalize a configuration filename to its stem."""
-        if configuration.endswith(".yaml"):
-            return configuration[:-5]
-        return configuration
-
-    def resolve_legacy_configuration(
-        self, node: str, token: str = ""
-    ) -> tuple[str, str, dict[str, Any] | None, list[str]]:
-        """Map a legacy registry node to the best Builder configuration.
-
-        Returns (device_id, configuration, raw_builder_or_none, ambiguous_stems).
-        Prefers the plain ``{node}.yaml`` over slug-named copies such as
-        ``{node}_{token}(1).yaml`` so migration does not attach to duplicates.
-        """
-        scored: list[tuple[int, str, str, dict[str, Any]]] = []
-        for raw in self._builder_devices:
-            cfg_file = raw.get("configuration", "")
-            if not cfg_file and raw.get("name"):
-                cfg_file = f"{raw['name']}.yaml"
-            if not cfg_file:
-                continue
-            stem = self._cfg_stem(cfg_file)
-            base_stem = _COPY_SUFFIX_RE.sub("", stem)
-            score = 0
-            if stem == node:
-                score = 100
-            elif token and stem == f"{node}_{token}":
-                score = 90
-            elif token and base_stem == f"{node}_{token}":
-                score = 85
-            elif token and stem.startswith(f"{node}_") and token in stem:
-                score = 70
-            elif raw.get("name") == node:
-                score = 60
-            elif (raw.get("friendly_name") or "").strip() and (
-                raw.get("friendly_name") or ""
-            ).strip() == node:
-                score = 50
-            if score:
-                scored.append(
-                    (
-                        score,
-                        stem,
-                        cfg_file if cfg_file.endswith(".yaml") else f"{cfg_file}.yaml",
-                        raw,
-                    )
-                )
-
-        if not scored:
-            return node, f"{node}.yaml", None, []
-
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        best_score = scored[0][0]
-        top = [item for item in scored if item[0] == best_score]
-        # Prefer the shortest/plain stem when scores tie (node.yaml over node_token(1).yaml)
-        top.sort(key=lambda item: (len(item[1]), item[1]))
-        _, stem, cfg_file, raw = top[0]
-        ambiguous = [item[1] for item in scored if item[1] != stem]
-        return stem, cfg_file, raw, ambiguous
-
-    @staticmethod
     def _scan_public_dir(pub_dir: Path) -> set[str] | None:
         """List public binary slugs in ``pub_dir`` (blocking; run in executor)."""
         slugs: set[str] = set()
@@ -201,33 +134,50 @@ class DeviceManager:
             return None
         return slugs
 
-    def _public_dir_state(self) -> tuple[Path, int, tuple[int, int, int]] | None:
-        """Stat the publish directory; ``None`` when it is unavailable."""
+    def _public_dir(self) -> Path:
+        """Return the public publish directory."""
+        return Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
+
+    @classmethod
+    def _refresh_public_scan_sync(
+        cls,
+        pub_dir: Path,
+        cached: tuple[tuple[int, int, int], bool, set[str]] | None,
+    ) -> tuple[tuple[int, int, int], bool, set[str]] | None:
+        """Stat and, when changed, rescan ``pub_dir`` (blocking; run in executor).
+
+        Returns ``cached`` unchanged when the directory identity and mtime still
+        match a settled listing, ``None`` when the directory is unavailable.
+        """
         try:
-            pub_dir = Path(self.hass.config.path("www", DEFAULT_PUBLISH_DIR))
             st = pub_dir.stat()
         except Exception:  # noqa: BLE001
             return None
-        return pub_dir, st.st_mtime_ns, (st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
+        key = (st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
+        if cached is not None and cached[0] == key and cached[1]:
+            return cached
+        slugs = cls._scan_public_dir(pub_dir)
+        if slugs is None:
+            return None
+        settled = time.time_ns() - st.st_mtime_ns > _PUBLIC_SCAN_SETTLE_NS
+        return (key, settled, slugs)
 
-    async def async_refresh_public_scan(self) -> None:
-        """Rescan the publish directory in the executor and update the cache."""
-        state = self._public_dir_state()
-        if state is None:
-            self._public_scan = None
-            return
-        pub_dir, mtime_ns, key = state
+    async def async_refresh_public_scan(self, *, force: bool = True) -> None:
+        """Refresh the cached listing in the executor (never on the event loop).
+
+        ``force`` rescans even when the directory looks unchanged.
+        """
         self._scan_seq += 1
         seq = self._scan_seq
-        slugs = await self.hass.async_add_executor_job(self._scan_public_dir, pub_dir)
+        result = await self.hass.async_add_executor_job(
+            self._refresh_public_scan_sync,
+            self._public_dir(),
+            None if force else self._public_scan,
+        )
         if seq != self._scan_seq:
             # A newer scan started meanwhile; its result supersedes this one.
             return
-        if slugs is None:
-            self._public_scan = None
-            return
-        settled = time.time_ns() - mtime_ns > _PUBLIC_SCAN_SETTLE_NS
-        self._public_scan = (key, settled, slugs)
+        self._public_scan = result
 
     def async_unload(self) -> None:
         """Cancel any in-flight background scan."""
@@ -241,7 +191,7 @@ class DeviceManager:
         """Refresh the cache and notify listeners when the result changed."""
         before = self._public_scan[2] if self._public_scan else set()
         try:
-            await self.async_refresh_public_scan()
+            await self.async_refresh_public_scan(force=False)
         finally:
             self._public_scan_task = None
         after = self._public_scan[2] if self._public_scan else set()
@@ -251,27 +201,13 @@ class DeviceManager:
     def _public_binary_slugs(self) -> set[str]:
         """Return slugs with a public ``<slug>.ota.bin`` file.
 
-        Never touches the directory contents on the event loop: when the cache
-        is stale a background executor scan is scheduled and the previous
-        listing is returned until it completes (``public_scan_listener`` fires
-        if the result changed). Callers that do not subscribe to that listener
-        may therefore see one stale read right after a change.
-
-        One ``stat`` of the publish directory replaces a per-device ``is_file``
-        call on every event. The directory mtime changes whenever a file is
-        created, removed or renamed in it (including by external tools), so the
-        cached listing is reused until then. A directory modified within the
-        last ``_PUBLIC_SCAN_SETTLE_NS`` is rescanned each time because coarse
-        filesystem timestamps could hide a further change in the same tick.
+        Never touches the filesystem on the event loop: the cached listing is
+        returned and a background executor job re-stats the publish directory
+        (and rescans it only when its mtime changed). ``public_scan_listener``
+        fires when the listing changed, so callers that do not subscribe to it
+        may see one stale read right after a change.
         """
-        state = self._public_dir_state()
-        if state is None:
-            self._public_scan = None
-            return set()
-        _, _, key = state
         cached = self._public_scan
-        if cached is not None and cached[0] == key and cached[1]:
-            return cached[2]
         task = self._public_scan_task
         # A task that already finished (eager start) must not block rescans.
         if task is None or task.done():
@@ -280,7 +216,6 @@ class DeviceManager:
             # the attribute) before this assignment.
             if task.done():
                 self._public_scan_task = None
-                # Finished eagerly: the cache already holds the fresh listing.
                 return self._public_scan[2] if self._public_scan else set()
             self._public_scan_task = task
         return cached[2] if cached is not None else set()
@@ -487,18 +422,22 @@ class DeviceManager:
                     existing.managed_version = managed_version
                 if yaml_mode is not None:
                     existing.yaml_mode = yaml_mode
-                if token is not None:
+                if token is not None and is_valid_token(token):
                     existing.token = token
-                    existing.slug = f"{name}_{token}" if token else name
+                elif not is_valid_token(existing.token):
+                    existing.token = generate_token()
+                # Every published slug carries a strong random token.
+                existing.slug = public_slug(name, existing.token)
                 if has_http_ota:
                     existing.has_http_ota = True
                 existing.status = self._calculate_status(existing)
                 existing.updated_at = datetime.now(timezone.utc).isoformat()
                 device = existing
             else:
-                # Mint 32-char hex token for fresh device
-                assigned_token = token if token is not None else secrets.token_hex(16)
-                slug = f"{name}_{assigned_token}" if assigned_token else name
+                # Every published slug carries a strong random token; a missing
+                # or weak one is replaced.
+                assigned_token = token if is_valid_token(token) else generate_token()
+                slug = public_slug(name, assigned_token)
                 device = ManagedDevice(
                     device_id=clean_dev_id,
                     configuration=clean_config,

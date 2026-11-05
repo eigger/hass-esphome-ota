@@ -25,7 +25,14 @@ from .models import (
     ConfigConflictError,
     UnsupportedPlatformError,
 )
-from .packages import NODE_RE, TOKEN_RE, VERSION_RE, is_valid_device_id
+from .packages import (
+    NODE_RE,
+    TOKEN_RE,
+    VERSION_RE,
+    generate_token,
+    is_valid_device_id,
+    public_slug,
+)
 from .publisher import (
     async_any_path_exists,
     async_path_exists,
@@ -46,7 +53,9 @@ def _device_id(value: Any) -> str:
 
 
 DEVICE_ID = _device_id
-TOKEN = vol.All(str, vol.Strip, vol.Match(TOKEN_RE))
+# An empty token asks the server to generate a fresh random one; anything else
+# must be a strong token (32-64 hex characters) chosen by the user.
+TOKEN = vol.All(str, vol.Strip, vol.Lower, vol.Any("", vol.Match(TOKEN_RE)))
 TARGET_VERSION = vol.All(str, vol.Strip, vol.Match(VERSION_RE))
 
 
@@ -72,8 +81,6 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_select_builder)
     websocket_api.async_register_command(hass, ws_reconnect)
     websocket_api.async_register_command(hass, ws_subscribe)
-    websocket_api.async_register_command(hass, ws_migrate_preview)
-    websocket_api.async_register_command(hass, ws_migrate_execute)
 
 
 def _get_manager(hass: HomeAssistant) -> Any:
@@ -653,7 +660,7 @@ async def ws_set_token(
     """Update device token, synchronizing slug, YAML, and published files."""
     manager = _get_manager(hass)
     device_id = msg["device_id"]
-    new_token = msg["token"].strip()
+    new_token = msg["token"] or generate_token()
 
     clean_dev_id = device_id.replace(".yaml", "")
     async with manager.device_manager.get_lock(clean_dev_id):
@@ -681,7 +688,7 @@ async def ws_set_token(
         )
         old_token = dev.token if dev else ""
         old_slug = dev.slug if dev else name
-        new_slug = f"{name}_{new_token}" if new_token else name
+        new_slug = public_slug(name, new_token)
         client = manager.resolver.active_client
         original_yaml = updated_yaml = None
         yaml_changed = False
@@ -1293,43 +1300,3 @@ async def ws_subscribe(
 
     # Dispatch snapshot as an event so frontend subscribeMessage callbacks receive it
     _send_event("snapshot", snapshot_payload)
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "esphome_ota/migrate_preview",
-    }
-)
-@websocket_api.async_response
-async def ws_migrate_preview(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Preview legacy add-on migration items."""
-    manager = _get_manager(hass)
-    preview = await manager.migration_manager.async_preview()
-    connection.send_result(msg["id"], preview)
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "esphome_ota/migrate_execute",
-    }
-)
-@websocket_api.async_response
-async def ws_migrate_execute(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Execute migration from legacy add-on."""
-    manager = _get_manager(hass)
-    result = await manager.migration_manager.async_migrate()
-    manager.dispatch_event(
-        "devices_updated",
-        {"devices": manager.device_manager.list_all()},
-    )
-    connection.send_result(msg["id"], result)

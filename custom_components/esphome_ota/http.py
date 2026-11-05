@@ -16,7 +16,7 @@ from .const import DEFAULT_AUTO_CLEANUP_HOURS, MAX_UPLOAD_SIZE
 from .firmware import BinaryValidationError, inspect_binary
 from .jobs import record_publication
 from .manager import get_loaded_manager
-from .packages import NODE_RE, is_valid_device_id
+from .packages import NODE_RE, is_valid_device_id, is_valid_token
 from .publisher import async_path_is_file, async_unlink_paths
 from .redaction import install_redaction
 
@@ -237,6 +237,14 @@ class FirmwareUploadView(HomeAssistantView):
                         target_platform=target_platform,
                     )
                     newly_registered = True
+                if not is_valid_token(dev.token):
+                    return web.json_response(
+                        {
+                            "error": "Device has no strong public URL token; "
+                            "set one before publishing"
+                        },
+                        status=409,
+                    )
                 published = await manager.publisher.async_publish(
                     device_id=dev.device_id,
                     configuration=dev.configuration,

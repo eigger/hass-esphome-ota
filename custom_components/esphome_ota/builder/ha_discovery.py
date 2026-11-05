@@ -1,18 +1,18 @@
-"""Isolation adapter for Home Assistant ESPHome dashboard and Supervisor discovery."""
+"""Isolation adapter for Supervisor-based ESPHome Builder discovery.
+
+Only public Supervisor interfaces (discovery services and add-on info) are used;
+the core ESPHome integration's private storage and runtime objects are not.
+"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
-from urllib.parse import urlparse
 
 from homeassistant.core import HomeAssistant
 
 from ..models import BuilderCandidate
 
 _LOGGER = logging.getLogger(__name__)
-
-_WARNED_DASHBOARD_FORMAT = False
 
 KNOWN_ESPHOME_SLUGS = (
     "5c53de3b_esphome",
@@ -30,7 +30,7 @@ def _sanitize_host(host: str) -> str:
 
 
 class HaDiscoveryAdapter:
-    """Discovers ESPHome Builder instances from Home Assistant runtime and Supervisor."""
+    """Discovers ESPHome Builder instances through the Supervisor."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
@@ -38,7 +38,7 @@ class HaDiscoveryAdapter:
     async def async_discover_all(self) -> list[BuilderCandidate]:
         """Collect all candidate Builders from all discovery sources.
 
-        Candidates from the dashboard and Supervisor discovery sources can outlive
+        Candidates from the Supervisor discovery service can outlive
         the add-on they point to, so every candidate is dropped when its add-on is
         no longer installed. Candidates for the same add-on slug are merged into one.
         """
@@ -48,11 +48,9 @@ class HaDiscoveryAdapter:
         candidates: list[BuilderCandidate] = []
 
         sources = (
-            # 1. HA ESPHome integration dashboard
-            await self.async_discover_from_esphome_dashboard(),
-            # 2. Supervisor discovery services
+            # 1. Supervisor discovery services
             await self.async_discover_from_supervisor_services(),
-            # 3. Supervisor installed add-ons
+            # 2. Supervisor installed add-ons
             await self.async_discover_from_supervisor_addons(),
         )
         for source_candidates in sources:
@@ -96,90 +94,6 @@ class HaDiscoveryAdapter:
             return None
         # An empty result usually means Supervisor data is not loaded yet
         return set(addons) if addons else None
-
-    async def async_discover_from_esphome_dashboard(self) -> list[BuilderCandidate]:
-        """Discover candidate from HA's built-in ESPHome integration dashboard manager."""
-        candidates: list[BuilderCandidate] = []
-        try:
-            from homeassistant.components.esphome.dashboard import (  # noqa: PLC0415
-                async_get_dashboard,
-            )
-
-            coordinator = async_get_dashboard(self.hass)
-            if coordinator and getattr(coordinator, "url", None):
-                parsed = urlparse(coordinator.url)
-                host = _sanitize_host(parsed.hostname or "127.0.0.1")
-                port = parsed.port
-                slug = getattr(coordinator, "addon_slug", "esphome")
-                if port:
-                    candidates.append(
-                        BuilderCandidate(
-                            slug=slug,
-                            name=f"ESPHome Dashboard ({slug})",
-                            host=host,
-                            port=port,
-                            source="dashboard",
-                            is_running=True,
-                        )
-                    )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("ESPHome dashboard discovery unavailable: %s", err)
-
-        # Also attempt to read stored dashboard info if manager hasn't initialized coordinator yet
-        if not candidates:
-            try:
-                from homeassistant.helpers.storage import Store  # noqa: PLC0415
-
-                # Private core storage format (esphome.dashboard); may change between
-                # HA releases, so every access below is shape-checked.
-                store: Store[dict[str, Any]] = Store(self.hass, 1, "esphome.dashboard")
-                data = await store.async_load()
-                info = data.get("info") if isinstance(data, dict) else None
-                if info is not None:
-                    host = (
-                        info.get("host", "127.0.0.1")
-                        if isinstance(info, dict)
-                        else None
-                    )
-                    port = info.get("port") if isinstance(info, dict) else None
-                    slug = (
-                        info.get("addon_slug", "esphome")
-                        if isinstance(info, dict)
-                        else None
-                    )
-                    if (
-                        isinstance(host, str)
-                        and isinstance(slug, str)
-                        and isinstance(port, int)
-                        and not isinstance(port, bool)
-                        and 0 < port < 65536
-                    ):
-                        candidates.append(
-                            BuilderCandidate(
-                                slug=slug,
-                                name=f"ESPHome Dashboard ({slug})",
-                                host=_sanitize_host(host),
-                                port=port,
-                                source="dashboard",
-                                is_running=True,
-                            )
-                        )
-                    else:
-                        global _WARNED_DASHBOARD_FORMAT  # noqa: PLW0603
-                        log = (
-                            _LOGGER.debug
-                            if _WARNED_DASHBOARD_FORMAT
-                            else _LOGGER.warning
-                        )
-                        _WARNED_DASHBOARD_FORMAT = True
-                        log(
-                            "Ignoring unexpected esphome.dashboard storage format; "
-                            "Home Assistant core may have changed it"
-                        )
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("ESPHome dashboard storage check failed: %s", err)
-
-        return candidates
 
     async def async_discover_from_supervisor_services(self) -> list[BuilderCandidate]:
         """Discover candidate from Supervisor discovery API."""

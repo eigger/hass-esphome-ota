@@ -43,8 +43,8 @@ async def test_device_registration_and_token(hass: HomeAssistant) -> None:
     assert dev2.token == dev.token
 
 
-async def test_legacy_device_token_preservation(hass: HomeAssistant) -> None:
-    """Test legacy devices without a token retain empty token and un-suffixed slug."""
+async def test_weak_token_is_replaced(hass: HomeAssistant) -> None:
+    """A missing or weak token never yields a guessable public slug."""
     storage = StorageManager(hass)
     manager = DeviceManager(hass, storage)
 
@@ -55,8 +55,28 @@ async def test_legacy_device_token_preservation(hass: HomeAssistant) -> None:
         friendly_name="Legacy Node",
         token="",
     )
-    assert dev.token == ""
-    assert dev.slug == "legacy_node"
+    assert len(dev.token) == 32
+    assert dev.slug == f"legacy_node_{dev.token}"
+
+    short = await manager.async_register_or_update(
+        device_id="short_node",
+        configuration="short_node",
+        name="short_node",
+        friendly_name="Short Node",
+        token="abc",
+    )
+    assert len(short.token) == 32
+    assert short.slug == f"short_node_{short.token}"
+
+    strong = "0123456789abcdef0123456789abcdef"
+    kept = await manager.async_register_or_update(
+        device_id="strong_node",
+        configuration="strong_node",
+        name="strong_node",
+        friendly_name="Strong Node",
+        token=strong,
+    )
+    assert kept.token == strong
 
 
 async def test_device_status_transitions(hass: HomeAssistant) -> None:
@@ -86,66 +106,6 @@ async def test_device_status_transitions(hass: HomeAssistant) -> None:
     # 4. New version 1.0.1 published -> update_available
     await manager.async_mark_published(dev.device_id, "1.0.1")
     assert manager._calculate_status(dev) == DEVICE_STATUS_UPDATE_AVAILABLE
-
-
-async def test_resolve_legacy_configuration_prefers_plain_yaml(
-    hass: HomeAssistant,
-) -> None:
-    """Prefer {node}.yaml over slug-named Builder copies during migration matching."""
-    storage = StorageManager(hass)
-    manager = DeviceManager(hass, storage)
-    token = "66538f8029a9436117254bea079c279e"
-    manager.update_builder_devices(
-        [
-            {
-                "configuration": f"esp-colorado-tab5_{token}(1).yaml",
-                "name": "esp-colorado-tab5",
-                "friendly_name": "ESP Colorado TAB5",
-                "target_platform": "esp32",
-            },
-            {
-                "configuration": "esp-colorado-tab5.yaml",
-                "name": "esp-colorado-tab5",
-                "friendly_name": "ESP Colorado TAB5",
-                "target_platform": "esp32",
-            },
-        ]
-    )
-
-    device_id, configuration, raw, ambiguous = manager.resolve_legacy_configuration(
-        "esp-colorado-tab5", token
-    )
-    assert device_id == "esp-colorado-tab5"
-    assert configuration == "esp-colorado-tab5.yaml"
-    assert raw is not None
-    assert f"esp-colorado-tab5_{token}(1)" in ambiguous
-
-
-async def test_resolve_legacy_configuration_falls_back_to_slug_copy(
-    hass: HomeAssistant,
-) -> None:
-    """When only a slug-named copy exists, bind migration to that config."""
-    storage = StorageManager(hass)
-    manager = DeviceManager(hass, storage)
-    token = "a8f3b9c2e17d904f8e5b6c7a1d2e3f4a"
-    manager.update_builder_devices(
-        [
-            {
-                "configuration": f"livingroom_{token}(1).yaml",
-                "name": "livingroom",
-                "friendly_name": "Living Room",
-                "target_platform": "esp32",
-            }
-        ]
-    )
-
-    device_id, configuration, raw, ambiguous = manager.resolve_legacy_configuration(
-        "livingroom", token
-    )
-    assert device_id == f"livingroom_{token}(1)"
-    assert configuration == f"livingroom_{token}(1).yaml"
-    assert raw is not None
-    assert ambiguous == []
 
 
 async def test_async_remove_device(hass: HomeAssistant) -> None:

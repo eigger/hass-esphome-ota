@@ -107,10 +107,11 @@ class BuilderResolver:
                 )
             return None
 
-        # 2. When no specific target is saved (unselected state), auto-select single or dashboard candidate
-        dashboard_candidates = [c for c in self.candidates if c.source == "dashboard"]
-        if len(dashboard_candidates) == 1:
-            return dashboard_candidates[0]
+        # 2. When no specific target is saved (unselected state), auto-select the
+        # single add-on announced through Supervisor discovery
+        discovered = [c for c in self.candidates if c.source == "supervisor_discovery"]
+        if len(discovered) == 1:
+            return discovered[0]
 
         # 3. Single candidate
         if len(self.candidates) == 1:

@@ -24,7 +24,7 @@
 - Safe, diff-based YAML preparation (`packages.esphome_ota`) that preserves `!secret`, `!include`, and comments.
 - Compile, verify, and publish pipeline with live logs, binary integrity checks, and atomic publishing to `/local/esphome_ota/`.
 - Supported targets: ESP32 family and ESP8266. RP2040/RP2350 devices are not supported (their firmware has no verifiable header) and are rejected before a build starts.
-- Sidebar panel with batch builds, job cancellation, and first-install guidance; manual firmware upload; import from the legacy add-on.
+- Sidebar panel with batch builds, job cancellation, and first-install guidance; manual firmware upload.
 
 More detail and the architecture overview: [docs/features.md](docs/features.md).
 
@@ -40,9 +40,11 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eigger&repository=hass-esphome-ota&category=integration)
 <!-- hass-standards:installation:end -->
 
-1. In HACS open **Custom repositories**, add `https://github.com/eigger/hass-esphome-ota` as category **Integration**.
-2. Download **ESPHome OTA** and restart Home Assistant.
+1. In HACS search for **ESPHome OTA** and download it (or use the button above).
+2. Restart Home Assistant.
 3. Go to **Settings** > **Devices & Services** > **Add Integration** and select **ESPHome OTA**.
+
+Before it appears in the default HACS catalog you can add `https://github.com/eigger/hass-esphome-ota` under **Custom repositories** (category **Integration**) instead.
 
 Manual installation: copy `custom_components/esphome_ota` into `<config>/custom_components/` and restart. To remove, delete the integration entry, then that folder (and, if no longer needed, the published firmware in `www/esphome_ota/` and the private archive `/config/esphome_ota/firmware/`; neither is removed automatically).
 
@@ -56,12 +58,13 @@ Manual installation: copy `custom_components/esphome_ota` into `<config>/custom_
 ## Important limitations
 
 - Publishing firmware is not the same as installing it on a device; the panel reports them separately.
+- Published firmware is served from `/local/` without authentication and contains the device's Wi-Fi, API and OTA secrets. Its URL is protected only by a random token of at least 32 hex characters, which every device is required to have; keep it private.
 - Discovering a device never edits YAML or starts a build on its own.
 - Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is covered only by the manual procedure in [docs/validation.ko.md](docs/validation.ko.md) (Korean).
 
-## Legacy migration
+## Coming from the legacy add-on
 
-Coming from the ESPHome OTA Publisher add-on? Use **Import from Legacy Add-on** at the top right of the panel and review the preview of devices and binaries. It reads `esphome/ota_server/registered.json`, copies binaries from `www/esphome_ota/` into private storage, and keeps tokens and device slugs. Stop or uninstall the add-on afterwards.
+The import from the ESPHome OTA Publisher add-on has been removed. Stop or uninstall the add-on and delete its leftover files in `www/esphome_ota/` (uninstalling does not remove them; they are served without authentication and contain device secrets). Then set devices up again here: **Prepare OTA**, **Build & Publish**, and one install through ESPHome Builder. Devices imported by an earlier release keep working; any of them without a strong token gets a new one at startup and needs that one install as well. At startup the integration logs a warning for any public firmware left at a guessable URL.
 
 ## Documentation
 

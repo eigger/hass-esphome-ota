@@ -178,7 +178,6 @@ def test_issue4_xss_escaping_in_frontend() -> None:
         "build-dialog.js",
         "device-dialog.js",
         "job-dialog.js",
-        "migration-dialog.js",
     ):
         source = (base / name).read_text(encoding="utf-8")
         assert import_line in source, name

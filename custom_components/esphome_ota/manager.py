@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import random
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -29,12 +31,12 @@ from .const import (
 )
 from .devices import DeviceManager
 from .jobs import JobRunner
-from .migration import MigrationManager
 from .models import BuilderAuthError, BuilderForbiddenError, BuilderSelection
 from .monitor import InstallationMonitor
+from .packages import generate_token, is_valid_token, public_slug
 from .panel import PanelManager
-from .publisher import ArtifactPublisher
-from .redaction import install_redaction
+from .publisher import ArtifactPublisher, async_unlink_paths
+from .redaction import install_redaction, mask_slug
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -112,14 +114,6 @@ class OtaManager:
             self.monitor,
         )
         self.resolver = BuilderResolver(hass, self.session, saved_selection)
-        self.migration_manager = MigrationManager(
-            hass,
-            self.storage,
-            self.device_manager,
-            self.publisher,
-            base_url=self.base_url,
-            resolver=self.resolver,
-        )
         self.panel_manager = PanelManager(hass)
 
         self._subscribers: list[Callable[[str, dict[str, Any]], None]] = []
@@ -310,6 +304,12 @@ class OtaManager:
         """Initialize all subsystems and connect to ESPHome Builder."""
         # 1. Load persisted data
         await self.device_manager.async_load()
+        try:
+            await self.storage.async_remove_migration_record()
+        except OSError as err:
+            _LOGGER.debug("Could not remove the legacy import record: %s", err)
+        await self._async_rotate_weak_tokens()
+        await self._async_warn_guessable_public_files()
         await self.job_runner.async_load()
 
         # 2. Register custom panel (the upload view is registered once in async_setup)
@@ -330,6 +330,97 @@ class OtaManager:
         # 4. Start installation monitor
         await self.monitor.async_setup()
         self.ready = True
+
+    async def _async_rotate_weak_tokens(self) -> None:
+        """Give every managed device a strong public-URL token.
+
+        Records from older releases (including devices imported from the
+        legacy add-on, whose import has since been removed) may have no token
+        or a short one, which makes ``/local/<publish dir>/<slug>``
+        guessable. Such firmware contains Wi-Fi and API secrets, so the weak
+        public files are taken down and a fresh random token is assigned. The
+        next build re-patches the device YAML with the new ``ota_slug``; the
+        device must then be installed once through ESPHome Builder.
+        """
+        devices = self.device_manager.managed_devices
+        weak = [dev for dev in devices.values() if not is_valid_token(dev.token)]
+        if not weak:
+            return
+        artifacts = await self.storage.async_load_artifacts()
+        rotated: list[str] = []
+        for dev in weak:
+            old_slug = dev.slug
+            # Rotate even when the cleanup below fails, so nothing is ever
+            # published again under the guessable slug.
+            try:
+                await self.publisher.async_deactivate(old_slug)
+                www = self.publisher.www_dir
+                await async_unlink_paths(
+                    self.hass,
+                    www / f"{old_slug}.ota.bin",
+                    www / f"{old_slug}.ota.bin.md5",
+                    www / f"{old_slug}.json",
+                    www / f"{old_slug}.ota.json",
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error(
+                    "Could not remove the public files of %s at its old guessable "
+                    "URL; delete %s.* from www/%s manually: %s",
+                    dev.name,
+                    mask_slug(old_slug),
+                    DEFAULT_PUBLISH_DIR,
+                    err,
+                )
+            dev.token = generate_token()
+            dev.slug = public_slug(dev.name, dev.token)
+            dev.expires_at = None
+            artifact = artifacts.get(dev.device_id)
+            if artifact is not None and artifact.is_public:
+                artifact.is_public = False
+                artifact.public_bin_path = None
+                await self.storage.async_save_artifact(dev.device_id, artifact)
+            rotated.append(dev.name)
+        if not rotated:
+            return
+        await self.storage.async_save_devices(devices)
+        _LOGGER.warning(
+            "Assigned a new random public URL token to %s; rebuild these devices "
+            "and install the firmware once through ESPHome Builder so they use "
+            "the new URL",
+            ", ".join(sorted(rotated)),
+        )
+
+    @staticmethod
+    def _guessable_public_slugs_sync(www: Path) -> list[str]:
+        """List public binaries whose slug has no strong token (blocking)."""
+        found: list[str] = []
+        try:
+            with os.scandir(www) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not name.endswith(".ota.bin") or not entry.is_file():
+                        continue
+                    slug = name[: -len(".ota.bin")]
+                    token = slug.rsplit("_", 1)[-1] if "_" in slug else ""
+                    if not is_valid_token(token):
+                        found.append(slug)
+        except OSError:
+            return []
+        return sorted(found)
+
+    async def _async_warn_guessable_public_files(self) -> None:
+        """Warn about public firmware (e.g. left by the legacy add-on) at guessable URLs."""
+        slugs = await self.hass.async_add_executor_job(
+            self._guessable_public_slugs_sync, self.publisher.www_dir
+        )
+        if slugs:
+            _LOGGER.warning(
+                "Public firmware with a guessable URL was found in www/%s (%s). "
+                "It is served without authentication and may contain Wi-Fi and "
+                "API secrets; delete these files if they are not needed",
+                DEFAULT_PUBLISH_DIR,
+                ", ".join(mask_slug(slug) for slug in slugs),
+            )
 
     async def async_unload(self) -> None:
         """Clean up resources on integration unload."""

@@ -46,6 +46,7 @@ from .models import (
     PipelineJob,
     PublishedArtifact,
 )
+from .packages import is_valid_token
 from .publisher import ArtifactPublisher
 from .redaction import install_redaction
 from .storage import StorageManager
@@ -298,6 +299,10 @@ class JobRunner:
         Returns job_id immediately.
         """
         ensure_supported_platform(device.target_platform)
+        if not is_valid_token(device.token):
+            raise EsphomeOtaError(
+                f"{device.device_id} has no strong public URL token; set one first"
+            )
         req_id = request_id or str(uuid.uuid4())
         device_req_key = f"{device.device_id}:{req_id}"
         if device_req_key in self._in_flight_requests:

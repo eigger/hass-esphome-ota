@@ -18,24 +18,6 @@ from custom_components.esphome_ota.models import (
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
 
-async def test_discovery_from_esphome_dashboard(hass: HomeAssistant) -> None:
-    """Test discovery from ESPHome component dashboard coordinator."""
-    mock_coord = MagicMock()
-    mock_coord.url = "http://127.0.0.1:6052"
-    mock_coord.addon_slug = "5c53de3b_esphome"
-
-    with patch(
-        "homeassistant.components.esphome.dashboard.async_get_dashboard",
-        return_value=mock_coord,
-    ):
-        adapter = HaDiscoveryAdapter(hass)
-        candidates = await adapter.async_discover_from_esphome_dashboard()
-        assert len(candidates) == 1
-        assert candidates[0].slug == "5c53de3b_esphome"
-        assert candidates[0].port == 6052
-        assert candidates[0].source == "dashboard"
-
-
 async def test_discovery_from_supervisor_services(hass: HomeAssistant) -> None:
     """Test discovery from Supervisor discovery service list."""
     mock_disc = MagicMock()
@@ -104,14 +86,14 @@ async def test_discover_all_drops_stale_and_merges_by_slug(
         name="ESPHome Dashboard",
         host="127.0.0.1",
         port=6052,
-        source="dashboard",
+        source="supervisor_discovery",
     )
     stale_dashboard = BuilderCandidate(
         slug="a0d7b954_esphome",
         name="ESPHome Dashboard",
         host="a0d7b954-esphome",
         port=6052,
-        source="dashboard",
+        source="supervisor_discovery",
     )
     stale_discovery = BuilderCandidate(
         slug="a0d7b954_esphome",
@@ -131,13 +113,8 @@ async def test_discover_all_drops_stale_and_merges_by_slug(
     with (
         patch.object(
             HaDiscoveryAdapter,
-            "async_discover_from_esphome_dashboard",
-            return_value=[dashboard, stale_dashboard],
-        ),
-        patch.object(
-            HaDiscoveryAdapter,
             "async_discover_from_supervisor_services",
-            return_value=[stale_discovery],
+            return_value=[dashboard, stale_dashboard, stale_discovery],
         ),
         patch.object(
             HaDiscoveryAdapter,
@@ -153,7 +130,7 @@ async def test_discover_all_drops_stale_and_merges_by_slug(
         candidates = await HaDiscoveryAdapter(hass).async_discover_all()
 
     assert [c.slug for c in candidates] == ["5c53de3b_esphome"]
-    assert candidates[0].source == "dashboard"
+    assert candidates[0].source == "supervisor_discovery"
     assert candidates[0].port == 6052
     assert candidates[0].version == "2026.10.0"
 
@@ -163,18 +140,17 @@ async def test_discover_all_keeps_candidates_when_installed_unknown(
 ) -> None:
     """Without Supervisor data nothing is filtered out."""
     dashboard = BuilderCandidate(
-        slug="esphome", name="ESPHome", host="127.0.0.1", port=6052, source="dashboard"
+        slug="esphome",
+        name="ESPHome",
+        host="127.0.0.1",
+        port=6052,
+        source="supervisor_discovery",
     )
     with (
         patch.object(
             HaDiscoveryAdapter,
-            "async_discover_from_esphome_dashboard",
-            return_value=[dashboard],
-        ),
-        patch.object(
-            HaDiscoveryAdapter,
             "async_discover_from_supervisor_services",
-            return_value=[],
+            return_value=[dashboard],
         ),
         patch.object(
             HaDiscoveryAdapter,
@@ -230,7 +206,11 @@ async def test_discover_all_fills_version_from_duplicate_endpoint(
 ) -> None:
     """The version is filled in even when the duplicate shares the endpoint."""
     dashboard = BuilderCandidate(
-        slug="esphome", name="ESPHome", host="127.0.0.1", port=6052, source="dashboard"
+        slug="esphome",
+        name="ESPHome",
+        host="127.0.0.1",
+        port=6052,
+        source="supervisor_discovery",
     )
     addon = BuilderCandidate(
         slug="esphome",
@@ -243,13 +223,8 @@ async def test_discover_all_fills_version_from_duplicate_endpoint(
     with (
         patch.object(
             HaDiscoveryAdapter,
-            "async_discover_from_esphome_dashboard",
-            return_value=[dashboard],
-        ),
-        patch.object(
-            HaDiscoveryAdapter,
             "async_discover_from_supervisor_services",
-            return_value=[],
+            return_value=[dashboard],
         ),
         patch.object(
             HaDiscoveryAdapter,
@@ -308,7 +283,7 @@ async def test_resolver_selection_priorities(
             name="Mock",
             host="127.0.0.1",
             port=mock_builder.port,
-            source="dashboard",
+            source="supervisor_discovery",
         )
         with patch.object(
             HaDiscoveryAdapter, "async_discover_all", return_value=[cand1, cand_mock]

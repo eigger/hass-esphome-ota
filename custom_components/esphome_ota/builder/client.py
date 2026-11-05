@@ -22,10 +22,12 @@ from ..models import (
     BuilderTimeoutError,
     ConfigConflictError,
 )
+from ..redaction import install_redaction
 from .capabilities import BuilderCapabilities
 from .connection import BuilderConnection
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 
 # Builder error codes known to be unrelated to CAS conflicts.

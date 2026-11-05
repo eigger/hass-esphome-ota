@@ -79,15 +79,14 @@ Builder가 꺼져 있거나 HA 시작 순서 때문에 아직 발견되지 않�
 
 `BuilderResolver`는 다음 순서로 후보를 수집한다.
 
-1. HA ESPHome 통합이 이미 발견한 dashboard URL과 addon slug.
-2. HA의 Supervisor client를 통한 ESPHome 서비스 discovery 정보.
-3. discovery 정보가 부족할 때만 선택한 애드온의 현재 Ingress 정보를 조회하여 loopback 후보를 구성한다.
+1. HA의 Supervisor client를 통한 ESPHome 서비스 discovery 정보.
+2. discovery 정보가 부족할 때만 선택한 애드온의 현재 Ingress 정보를 조회하여 loopback 후보를 구성한다.
 
-HA의 `esphome.dashboard`와 `hassio` Python 인터페이스는 버전 변경 위험이 있으므로 `builder/ha_discovery.py`에 격리한다. 지원할 HA 버전의 실제 반환 구조를 테스트하고, 다른 모듈이 `hass.data` 내부 키에 직접 의존하지 않게 한다. Supervisor 접근에는 HA가 관리하는 client를 사용하며 애드온 전용 `SUPERVISOR_TOKEN` 환경변수에 의존하지 않는다.
+코어 ESPHome 통합의 private storage(`.storage/esphome.dashboard`)나 런타임 객체(`async_get_dashboard`)는 릴리스마다 바뀔 수 있으므로 읽지 않는다. `hassio` Python 인터페이스도 버전 변경 위험이 있으므로 `builder/ha_discovery.py`에 격리한다. 지원할 HA 버전의 실제 반환 구조를 테스트하고, 다른 모듈이 `hass.data` 내부 키에 직접 의존하지 않게 한다. Supervisor 접근에는 HA가 관리하는 client를 사용하며 애드온 전용 `SUPERVISOR_TOKEN` 환경변수에 의존하지 않는다.
 
 `6052` 또는 특정 Ingress 포트를 하드코딩하지 않는다. handshake의 `port`는 공개 포트일 수 있으므로 trusted listener 주소로 사용하지 않는다. `/api/hassio_ingress/<세션>`도 서버 간 기본 접속 주소로 사용하지 않는다.
 
-선택 우선순위는 저장된 선택 → HA가 현재 사용하는 Builder → 유일한 실행 후보다. 후보가 여러 개이고 선택 정보가 없으면 사용자에게 선택을 받는다. 연결 장애 때 다른 Builder로 자동 전환하지 않는다.
+선택 우선순위는 저장된 선택 → Supervisor discovery로 알려진 유일한 Builder → 유일한 실행 후보다. 후보가 여러 개이고 선택 정보가 없으면 사용자에게 선택을 받는다. 연결 장애 때 다른 Builder로 자동 전환하지 않는다.
 
 ### 후보 검증과 capability
 
@@ -128,7 +127,6 @@ custom_components/esphome_ota/
   publisher.py               # private artifact, 원자적 공개 게시
   monitor.py                 # HA Update 상태 연결·만료 처리
   storage.py                 # Store, schema migration, 작업 checkpoint
-  migration.py               # 애드온 데이터 가져오기
   panel.py / websocket.py    # 패널·관리자 명령·구독
   http.py                    # 관리자 multipart 업로드
   diagnostics.py             # 토큰·YAML·자격정보를 제외한 진단
@@ -156,7 +154,7 @@ Builder의 `configuration`(YAML 파일명)과 ESPHome `name`을 구분한다. �
 설정 변경과 이름 변경을 발견해도 공개 slug는 자동 변경하지 않는다. rename을 확실히 연결할 수 없으면 기존 관리 기기를 `YAML 찾을 수 없음`으로 표시하고 사용자에게 재연결을 제공한다. 파일 목록에서 사라졌다는 이유로 펌웨어와 이력을 삭제하지 않는다.
 
 - config entry: Builder 선택, 게시 base URL, 기본 만료 정책.
-- HA `Store`: `esphome_ota.devices`, `esphome_ota.jobs`, `esphome_ota.artifacts`, `esphome_ota.migration`.
+- HA `Store`: `esphome_ota.devices`, `esphome_ota.jobs`, `esphome_ota.artifacts`. (제거된 애드온 가져오기 기능의 `esphome_ota.migration` 기록은 시작 시 삭제한다.)
 - private binary: `hass.config.path("esphome_ota", "firmware", <device_id>, <sha256>)`.
 - 공개 파일: 기존 `hass.config.path("www", "esphome_ota")`와 slug를 유지.
 - YAML과 secrets는 Store·진단·일반 로그에 저장하지 않는다. 복구용 YAML 원본이 필요한 작업은 관리 API에서만 접근 가능한 private backup 파일로 제한한다.
@@ -246,12 +244,14 @@ public 파일 제거는 이미 진행 중인 다운로드나 앞단 캐시를 �
 | `main.py`, services run, Dockerfile | 새 통합 실행에는 사용하지 않음. 기존 애드온 배포는 유지 |
 | `server.py` App/route | manager/jobs/devices/websocket/http로 책임 분리 |
 | `dashboard.py` | command/stream 의미 재사용, session 주입·reader 종료·재연결·job 복구 보강 |
-| `metadata.py` | 바이너리·텍스트/YAML 분석을 순수 로직으로 분리. 파일 scan은 legacy migration으로 제한 |
+| `metadata.py` | 바이너리·텍스트/YAML 분석을 순수 로직으로 분리. 파일 scan은 게시 디렉터리 관리로 제한 |
 | `packages.py` | 생성 로직 재사용. 생성과 파일 쓰기 분리, 새 inline 관리 package 추가 |
 | `publisher.py` | 원자적 파일 처리 재사용. private 경로 주입·immutable artifact·저장 오류 처리 보강 |
 | `registry.py` | HA Store와 버전 migration으로 교체 |
 | `supervisor.py` | HA discovery adapter와 state/registry 접근으로 대체 |
 | `static/index.html` | 기능·번역 재사용, custom panel과 WS subscription으로 재구성 |
+
+> 아래 레거시 애드온 데이터 이전 절차는 초기 설계 기록이다. 가져오기 기능은 이후 제거되었다(레거시 사용자 감소, 공개 URL 토큰 필수화).
 
 이전 순서:
 
@@ -271,7 +271,7 @@ public 파일 제거는 이미 진행 중인 다운로드나 앞단 캐시를 �
 | 2. 작업·게시 | checkpoints, artifact validation, Store, publisher | 중복·실패·재시작에서 잘못된 성공/재빌드 없이 기존 게시본 보존 |
 | 3. OTA 준비 | YAML diff/CAS, 버전 정책, 초기 설치 상태 | 기존 secrets/include/project 보존, 경쟁 편집 감지, 최초 설치 필요 구분 |
 | 4. 편의 패널 | ESL Manager 방식 패널, subscription, batch | 등록 없이 기기 목록, 한 흐름의 빌드·게시, reconnect·cancel·retry 표시 |
-| 5. 이전·배포 | migration/export, HACS 메타데이터, 지원 버전 문서 | 기존 토큰/URL 유지, 숨긴 artifact 이전, reload/unload 정리 |
+| 5. 배포 | HACS 메타데이터, 지원 버전 문서 | 모든 공개 URL에 강한 토큰 필수, 약한 토큰 교체, reload/unload 정리 |
 
 중점 테스트는 실제 위험과 상태 전이에 둔다.
 
@@ -295,6 +295,5 @@ public 파일 제거는 이미 진행 중인 다운로드나 앞단 캐시를 �
 - [Builder API 계약](https://github.com/esphome/device-builder/blob/main/docs/API.md)
 - [다운로드 토큰 처리](https://github.com/esphome/device-builder/blob/main/esphome_device_builder/controllers/firmware/download.py)
 - [Builder 작업 조회·취소](https://github.com/esphome/device-builder/blob/main/esphome_device_builder/controllers/firmware/jobs.py)
-- [HA ESPHome 대시보드 발견 정보](https://github.com/home-assistant/core/blob/dev/homeassistant/components/esphome/dashboard.py)
 - [HA의 blocking 작업 지침](https://developers.home-assistant.io/docs/asyncio_blocking_operations/)
 - 로컬 참조: `hass-ble-esl/custom_components/ble_esl/designer/__init__.py`, `frontend/manager.js` 및 현재 `esphome_ota` 구현.

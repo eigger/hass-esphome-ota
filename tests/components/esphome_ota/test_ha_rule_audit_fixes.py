@@ -219,20 +219,25 @@ async def test_websocket_file_checks_do_not_block_event_loop(
             name="esp-tab",
             friendly_name="ESP Tab",
             target_platform="esp32",
-            token="old_tok",
+            token="0123456789abcdef0123456789abcdef",
         )
         dev.last_published_version = "1.0.0"
         mock_client = AsyncMock()
         mock_client.get_config.return_value = (
             "packages:\n  esphome_ota:\n    substitutions:\n"
-            "      ota_slug: esp-tab_old_tok\n"
+            "      ota_slug: esp-tab_0123456789abcdef0123456789abcdef\n"
         )
         manager.resolver.active_client = mock_client
 
-        pub_bin = manager.publisher.www_dir / "esp-tab_old_tok.ota.bin"
+        pub_bin = (
+            manager.publisher.www_dir
+            / "esp-tab_0123456789abcdef0123456789abcdef.ota.bin"
+        )
         pub_bin.parent.mkdir(parents=True, exist_ok=True)
         pub_bin.write_bytes(b"dummy_bin")
-        old_manifest = manager.publisher.www_dir / "esp-tab_old_tok.json"
+        old_manifest = (
+            manager.publisher.www_dir / "esp-tab_0123456789abcdef0123456789abcdef.json"
+        )
         old_manifest.write_text("{}", encoding="utf-8")
         private_bin = tmp_path / "firmware.ota.bin"
         private_bin.write_bytes(mock_builder.binary_blob)
@@ -262,7 +267,7 @@ async def test_websocket_file_checks_do_not_block_event_loop(
                     "id": 1,
                     "type": "esphome_ota/set_token",
                     "device_id": "esp-tab",
-                    "token": "new_tok",
+                    "token": "fedcba9876543210fedcba9876543210",
                 }
             )
             msg = await ws.receive_json()
