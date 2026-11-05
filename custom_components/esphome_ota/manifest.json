@@ -1,27 +1,15 @@
 {
-  "domain": "esphome_ota",
-  "name": "ESPHome OTA",
-  "after_dependencies": [
-    "esphome",
-    "hassio"
-  ],
-  "categories": [
-    "computers_network"
-  ],
-  "codeowners": [
-    "@eigger"
-  ],
-  "config_flow": true,
-  "dependencies": [
-    "frontend",
-    "http",
-    "panel_custom",
-    "websocket_api"
-  ],
-  "documentation": "https://github.com/eigger/hass-esphome-ota",
-  "iot_class": "local_push",
-  "issue_tracker": "https://github.com/eigger/hass-esphome-ota/issues",
-  "requirements": [],
-  "single_config_entry": true,
-  "version": "1.3.1"
+    "domain": "esphome_ota",
+    "name": "ESPHome OTA",
+    "after_dependencies": ["esphome", "hassio"],
+    "categories": ["computers_network"],
+    "codeowners": ["@eigger"],
+    "config_flow": true,
+    "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+    "documentation": "https://github.com/eigger/hass-esphome-ota",
+    "iot_class": "local_push",
+    "issue_tracker": "https://github.com/eigger/hass-esphome-ota/issues",
+    "requirements": [],
+    "single_config_entry": true,
+    "version": "1.3.2",
 }
