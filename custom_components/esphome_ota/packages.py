@@ -3,16 +3,36 @@
 from __future__ import annotations
 
 import re
+import secrets
 
 from .const import DEFAULT_PUBLISH_DIR
 
 _PROJECT_NAME_MAX = 32
 
 NODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,62}\Z")
-# An empty token is valid: it reverts the slug to the plain node name.
-TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{0,64}\Z")
+# The public firmware URL is served from /local/ without authentication, so the
+# token is its only protection: require at least 128 bits of hex entropy.
+TOKEN_MIN_LENGTH = 32
+TOKEN_RE = re.compile(r"^[0-9a-f]{32,64}\Z")
 VERSION_RE = re.compile(r"^[^\x00-\x1f\x7f\"'\\]{1,64}\Z")
 _DEVICE_ID_RE = re.compile(r"^[^\x00-\x1f\x7f/\\]{1,128}\Z")
+
+
+def is_valid_token(value: object) -> bool:
+    """Return True if ``value`` is a strong public-URL token (32-64 lowercase hex)."""
+    return isinstance(value, str) and bool(TOKEN_RE.match(value))
+
+
+def generate_token() -> str:
+    """Return a fresh random public-URL token (32 hex characters)."""
+    return secrets.token_hex(TOKEN_MIN_LENGTH // 2)
+
+
+def public_slug(name: str, token: str) -> str:
+    """Return the public slug ``{name}_{token}`` for a validated token."""
+    if not is_valid_token(token):
+        raise ValueError("A public slug requires a random token of 32+ hex characters")
+    return f"{name}_{token}"
 
 
 def is_valid_device_id(value: str) -> bool:

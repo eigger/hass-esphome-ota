@@ -1,26 +1,21 @@
-"""Tests for RP platform rejection, legacy migration platform, and Builder client hardening."""
+"""Tests for RP platform rejection and Builder client hardening."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.esphome_ota.builder.client import BuilderClient
-from custom_components.esphome_ota.builder.ha_discovery import HaDiscoveryAdapter
 from custom_components.esphome_ota.const import (
-    DEFAULT_PUBLISH_DIR,
     DOMAIN,
     MAX_UPLOAD_SIZE,
 )
 from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.firmware import inspect_binary
 from custom_components.esphome_ota.jobs import JobRunner
-from custom_components.esphome_ota.migration import MigrationManager
 from custom_components.esphome_ota.models import (
     BuilderError,
     ConfigConflictError,
@@ -56,139 +51,6 @@ async def test_start_build_rejects_rp_platform(hass: HomeAssistant) -> None:
             device=dev, client=MagicMock(), base_url="http://ha.local:8123"
         )
     assert not runner._active_jobs
-
-
-def _esp8266_blob() -> bytes:
-    """ESP8266-style image: magic byte, non-ESP32 chip_id bytes, non-zero guard bytes."""
-    blob = bytearray(b"\xe9\x04\x02\x40" + b"\x00" * 2000)
-    blob[12:14] = b"\x34\x12"
-    blob[19:23] = b"\x01\x02\x03\x04"
-    return bytes(blob)
-
-
-def _legacy_setup(
-    hass: HomeAssistant,
-    registered: dict,
-    builder_devices: list[dict],
-    publisher: object | None = None,
-) -> tuple[MigrationManager, DeviceManager, Path]:
-    esphome_dir = Path(hass.config.path("esphome"))
-    for old in esphome_dir.glob("*.yaml"):
-        old.unlink(missing_ok=True)
-    legacy_dir = esphome_dir / "ota_server"
-    legacy_dir.mkdir(parents=True, exist_ok=True)
-    (legacy_dir / "registered.json").write_text(
-        json.dumps(registered), encoding="utf-8"
-    )
-    www_dir = Path(hass.config.path("www", DEFAULT_PUBLISH_DIR))
-    www_dir.mkdir(parents=True, exist_ok=True)
-    for old in www_dir.glob("*"):
-        old.unlink(missing_ok=True)
-    storage = StorageManager(hass)
-    device_manager = DeviceManager(hass, storage)
-    device_manager.update_builder_devices(builder_devices)
-    publisher = publisher or ArtifactPublisher(hass, DEFAULT_PUBLISH_DIR)
-    return (
-        MigrationManager(hass, storage, device_manager, publisher),
-        device_manager,
-        www_dir,
-    )
-
-
-async def test_migration_inspects_with_builder_platform(hass: HomeAssistant) -> None:
-    """Legacy ESP8266 binaries are inspected against the Builder's platform."""
-    publisher = MagicMock()
-    migrator, _, www_dir = _legacy_setup(
-        hass,
-        {"oldnode": {"token": "", "version": "1.0.0", "title": "Old"}},
-        [
-            {
-                "name": "oldnode",
-                "configuration": "oldnode.yaml",
-                "target_platform": "ESP8266",
-            }
-        ],
-        publisher,
-    )
-    (www_dir / "oldnode.ota.bin").write_bytes(_esp8266_blob())
-
-    targets = await migrator._async_legacy_targets()
-    assert targets["oldnode"]["platform"] == "ESP8266"
-    result = migrator._execute_migration_sync(targets)
-    assert result["migrated_artifacts"] == ["oldnode"]
-    assert publisher.publish_sync.call_args.kwargs["info"].chip_family == "ESP8266"
-
-
-async def test_migration_unregistered_esp8266_keeps_platform(
-    hass: HomeAssistant,
-) -> None:
-    """ESP8266 detected by fallback is registered as ESP8266, not esp32."""
-    migrator, device_manager, www_dir = _legacy_setup(
-        hass, {"oldnode": {"token": "", "version": "1.0.0", "title": "Old"}}, []
-    )
-    (www_dir / "oldnode.ota.bin").write_bytes(_esp8266_blob())
-
-    res = await migrator.async_migrate()
-    assert res["success"] is True
-    dev = device_manager.get_device("oldnode")
-    assert dev is not None
-    assert dev.target_platform == "esp8266"
-    assert dev.chip_family == "ESP8266"
-
-
-async def test_migration_raw_without_platform_uses_detected(
-    hass: HomeAssistant,
-) -> None:
-    """A Builder entry lacking target_platform still gets the detected platform."""
-    migrator, device_manager, www_dir = _legacy_setup(
-        hass,
-        {"oldnode": {"token": "", "version": "1.0.0", "title": "Old"}},
-        [{"name": "oldnode", "configuration": "oldnode.yaml"}],
-    )
-    (www_dir / "oldnode.ota.bin").write_bytes(_esp8266_blob())
-    res = await migrator.async_migrate()
-    assert res["success"] is True
-    assert device_manager.get_device("oldnode").target_platform == "esp8266"
-
-
-async def test_migration_artifact_key_matches_device_key(hass: HomeAssistant) -> None:
-    """Artifacts are published under the resolved Builder device_id."""
-    publisher = MagicMock()
-    migrator, _, www_dir = _legacy_setup(
-        hass,
-        {"node": {"token": "tok", "version": "1.0.0", "title": "N"}},
-        [
-            {
-                "name": "node",
-                "configuration": "node_tok.yaml",
-                "target_platform": "ESP8266",
-            }
-        ],
-        publisher,
-    )
-    (www_dir / "node_tok.ota.bin").write_bytes(_esp8266_blob())
-    targets = await migrator._async_legacy_targets()
-    migrator._execute_migration_sync(targets)
-    kwargs = publisher.publish_sync.call_args.kwargs
-    assert kwargs["device_id"] == targets["node"]["device_id"] != "node"
-    assert kwargs["configuration"] == "node_tok.yaml"
-
-
-async def test_migration_rejects_rp_device(hass: HomeAssistant) -> None:
-    """RP devices are reported as failed and never registered or YAML-patched."""
-    migrator, device_manager, _ = _legacy_setup(
-        hass,
-        {"picow": {"token": "", "version": "1.0.0", "title": "Pico"}},
-        [{"name": "picow", "configuration": "picow.yaml", "target_platform": "RP2040"}],
-    )
-    client = AsyncMock()
-    migrator._builder_client = client
-    res = await migrator.async_migrate()
-    assert res["success"] is False
-    assert "not supported" in res["failed_devices"]["picow"]
-    assert res["migrated_devices"] == []
-    assert device_manager.get_device("picow") is None
-    client.update_config.assert_not_called()
 
 
 async def test_chip_family_esp8266_fallback_rejects_esp32_header() -> None:
@@ -270,41 +132,6 @@ async def test_update_config_conflict_classification(
     with pytest.raises(expected_exc) as exc:
         await client.update_config("n.yaml", "new", expected="old")
     assert isinstance(exc.value, ConfigConflictError) is is_conflict
-
-
-@pytest.mark.parametrize(
-    "stored",
-    [
-        None,
-        [],
-        {"info": "nope"},
-        {"info": {"host": "h", "port": "6052"}},
-        {"info": {"host": 5, "port": 6052}},
-        {"info": {"host": "h", "port": 6052, "addon_slug": None}},
-        {"info": {"host": "h", "port": 99999}},
-    ],
-)
-async def test_dashboard_storage_unexpected_format(
-    hass: HomeAssistant, stored: object
-) -> None:
-    """Unexpected esphome.dashboard storage shapes yield no candidate."""
-    with (
-        patch("homeassistant.helpers.storage.Store.async_load", return_value=stored),
-    ):
-        adapter = HaDiscoveryAdapter(hass)
-        assert await adapter.async_discover_from_esphome_dashboard() == []
-
-
-async def test_dashboard_storage_valid(hass: HomeAssistant) -> None:
-    """A well-formed stored dashboard record still produces a candidate."""
-    stored = {"info": {"host": "127.0.0.1", "port": 6052, "addon_slug": "esphome"}}
-    with (
-        patch("homeassistant.helpers.storage.Store.async_load", return_value=stored),
-    ):
-        candidates = await HaDiscoveryAdapter(
-            hass
-        ).async_discover_from_esphome_dashboard()
-    assert [c.port for c in candidates] == [6052]
 
 
 async def test_download_ota_allows_exact_max_size() -> None:

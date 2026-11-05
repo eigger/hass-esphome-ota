@@ -18,7 +18,7 @@ STORAGE_VERSION = 1
 STORAGE_KEY_DEVICES = f"{DOMAIN}.devices"
 STORAGE_KEY_JOBS = f"{DOMAIN}.jobs"
 STORAGE_KEY_ARTIFACTS = f"{DOMAIN}.artifacts"
-STORAGE_KEY_MIGRATION = f"{DOMAIN}.migration"
+STORAGE_KEY_MIGRATION = f"{DOMAIN}.migration"  # removed feature; cleaned up
 
 # Panel & Frontend
 PANEL_NAME = "esphome-ota"
@@ -63,7 +63,6 @@ DEVICE_STATUS_UNKNOWN = "unknown"
 
 # YAML & Package Modes
 YAML_MODE_INLINE_PACKAGE = "inline_package"  # packages.esphome_ota
-YAML_MODE_LEGACY_WRAPPER = "legacy_wrapper"  # ota_server/devices/<slug>.yaml
 
 # Publisher Directory
 DEFAULT_PUBLISH_DIR = "esphome_ota"

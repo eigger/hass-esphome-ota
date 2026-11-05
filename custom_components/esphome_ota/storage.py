@@ -1,4 +1,4 @@
-"""Storage manager handling persistence of devices, jobs, artifacts, and migration records."""
+"""Storage manager handling persistence of devices, jobs and artifacts."""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ class StorageManager:
         self._artifact_store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY_ARTIFACTS
         )
+        # Only kept to delete the record of the removed legacy add-on import.
         self._migration_store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY_MIGRATION
         )
@@ -229,11 +230,7 @@ class StorageManager:
                 current[device_id] = artifact.to_dict()
             await self._async_save(self._artifact_store, current)
 
-    async def async_load_migration(self) -> dict[str, Any]:
-        """Load migration status record."""
-        data = await self._async_load(self._migration_store)
-        return data if isinstance(data, dict) else {}
-
-    async def async_save_migration(self, data: dict[str, Any]) -> None:
-        """Save migration record."""
-        await self._async_save(self._migration_store, data)
+    async def async_remove_migration_record(self) -> None:
+        """Delete the record left by the removed legacy add-on import."""
+        self._cache.pop(STORAGE_KEY_MIGRATION, None)
+        await self._migration_store.async_remove()

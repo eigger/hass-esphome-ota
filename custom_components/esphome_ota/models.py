@@ -78,7 +78,7 @@ class BuilderCandidate:
     name: str
     host: str
     port: int
-    source: str  # "dashboard", "supervisor_discovery", "supervisor_addon"
+    source: str  # "supervisor_discovery", "supervisor_addon", "hint"
     is_running: bool = True
     requires_auth: bool = False
     version: str | None = None
@@ -127,8 +127,8 @@ class ManagedDevice:
     configuration: str  # Builder YAML filename with extension (e.g. "livingroom.yaml")
     name: str  # ESPHome node name (e.g. "livingroom")
     friendly_name: str
-    token: str  # 32-hex token for OTA URL obfuscation
-    slug: str  # Public URL slug: "{name}_{token}" or legacy "{name}"
+    token: str  # Random 32-64 hex token protecting the public OTA URL
+    slug: str  # Public URL slug: "{name}_{token}" (token: 32-64 hex)
     target_platform: str = "esp32"
     chip_family: str = "ESP32"
     yaml_mode: str = YAML_MODE_INLINE_PACKAGE

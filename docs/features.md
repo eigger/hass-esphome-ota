@@ -19,7 +19,7 @@
   - Real-time WebSocket subscription for instant status, device, and job progress updates.
   - Live log streaming terminal and job cancellation.
   - Multi-device batch building and publishing.
-- **Legacy Add-on Data Migration**: Seamlessly imports `registered.json`, device wrappers, tokens, and existing binaries from the legacy ESPHome OTA Publisher add-on.
+- **Unguessable Public URLs**: Every published firmware URL carries a random token of at least 32 hex characters; weak or missing tokens from older releases are rotated at startup and their guessable public files are removed.
 - **Multipart Manual Upload View**: Secure authenticated HTTP endpoint for manual firmware uploads up to 16 MiB.
 - **Privacy-Preserving Diagnostics**: Redacts secret tokens, URLs, and confidential YAML from diagnostic dumps.
 

@@ -6,7 +6,7 @@ import logging
 import re
 import traceback
 
-_TOKEN_HEX_RE = re.compile(r"_[0-9a-f]{32}(?![0-9a-f])")
+_TOKEN_HEX_RE = re.compile(r"_[0-9a-f]{32,64}(?![0-9a-f])")
 # Public files are named ``{name}_{token}.json`` / ``.ota.bin`` / ``.ota.bin.md5``.
 _PUBLIC_FILE_RE = re.compile(
     r"_[^\s/\\'\"_]+(?=\.(?:ota\.bin\.md5|ota\.bin|ota\.json|json)\b)"

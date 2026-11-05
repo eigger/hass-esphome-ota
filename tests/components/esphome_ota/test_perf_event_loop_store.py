@@ -69,30 +69,28 @@ async def test_storage_cache_not_polluted_by_caller_mutation(
 ) -> None:
     """Mutating a loaded result must not alter what the next load returns."""
     storage = StorageManager(hass)
-    await storage.async_save_migration({"nested": {"k": [1]}})
-    loaded = await storage.async_load_migration()
+    await storage._async_save(storage._job_store, {"nested": {"k": [1]}})
+    loaded = await storage._async_load(storage._job_store)
     loaded["nested"]["k"].append(2)
     loaded["other"] = True
-    assert await storage.async_load_migration() == {"nested": {"k": [1]}}
+    assert await storage._async_load(storage._job_store) == {"nested": {"k": [1]}}
 
     payload = {"x": [1]}
-    await storage.async_save_migration(payload)
+    await storage._async_save(storage._job_store, payload)
     payload["x"].append(2)
-    assert await storage.async_load_migration() == {"x": [1]}
+    assert await storage._async_load(storage._job_store) == {"x": [1]}
 
 
 async def test_storage_failed_save_drops_cache(hass: HomeAssistant) -> None:
     """An exception escaping Store.async_save drops the entry (re-read later)."""
     storage = StorageManager(hass)
-    await storage.async_save_migration({"v": 1})
-    with patch.object(
-        storage._migration_store, "async_save", side_effect=OSError("boom")
-    ):
+    await storage._async_save(storage._job_store, {"v": 1})
+    with patch.object(storage._job_store, "async_save", side_effect=OSError("boom")):
         try:
-            await storage.async_save_migration({"v": 2})
+            await storage._async_save(storage._job_store, {"v": 2})
         except OSError:
             pass
-    assert storage._migration_store.key not in storage._cache
+    assert storage._job_store.key not in storage._cache
 
 
 async def test_storage_concurrent_save_not_overwritten_by_slow_load(
@@ -106,13 +104,13 @@ async def test_storage_concurrent_save_not_overwritten_by_slow_load(
         await gate.wait()
         return {"old": True}
 
-    with patch.object(storage._migration_store, "async_load", slow_load):
-        load_task = asyncio.ensure_future(storage.async_load_migration())
+    with patch.object(storage._job_store, "async_load", slow_load):
+        load_task = asyncio.ensure_future(storage._async_load(storage._job_store))
         await asyncio.sleep(0)
-        await storage.async_save_migration({"new": True})
+        await storage._async_save(storage._job_store, {"new": True})
         gate.set()
         await load_task
-    assert await storage.async_load_migration() == {"new": True}
+    assert await storage._async_load(storage._job_store) == {"new": True}
 
 
 async def test_public_binary_lookup_tracks_directory(hass: HomeAssistant) -> None:

@@ -18,6 +18,7 @@ from custom_components.esphome_ota.packages import (
     VERSION_RE,
     generate_inline_ota_yaml,
     is_valid_device_id,
+    is_valid_token,
     yaml_dq,
 )
 from custom_components.esphome_ota.websocket import _www_path
@@ -52,12 +53,31 @@ def test_set_package_ota_slug_escapes_value() -> None:
     assert yaml.safe_load(out) == {"ota_slug": 'b"\nx: y'}
 
 
-@pytest.mark.parametrize("value", ["", "abc-123", "custom_tok_123", "A" * 32])
+@pytest.mark.parametrize(
+    "value", ["c0ffee00c0ffee00c0ffee00c0ffee00", "a" * 32, "0" * 64]
+)
 def test_token_re_accepts(value: str) -> None:
     assert TOKEN_RE.match(value)
 
 
-@pytest.mark.parametrize("value", ["a/b", "../x", "a b", "a\n", "é", "x" * 65])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "a",
+        "abc-123",
+        "custom_tok_123",
+        "a" * 31,
+        "A" * 32,
+        "g" * 32,
+        "a" * 65,
+        "a/b",
+        "../x",
+        "a b",
+        "a\n",
+        "é",
+    ],
+)
 def test_token_re_rejects(value: str) -> None:
     assert not TOKEN_RE.match(value)
 
@@ -264,7 +284,7 @@ async def test_set_token_empty_reverts_slug_and_invalid_name(
     mock_config_entry: MockConfigEntry,
     mock_builder: MockBuilderServer,
 ) -> None:
-    """An empty token is valid; invalid builder names yield invalid_name."""
+    """An empty token generates a random one; invalid builder names yield invalid_name."""
     with patch(
         "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
         return_value=[],
@@ -275,7 +295,7 @@ async def test_set_token_empty_reverts_slug_and_invalid_name(
             configuration="esp-tab.yaml",
             name="esp-tab",
             friendly_name="ESP Tab",
-            token="old_tok",
+            token="0123456789abcdef0123456789abcdef",
         )
         manager.device_manager.update_builder_devices(
             [{"configuration": "weird.yaml", "name": "we ird"}]
@@ -288,7 +308,7 @@ async def test_set_token_empty_reverts_slug_and_invalid_name(
                 "id": 1,
                 "type": "esphome_ota/set_token",
                 "device_id": "weird",
-                "token": "abc",
+                "token": "a" * 32,
             }
         )
         msg = await ws.receive_json()
@@ -306,8 +326,23 @@ async def test_set_token_empty_reverts_slug_and_invalid_name(
         msg = await ws.receive_json()
         assert msg["success"] is True, msg
         dev = manager.device_manager.get_device("esp-tab")
-        assert dev.token == ""
-        assert dev.slug == "esp-tab"
+        assert is_valid_token(dev.token)
+        assert dev.token != "0123456789abcdef0123456789abcdef"
+        assert dev.slug == f"esp-tab_{dev.token}"
+        assert msg["result"]["token"] == dev.token
+
+        # A weak token is rejected by the schema.
+        await ws.send_json(
+            {
+                "id": 3,
+                "type": "esphome_ota/set_token",
+                "device_id": "esp-tab",
+                "token": "short",
+            }
+        )
+        msg = await ws.receive_json()
+        assert msg["success"] is False
+        assert msg["error"]["code"] == "invalid_format"
         await ws.close()
 
 

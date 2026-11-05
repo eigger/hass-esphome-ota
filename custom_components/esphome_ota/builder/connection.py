@@ -23,8 +23,10 @@ from ..models import (
     BuilderForbiddenError,
     BuilderTimeoutError,
 )
+from ..redaction import install_redaction
 
 _LOGGER = logging.getLogger(__name__)
+install_redaction(_LOGGER)
 
 BACKOFF_STEPS = [2, 5, 10, 30, 60]
 
@@ -176,7 +178,9 @@ class BuilderConnection:
                 try:
                     payload = json.loads(msg.data)
                 except ValueError:
-                    _LOGGER.debug("Ignoring non-JSON WS frame: %s", msg.data)
+                    _LOGGER.debug(
+                        "Ignoring non-JSON WS frame (%d bytes)", len(msg.data)
+                    )
                     continue
 
                 # The unsolicited handshake frame has no message_id
@@ -185,7 +189,9 @@ class BuilderConnection:
                 if queue:
                     queue.put_nowait(payload)
                 else:
-                    _LOGGER.debug("Unmatched frame for key '%s': %s", key, payload)
+                    # Never log the payload: a late reply may carry device YAML
+                    # (Wi-Fi credentials, the secret ota_slug token).
+                    _LOGGER.debug("Ignoring unmatched frame for message id '%s'", key)
 
         except asyncio.CancelledError:
             raise

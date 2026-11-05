@@ -84,10 +84,11 @@ async def test_websocket_api_commands(
         assert event_msg["event"]["event"] == "snapshot"
         assert "devices" in event_msg["event"]["data"]
 
-        # 5. migrate_preview
+        # 5. the legacy add-on import commands were removed
         await ws.send_json({"id": 5, "type": "esphome_ota/migrate_preview"})
         msg = await ws.receive_json()
-        assert msg["success"] is True
+        assert msg["success"] is False
+        assert msg["error"]["code"] == "unknown_command"
 
         # 6. deactivate
         await ws.send_json(
@@ -102,18 +103,18 @@ async def test_websocket_api_commands(
                 "id": 7,
                 "type": "esphome_ota/set_token",
                 "device_id": "livingroom",
-                "token": "custom_tok_123",
+                "token": "c0ffee00c0ffee00c0ffee00c0ffee00",
             }
         )
         msg = await ws.receive_json()
         while msg.get("type") == "event":
             msg = await ws.receive_json()
         assert msg["success"] is True
-        assert msg["result"]["token"] == "custom_tok_123"
-        assert msg["result"]["slug"] == "livingroom_custom_tok_123"
+        assert msg["result"]["token"] == "c0ffee00c0ffee00c0ffee00c0ffee00"
+        assert msg["result"]["slug"] == "livingroom_c0ffee00c0ffee00c0ffee00c0ffee00"
         dev = manager.device_manager.get_device("livingroom")
-        assert dev.token == "custom_tok_123"
-        assert dev.slug == "livingroom_custom_tok_123"
+        assert dev.token == "c0ffee00c0ffee00c0ffee00c0ffee00"
+        assert dev.slug == "livingroom_c0ffee00c0ffee00c0ffee00c0ffee00"
 
         await ws.close()
 
@@ -318,7 +319,7 @@ async def test_set_token_syncs_yaml_and_republishes(
             name="esp-tab",
             friendly_name="ESP Tab",
             target_platform="esp32",
-            token="old_tok",
+            token="0123456789abcdef0123456789abcdef",
         )
         dev.last_published_version = "1.0.0"
 
@@ -328,12 +329,12 @@ async def test_set_token_syncs_yaml_and_republishes(
             "packages:\n"
             "  esphome_ota:\n"
             "    substitutions:\n"
-            "      ota_slug: esp-tab_old_tok\n"
+            "      ota_slug: esp-tab_0123456789abcdef0123456789abcdef\n"
         )
         manager.resolver.active_client = mock_client
 
         # Create dummy public bin file to simulate existing active binary
-        old_slug = "esp-tab_old_tok"
+        old_slug = "esp-tab_0123456789abcdef0123456789abcdef"
         pub_bin = manager.publisher.www_dir / f"{old_slug}.ota.bin"
         pub_bin.parent.mkdir(parents=True, exist_ok=True)
         pub_bin.write_bytes(b"dummy_bin")
@@ -364,7 +365,7 @@ async def test_set_token_syncs_yaml_and_republishes(
                 "id": 40,
                 "type": "esphome_ota/set_token",
                 "device_id": "esp-tab",
-                "token": "new_tok",
+                "token": "fedcba9876543210fedcba9876543210",
             }
         )
         msg = await ws.receive_json()
@@ -372,18 +373,21 @@ async def test_set_token_syncs_yaml_and_republishes(
             msg = await ws.receive_json()
 
         assert msg["success"] is True
-        assert msg["result"]["token"] == "new_tok"
-        assert msg["result"]["slug"] == "esp-tab_new_tok"
+        assert msg["result"]["token"] == "fedcba9876543210fedcba9876543210"
+        assert msg["result"]["slug"] == "esp-tab_fedcba9876543210fedcba9876543210"
 
         # Check YAML update_config called
         mock_client.update_config.assert_called_once()
         call_args = mock_client.update_config.call_args
-        assert "esp-tab_new_tok" in call_args[0][1]
+        assert "esp-tab_fedcba9876543210fedcba9876543210" in call_args[0][1]
 
         # The token rotation republishes the recoverable private artifact under
         # the new slug and retires the prior public binary.
         assert not pub_bin.exists()
-        new_public_bin = manager.publisher.www_dir / "esp-tab_new_tok.ota.bin"
+        new_public_bin = (
+            manager.publisher.www_dir
+            / "esp-tab_fedcba9876543210fedcba9876543210.ota.bin"
+        )
         assert new_public_bin.is_file()
         artifacts = await manager.storage.async_load_artifacts()
         assert artifacts["esp-tab"].public_bin_path == str(new_public_bin)

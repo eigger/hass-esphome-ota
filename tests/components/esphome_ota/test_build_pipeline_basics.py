@@ -122,7 +122,7 @@ async def test_p1_issue4_ws_subscribe_snapshot_event(
                 name="Test Builder",
                 host="127.0.0.1",
                 port=mock_builder.port,
-                source="dashboard",
+                source="supervisor_discovery",
                 is_running=True,
             )
         ],
@@ -173,7 +173,7 @@ async def test_p1_issue5_auto_reconnect_loop(
                 name="Test Builder",
                 host="127.0.0.1",
                 port=mock_builder.port,
-                source="dashboard",
+                source="supervisor_discovery",
                 is_running=True,
             )
         ],
@@ -444,7 +444,7 @@ async def test_p1_issue8_prepare_ota_includes_cas_expected(
                 name="Test Builder",
                 host="127.0.0.1",
                 port=mock_builder.port,
-                source="dashboard",
+                source="supervisor_discovery",
                 is_running=True,
             )
         ],
