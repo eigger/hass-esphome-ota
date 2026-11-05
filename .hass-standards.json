@@ -31,7 +31,7 @@
       "ko": "ESPHome Device Builder 애드온의 신뢰 루프백 리스너를 사용해 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합입니다. 공개 포트, `leave_front_door_open` 설정, 로그인 토큰 없이 연결합니다."
     },
     "issues": true,
-    "discussions": false,
+    "discussions": true,
     "license_name": "MIT License",
     "related_projects": []
   },

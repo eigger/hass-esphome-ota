@@ -81,6 +81,7 @@ The import from the ESPHome OTA Publisher add-on has been removed. Stop or unins
 ## Support
 
 - [Issues](https://github.com/eigger/hass-esphome-ota/issues): Report bugs or request features.
+- [Discussions](https://github.com/eigger/hass-esphome-ota/discussions): Ask questions and share your experience.
 <!-- hass-standards:support:end -->
 
 <!-- hass-standards:related-projects:start -->

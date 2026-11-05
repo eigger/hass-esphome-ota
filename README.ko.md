@@ -81,6 +81,7 @@ ESPHome OTA Publisher 애드온 데이터 가져오기 기능은 제거되었습
 ## 지원
 
 - [Issues](https://github.com/eigger/hass-esphome-ota/issues): 버그를 신고하거나 기능을 요청하세요.
+- [Discussions](https://github.com/eigger/hass-esphome-ota/discussions): 질문하고 사용 경험을 공유하세요.
 <!-- hass-standards:support:end -->
 
 <!-- hass-standards:related-projects:start -->
