@@ -16,6 +16,8 @@
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
 
+![ESPHome OTA](custom_components/esphome_ota/brand/logo.png)
+
 ## Supported features
 
 - Automatic, zero-config discovery of the ESPHome Builder add-on and a live device list.
