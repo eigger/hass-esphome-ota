@@ -62,7 +62,14 @@ Remove the integration entry and uninstall it from Marketplace. Published firmwa
 ## Important limitations
 
 - Publishing firmware is not the same as installing it on a device; the panel reports them separately.
-- Published firmware is served from `/local/` without authentication and contains the device's Wi-Fi, API and OTA secrets. Its URL is protected only by a random token of at least 32 hex characters, which every device is required to have; keep it private.
+> [!WARNING]
+> **Published firmware contains your device secrets and is served without authentication.**
+>
+> - ESPHome resolves `!secret` values at compile time, so the built `.ota.bin` embeds your Wi-Fi SSID and password, API encryption key and OTA password in plain text. Anyone who downloads the file can read them.
+> - The file is served from `/local/esphome_ota/` with no Home Assistant login. Its only protection is a random token of at least 32 hex characters in the URL, which every device is required to have. Treat the URL like a password: do not share it or paste it in issues, screenshots or logs.
+> - Keep the exposure window short. Firmware is hidden automatically once the installation is verified (default on) and after the **Auto-hide after (hours)** time (default 12 hours); hide it manually if you do not need it published.
+> - Hiding removes the public file but does not cancel a download already in progress or a copy cached by a reverse proxy or CDN. If you suspect the URL leaked, rotate the Wi-Fi password, API key and OTA password.
+
 - Discovering a device never edits YAML or starts a build on its own.
 - Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is covered only by the manual procedure in [docs/validation.ko.md](docs/validation.ko.md) (Korean).
 
