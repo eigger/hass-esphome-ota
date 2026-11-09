@@ -27,8 +27,8 @@
   "readme": {
     "title": "ESPHome OTA for Home Assistant",
     "descriptions": {
-      "en": "A Home Assistant custom integration that builds and publishes ESPHome firmware over HTTP OTA through the ESPHome Device Builder add-on’s trusted loopback listener. It needs no public port, `leave_front_door_open` setting or login token.",
-      "ko": "ESPHome Device Builder 애드온의 신뢰 루프백 리스너를 사용해 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합입니다. 공개 포트, `leave_front_door_open` 설정, 로그인 토큰 없이 연결합니다."
+      "en": "A Home Assistant custom integration that connects to the ESPHome Device Builder add-on, builds your ESPHome firmware there and serves it to your devices over HTTP OTA. The add-on needs no extra configuration.",
+      "ko": "ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home Assistant가 HTTP OTA로 기기에 제공하는 커스텀 통합입니다. 애드온에는 별도 설정이 필요 없습니다."
     },
     "issues": true,
     "discussions": true,

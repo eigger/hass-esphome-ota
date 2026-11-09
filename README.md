@@ -1,7 +1,7 @@
 <!-- hass-standards:header:start -->
 # ESPHome OTA for Home Assistant
 
-A Home Assistant custom integration that builds and publishes ESPHome firmware over HTTP OTA through the ESPHome Device Builder add-on’s trusted loopback listener. It needs no public port, `leave_front_door_open` setting or login token.
+A Home Assistant custom integration that connects to the ESPHome Device Builder add-on, builds your ESPHome firmware there and serves it to your devices over HTTP OTA. The add-on needs no extra configuration.
 
 **English** | [한국어](README.ko.md)
 
@@ -31,8 +31,8 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 ## Requirements
 
 - **Home Assistant:** 2024.11.0 or later.
-- **Add-on:** ESPHome Device Builder on Home Assistant OS or Supervised.
-- **Base URL:** An address your ESPHome devices can reach. See the [verified environments](docs/development.md#verified-environments).
+- **Add-on:** The ESPHome Device Builder add-on, installed and running, on Home Assistant OS or Supervised. The integration finds it through the Supervisor; Container and Core installs and an external Builder are not supported.
+- **Base URL:** The external address of Home Assistant that your ESPHome devices use to download firmware. For OTA from outside your network it must be reachable from the internet (domain and HTTPS). See the [verified environments](docs/development.md#verified-environments).
 
 ## Installation
 
@@ -48,9 +48,14 @@ More detail and the architecture overview: [docs/features.md](docs/features.md).
 
 Open **Settings → Devices & services → Add integration → ESPHome OTA**.
 
+1. If more than one ESPHome Builder is found, choose the one to use. With a single Builder it is selected automatically.
+2. Enter the **Public Base URL**: the external address of Home Assistant that your devices use to fetch firmware (for example `https://ha.example.com`).
+
+Afterwards, **Configure** on the integration entry changes the Base URL, the Builder, and the **Default auto-hide period (hours)** (0 = never hide automatically). See [Important limitations](#important-limitations) before publishing.
+
 ### Uninstall
 
-Remove the integration entry and uninstall it from Marketplace. Published firmware in `www/esphome_ota/` and the private archive in `/config/esphome_ota/firmware/` are retained. Delete them only if they are no longer needed.
+Before removing the integration, click **Remove OTA** on each device card in the panel if you want the `packages.esphome_ota` block removed from its YAML; removing the integration entry does not edit your YAML. Then remove the integration entry and uninstall it from Marketplace. Published firmware in `www/esphome_ota/` and the private archive in `/config/esphome_ota/firmware/` are retained. Delete them only if they are no longer needed.
 
 ## Quick start
 

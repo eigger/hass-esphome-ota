@@ -1,7 +1,7 @@
 <!-- hass-standards:header:start -->
 # ESPHome OTA for Home Assistant
 
-ESPHome Device Builder 애드온의 신뢰 루프백 리스너를 사용해 펌웨어를 HTTP OTA로 빌드·게시하는 Home Assistant 커스텀 통합입니다. 공개 포트, `leave_front_door_open` 설정, 로그인 토큰 없이 연결합니다.
+ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home Assistant가 HTTP OTA로 기기에 제공하는 커스텀 통합입니다. 애드온에는 별도 설정이 필요 없습니다.
 
 [English](README.md) | **한국어**
 
@@ -31,8 +31,8 @@ ESPHome Device Builder 애드온의 신뢰 루프백 리스너를 사용해 펌�
 ## 요구사항
 
 - **Home Assistant:** 2024.11.0 이상.
-- **애드온:** Home Assistant OS 또는 Supervised의 ESPHome Device Builder.
-- **기본 URL:** ESPHome 기기가 접속할 수 있는 주소. [검증 환경](docs/development.md#verified-environments) 참고(영어).
+- **애드온:** Home Assistant OS 또는 Supervised에 설치되어 실행 중인 ESPHome Device Builder 애드온. 통합은 Supervisor를 통해 애드온을 찾으며, Container/Core 설치와 외부 Builder는 지원하지 않습니다.
+- **기본 URL:** ESPHome 기기가 펌웨어를 내려받을 Home Assistant의 외부 접속 주소. 외부에서 OTA를 받으려면 인터넷에서 접근 가능해야 합니다(도메인과 HTTPS). [검증 환경](docs/development.md#verified-environments) 참고(영어).
 
 ## 설치
 
@@ -48,9 +48,14 @@ ESPHome Device Builder 애드온의 신뢰 루프백 리스너를 사용해 펌�
 
 **설정 → 기기 및 서비스 → 통합 추가 → ESPHome OTA**를 선택합니다.
 
+1. ESPHome Builder가 여러 개 발견되면 사용할 Builder를 고릅니다. 하나뿐이면 자동으로 선택됩니다.
+2. **외부 접속 URL (Base URL)**을 입력합니다. 기기가 펌웨어를 가져올 Home Assistant의 외부 주소입니다(예: `https://ha.example.com`).
+
+이후 통합 항목의 **구성**에서 Base URL, Builder, **기본 자동 비공개 시간(시간)**(0 = 자동 비공개 안 함)을 바꿀 수 있습니다. 게시하기 전에 [중요 제한사항](#중요-제한사항)을 읽어 주세요.
+
 ### 제거
 
-통합 항목을 삭제하고 마켓플레이스에서 제거합니다. 게시한 펌웨어(`www/esphome_ota/`)와 프라이빗 보관본(`/config/esphome_ota/firmware/`)은 유지됩니다. 필요 없는 경우에만 해당 파일을 삭제하세요.
+기기 YAML에서 `packages.esphome_ota` 블록도 지우려면, 통합을 제거하기 전에 패널의 각 기기 카드에서 **OTA 설정 제거**를 누르세요. 통합 항목을 삭제해도 YAML은 수정되지 않습니다. 그다음 통합 항목을 삭제하고 마켓플레이스에서 제거합니다. 게시한 펌웨어(`www/esphome_ota/`)와 프라이빗 보관본(`/config/esphome_ota/firmware/`)은 유지됩니다. 필요 없는 경우에만 해당 파일을 삭제하세요.
 
 ## 빠른 시작
 
