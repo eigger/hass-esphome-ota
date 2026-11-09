@@ -73,10 +73,6 @@ Remove the integration entry and uninstall it from Marketplace. Published firmwa
 - Discovering a device never edits YAML or starts a build on its own.
 - Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is covered only by the manual procedure in [docs/validation.ko.md](docs/validation.ko.md) (Korean).
 
-## Coming from the legacy add-on
-
-The import from the ESPHome OTA Publisher add-on has been removed. Stop or uninstall the add-on and delete its leftover files in `www/esphome_ota/` (uninstalling does not remove them; they are served without authentication and contain device secrets). Then set devices up again here: **Prepare OTA**, **Build & Publish**, and one install through ESPHome Builder. Devices imported by an earlier release keep working; any of them without a strong token gets a new one at startup and needs that one install as well. At startup the integration logs a warning for any public firmware left at a guessable URL.
-
 ## Documentation
 
 - [Features and architecture](docs/features.md)
