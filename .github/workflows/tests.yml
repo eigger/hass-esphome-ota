@@ -14,7 +14,7 @@ concurrency:
 # code uses); an exact-minimum job is not added yet (see STANDARDS.md exception).
 jobs:
   current:
-    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@v1.1.5 # reviewed standards commit
+    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@v1.2.0 # reviewed standards commit
     with:
       domain: esphome_ota
       python-versions: '["3.14"]'
