@@ -26,8 +26,6 @@ A Home Assistant custom integration that connects to the ESPHome Device Builder 
 - Supported targets: ESP32 family and ESP8266. RP2040/RP2350 devices are not supported (their firmware has no verifiable header) and are rejected before a build starts.
 - Sidebar panel with batch builds, job cancellation, and first-install guidance; manual firmware upload.
 
-More detail and the architecture overview: [docs/features.md](docs/features.md).
-
 ## Requirements
 
 - **Home Assistant:** 2024.11.0 or later.
@@ -81,8 +79,6 @@ Before removing the integration, click **Remove OTA** on each device card in the
 
 ## Documentation
 
-- [Features and architecture](docs/features.md)
-- [Design notes (Korean)](docs/architecture.ko.md)
 - [Connection diagnostics and troubleshooting (Korean)](docs/troubleshooting.ko.md)
 
 <!-- hass-standards:support:start -->

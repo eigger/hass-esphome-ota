@@ -26,8 +26,6 @@ ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home As
 - 지원 대상: ESP32 계열과 ESP8266. RP2040/RP2350은 검증 가능한 펌웨어 헤더가 없어 지원하지 않으며 빌드 시작 전에 거부됩니다.
 - 일괄 빌드·작업 취소·최초 설치 안내 사이드바 패널, 수동 펌웨어 업로드.
 
-상세 기능과 시스템 구조: [docs/features.ko.md](docs/features.ko.md).
-
 ## 요구사항
 
 - **Home Assistant:** 2024.11.0 이상.
@@ -81,8 +79,6 @@ ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home As
 
 ## 문서
 
-- [기능 및 시스템 구조](docs/features.ko.md)
-- [상세 설계](docs/architecture.ko.md)
 - [실환경 연결 진단과 문제 해결](docs/troubleshooting.ko.md)
 
 <!-- hass-standards:support:start -->
