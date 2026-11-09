@@ -196,7 +196,14 @@ class ArtifactPublisher:
                 backup_files = [backup_bin, backup_md5, backup_manifest]
 
                 # Build ESP-Web-Tools manifest
-                published_at = datetime.now(timezone.utc).isoformat()
+                published_dt = datetime.now(timezone.utc)
+                published_at = published_dt.isoformat()
+                # ``v`` busts caches when the binary changes; ``p`` is unique per
+                # publication so a republished identical binary gets a fresh URL
+                # (a 404 cached while it was hidden must not be reused).
+                cache_buster = (
+                    f"v={digest[:8]}&p={published_dt.strftime('%Y%m%d%H%M%S%f')}"
+                )
                 manifest: dict[str, Any] = {
                     "name": title or configuration,
                     "version": version,
@@ -206,7 +213,7 @@ class ArtifactPublisher:
                             "chipFamily": chip_family,
                             "ota": {
                                 "md5": digest,
-                                "path": f"{bin_name}?v={digest[:8]}",
+                                "path": f"{bin_name}?{cache_buster}",
                                 "summary": summary or "Built by ESPHome OTA",
                             },
                         }

@@ -12,7 +12,7 @@
   - Explicit completion validation (rejects `unknown` or silent stream closures).
   - Single-use token downloads directly to private artifact storage.
   - Binary integrity inspection: chip family validation (`esp_image_header_t`), GCC build times, framework and project boot versions.
-  - Atomic publishing with cache-busting headers (`?v=<md5>`) to `/local/esphome_ota/`.
+  - Atomic publishing with cache-busting headers (`?v=<md5>&p=<publish time>`) to `/local/esphome_ota/`.
 - **First-Time Install Guidance**: Clearly distinguishes between firmware publication and actual device installation, guiding users when an initial USB or local OTA flash is required.
 - **Native Custom Sidebar Panel**:
   - Responsive, modern dashboard adhering to Home Assistant theme variables and dark mode.

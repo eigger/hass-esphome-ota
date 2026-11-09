@@ -17,7 +17,7 @@
 | 단일 사용 토큰 다운로드 | MockBuilderServer HTTP | **통과 (100%)** | 토큰 만료/불일치 시 401 거부 및 예외 처리 |
 | 바이너리 분석 및 검증 | 정밀 바이너리 신서사이저 | **통과 (100%)** | chip_id, esp_app_desc_t, 부트 로그 버전 추출, 칩 불일치 거부 |
 | YAML CAS 및 버전 소유권 | 유닛 테스트 | **통과 (100%)** | `esphome.project.version` vs `esp32.framework.version` 구분 및 CAS 충돌 검증 |
-| 원자적 게시 & 숨김 | 파일시스템 테스트 | **통과 (100%)** | Manifest-last 순서, 캐시버스터(`?v=`), 프라이빗 보존 |
+| 원자적 게시 & 숨김 | 파일시스템 테스트 | **통과 (100%)** | Manifest-last 순서, 캐시버스터(`?v=`, `&p=`), 프라이빗 보존 |
 | 기기 상태 전이 & 잠금 | asyncio 동시성 테스트 | **통과 (100%)** | `needs_initial_install` 구분, 기기별 동시 빌드 직렬화 |
 | Update 엔티티 감시 & 만료 | HA State 머신 테스트 | **통과 (100%)** | `installed_version` 일치 감시, unavailable 제외, 만료 타이머 |
 | 웹소켓 API & 수동 업로드 | HA WS/HTTP 클라이언트 | **통과 (100%)** | 관리자 권한 확인, 스냅샷+델타 구독, 16MB 업로드 제한 |
