@@ -55,7 +55,31 @@ async def test_publish_atomic_and_manifest_last(hass: HomeAssistant) -> None:
     manifest_data = json.loads(pub_manifest.read_text(encoding="utf-8"))
     assert manifest_data["version"] == "1.0.0"
     assert manifest_data["builds"][0]["chipFamily"] == "ESP32"
-    assert f"?v={info.md5[:8]}" in manifest_data["builds"][0]["ota"]["path"]
+    assert f"?v={info.md5[:8]}&p=" in manifest_data["builds"][0]["ota"]["path"]
+
+
+async def test_republish_same_binary_changes_ota_path(hass: HomeAssistant) -> None:
+    """Republishing an identical binary must produce a new ota path URL."""
+    publisher = ArtifactPublisher(hass, publish_dir="esphome_ota_test")
+    blob = b"\xe9\x00\x00\x00" + b"\x00" * 2000
+    info = inspect_binary(blob, target_platform="esp32", reserved_version="1.0.0")
+
+    paths = []
+    for _ in range(2):
+        artifact = await publisher.async_publish(
+            device_id="livingroom",
+            configuration="livingroom",
+            slug="livingroom-token",
+            blob=blob,
+            info=info,
+        )
+        manifest = json.loads(
+            Path(artifact.public_manifest_path).read_text(encoding="utf-8")
+        )
+        paths.append(manifest["builds"][0]["ota"]["path"])
+
+    assert paths[0] != paths[1]
+    assert paths[0].split("&p=")[0] == paths[1].split("&p=")[0]
 
 
 async def test_deactivate_removes_binary_keeps_manifest(hass: HomeAssistant) -> None:
