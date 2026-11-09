@@ -3,7 +3,7 @@
 작성일: 2026-10-10  
 상태: 자동화 테스트 124개(하위 테스트 12개 포함) 전체 통과, 실환경 런타임 검증 대기 (실환경 미검증 명시)
 
-본 문서는 `WORK_ORDER.md` 및 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
+본 문서는 `docs/architecture.ko.md`에 정의된 검증 기준과 수용 기준에 따라, 자동화 테스트로 검증된 항목과 실제 Home Assistant OS + ESPHome Device Builder 애드온 환경에서 수행해야 할 실환경 진단 절차를 정리합니다.
 
 ---
 

@@ -62,13 +62,17 @@ Remove the integration entry and uninstall it from Marketplace. Published firmwa
 ## Important limitations
 
 - Publishing firmware is not the same as installing it on a device; the panel reports them separately.
-- Published firmware is served from `/local/` without authentication and contains the device's Wi-Fi, API and OTA secrets. Its URL is protected only by a random token of at least 32 hex characters, which every device is required to have; keep it private.
+> [!WARNING]
+> **Published firmware contains your device secrets and is served without authentication.**
+>
+> - This integration only makes Home Assistant serve your OTA firmware; it does not decide who may reach it. Whether, how widely and for how long that file is reachable from the internet (public OTA) is your responsibility, so expose it only as much as you need.
+> - ESPHome resolves `!secret` values at compile time, so the built `.ota.bin` embeds your Wi-Fi SSID and password, API encryption key and OTA password in plain text. Anyone who downloads the file can read them.
+> - The file is served from `/local/esphome_ota/` with no Home Assistant login. Its only protection is a random token of at least 32 hex characters in the URL, which every device is required to have. Treat the URL like a password: do not share it or paste it in issues, screenshots or logs.
+> - Keep the exposure window short. Firmware is hidden automatically once the installation is verified (default on) and after the **Auto-hide after (hours)** time (default 12 hours); hide it manually if you do not need it published.
+> - Hiding removes the public file but does not cancel a download already in progress or a copy cached by a reverse proxy or CDN. If you suspect the URL leaked, rotate the Wi-Fi password, API key and OTA password.
+
 - Discovering a device never edits YAML or starts a build on its own.
 - Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is covered only by the manual procedure in [docs/validation.ko.md](docs/validation.ko.md) (Korean).
-
-## Coming from the legacy add-on
-
-The import from the ESPHome OTA Publisher add-on has been removed. Stop or uninstall the add-on and delete its leftover files in `www/esphome_ota/` (uninstalling does not remove them; they are served without authentication and contain device secrets). Then set devices up again here: **Prepare OTA**, **Build & Publish**, and one install through ESPHome Builder. Devices imported by an earlier release keep working; any of them without a strong token gets a new one at startup and needs that one install as well. At startup the integration logs a warning for any public firmware left at a guessable URL.
 
 ## Documentation
 
