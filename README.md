@@ -75,11 +75,11 @@ Before removing the integration, click **Remove OTA** on each device card in the
 > - Hiding removes the public file but does not cancel a download already in progress or a copy cached by a reverse proxy or CDN. If you suspect the URL leaked, rotate the Wi-Fi password, API key and OTA password.
 
 - Discovering a device never edits YAML or starts a build on its own.
-- Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is covered only by the manual procedure in [docs/troubleshooting.md](docs/troubleshooting.md).
+- Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is not covered by automated tests.
 
-## Documentation
+## Troubleshooting
 
-- [Connection diagnostics and troubleshooting](docs/troubleshooting.md)
+If the integration cannot reach the Builder, or a build or install fails, see [Connection diagnostics and troubleshooting](docs/troubleshooting.md).
 
 <!-- hass-standards:support:start -->
 ## Support

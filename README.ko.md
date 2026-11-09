@@ -75,11 +75,11 @@ ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home As
 > - 비공개는 공개 파일을 지울 뿐 이미 진행 중인 다운로드나 리버스 프록시·CDN에 캐시된 사본을 취소하지는 않습니다. URL 유출이 의심되면 Wi-Fi 비밀번호, API 키, OTA 비밀번호를 교체하세요.
 
 - 기기 발견만으로 YAML을 수정하거나 빌드를 시작하지 않습니다.
-- 실제 Home Assistant 대상 자동 테스트로 검증했으며, 실물 기기·실제 Builder 동작은 [docs/troubleshooting.ko.md](docs/troubleshooting.ko.md)의 수동 절차로만 확인합니다.
+- 실제 Home Assistant 대상 자동 테스트로 검증했으며, 실물 기기·실제 Builder 동작은 자동 테스트로 확인하지 않습니다.
 
-## 문서
+## 문제 해결
 
-- [실환경 연결 진단과 문제 해결](docs/troubleshooting.ko.md)
+Builder에 연결되지 않거나 빌드·설치가 실패하면 [실환경 연결 진단과 문제 해결](docs/troubleshooting.ko.md)을 참고하세요.
 
 <!-- hass-standards:support:start -->
 ## 지원
