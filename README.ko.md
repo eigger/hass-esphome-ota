@@ -32,7 +32,7 @@ ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home As
 
 - **Home Assistant:** 2024.11.0 이상.
 - **애드온:** Home Assistant OS 또는 Supervised에 설치되어 실행 중인 ESPHome Device Builder 애드온. 통합은 Supervisor를 통해 애드온을 찾으며, Container/Core 설치와 외부 Builder는 지원하지 않습니다.
-- **기본 URL:** ESPHome 기기가 펌웨어를 내려받을 Home Assistant의 외부 접속 주소. 외부에서 OTA를 받으려면 인터넷에서 접근 가능해야 합니다(도메인과 HTTPS). [검증 환경](docs/development.md#verified-environments) 참고(영어).
+- **기본 URL:** ESPHome 기기가 펌웨어를 내려받을 Home Assistant의 외부 접속 주소. 외부에서 OTA를 받으려면 인터넷에서 접근 가능해야 합니다(도메인과 HTTPS).
 
 ## 설치
 
@@ -77,14 +77,13 @@ ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home As
 > - 비공개는 공개 파일을 지울 뿐 이미 진행 중인 다운로드나 리버스 프록시·CDN에 캐시된 사본을 취소하지는 않습니다. URL 유출이 의심되면 Wi-Fi 비밀번호, API 키, OTA 비밀번호를 교체하세요.
 
 - 기기 발견만으로 YAML을 수정하거나 빌드를 시작하지 않습니다.
-- 실제 Home Assistant 대상 자동 테스트로 검증했으며, 실물 기기·실제 Builder 동작은 [docs/validation.ko.md](docs/validation.ko.md)의 수동 절차로만 확인합니다.
+- 실제 Home Assistant 대상 자동 테스트로 검증했으며, 실물 기기·실제 Builder 동작은 [docs/troubleshooting.ko.md](docs/troubleshooting.ko.md)의 수동 절차로만 확인합니다.
 
 ## 문서
 
 - [기능 및 시스템 구조](docs/features.ko.md)
-- [개발 및 테스트](docs/development.md) (영문)
 - [상세 설계](docs/architecture.ko.md)
-- [HA OS 실환경 검증](docs/validation.ko.md)
+- [실환경 연결 진단과 문제 해결](docs/troubleshooting.ko.md)
 
 <!-- hass-standards:support:start -->
 ## 지원
