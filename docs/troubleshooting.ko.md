@@ -1,6 +1,6 @@
 # 실환경 연결 진단과 문제 해결
 
-[README로 돌아가기](../README.md)
+**한국어** | [English](troubleshooting.md) | [README로 돌아가기](../README.ko.md)
 
 자동 테스트는 Builder와의 네트워크 경계를 목(mock)으로 대체하므로, 실제 Home Assistant OS의 Builder 애드온과 기기 동작은 아래 절차로 확인합니다.
 
