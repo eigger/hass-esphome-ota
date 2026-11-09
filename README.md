@@ -26,13 +26,11 @@ A Home Assistant custom integration that connects to the ESPHome Device Builder 
 - Supported targets: ESP32 family and ESP8266. RP2040/RP2350 devices are not supported (their firmware has no verifiable header) and are rejected before a build starts.
 - Sidebar panel with batch builds, job cancellation, and first-install guidance; manual firmware upload.
 
-More detail and the architecture overview: [docs/features.md](docs/features.md).
-
 ## Requirements
 
 - **Home Assistant:** 2024.11.0 or later.
 - **Add-on:** The ESPHome Device Builder add-on, installed and running, on Home Assistant OS or Supervised. The integration finds it through the Supervisor; Container and Core installs and an external Builder are not supported.
-- **Base URL:** The external address of Home Assistant that your ESPHome devices use to download firmware. For OTA from outside your network it must be reachable from the internet (domain and HTTPS). See the [verified environments](docs/development.md#verified-environments).
+- **Base URL:** The external address of Home Assistant that your ESPHome devices use to download firmware. For OTA from outside your network it must be reachable from the internet (domain and HTTPS).
 
 ## Installation
 
@@ -77,14 +75,11 @@ Before removing the integration, click **Remove OTA** on each device card in the
 > - Hiding removes the public file but does not cancel a download already in progress or a copy cached by a reverse proxy or CDN. If you suspect the URL leaked, rotate the Wi-Fi password, API key and OTA password.
 
 - Discovering a device never edits YAML or starts a build on its own.
-- Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is covered only by the manual procedure in [docs/validation.ko.md](docs/validation.ko.md) (Korean).
+- Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is not covered by automated tests.
 
-## Documentation
+## Troubleshooting
 
-- [Features and architecture](docs/features.md)
-- [Development and testing](docs/development.md)
-- [Design notes (Korean)](docs/architecture.ko.md)
-- [Live validation on HA OS (Korean)](docs/validation.ko.md)
+If the integration cannot reach the Builder, or a build or install fails, see [Connection diagnostics and troubleshooting](docs/troubleshooting.md).
 
 <!-- hass-standards:support:start -->
 ## Support

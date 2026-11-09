@@ -22,7 +22,7 @@
       "computers_network"
     ],
     "integration_type": null,
-    "source": "README Supported features and docs/features.md: connects ESPHome Device Builder, compiles ESPHome firmware, verifies and publishes OTA binaries, and manages device firmware updates through a HA sidebar. Primary computers_network covers the actual computing/firmware tooling use across ESPHome devices; no specific end-device product class or cloud developer service is claimed."
+    "source": "README Supported features: connects ESPHome Device Builder, compiles ESPHome firmware, verifies and publishes OTA binaries, and manages device firmware updates through a HA sidebar. Primary computers_network covers the actual computing/firmware tooling use across ESPHome devices; no specific end-device product class or cloud developer service is claimed."
   },
   "readme": {
     "title": "ESPHome OTA for Home Assistant",
