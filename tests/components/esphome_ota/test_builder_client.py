@@ -74,7 +74,7 @@ async def test_compile_explicit_completion_success(
 async def test_compile_rejection_on_unknown_or_failed_status(
     mock_builder: MockBuilderServer,
 ) -> None:
-    """WORK_ORDER requirement: Explicit completion only, do NOT accept 'unknown'."""
+    """Requirement: Explicit completion only, do NOT accept 'unknown'."""
     async with aiohttp.ClientSession() as session:
         conn = BuilderConnection("127.0.0.1", mock_builder.port, session)
         await conn.connect()

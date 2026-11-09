@@ -1,8 +1,6 @@
 # ESPHome OTA 컴포넌트 이식 설계
 
-작성일: 2026-10-09. 상태: 구현 전 설계. 도메인: `esphome_ota`.
-
-이 문서는 `hassio-apps/docs/esphome-ota-integration-design.ko.md`에서 인계용으로 복사했으며, 대상 경로는 `/Users/eigger/Documents/GitHub/hass-esphome-ota`로 확정했다. 실행 범위와 검증 순서는 `WORK_ORDER.md`를 따른다.
+작성일: 2026-10-09. 상태: 구현 완료(설계 기록). 도메인: `esphome_ota`.
 
 ## 1. 목표와 완료 기준
 
@@ -229,7 +227,7 @@ public 파일 제거는 이미 진행 중인 다운로드나 앞단 캐시를 �
 
 ## 10. HA API와 프런트엔드
 
-- 관리자 WS 명령: 연결 상태/재탐색, 목록/상세, OTA 변경 계획/적용, 빌드·게시, 취소, 재게시/숨김, HA 엔티티 연결, 이전 데이터 가져오기.
+- 관리자 WS 명령: 연결 상태/재탐색, 목록/상세, OTA 변경 계획/적용, 빌드·게시, 취소, 재게시/숨김, HA 엔티티 연결.
 - subscription: 초기 snapshot + 기기 변경 + 연결 변경 + job 진행 이벤트. sequence와 bounded log tail을 포함하고 재구독 시 복구한다.
 - 패널을 닫으면 subscription만 해제한다. 페이지 로드마다 전체 목록을 매초 polling하지 않는다.
 - 빌드 요청은 job_id를 즉시 반환한다. 완료까지 HA WS 응답을 잡고 있지 않는다.
@@ -237,33 +235,7 @@ public 파일 제거는 이미 진행 중인 다운로드나 앞단 캐시를 �
 - UI에 raw YAML·공개 토큰 URL·전체 빌드 로그를 상시 노출하지 않는다. 상세 확인과 복사 동작에서만 필요한 내용을 제공한다.
 - 외부 입력은 schema·configuration 경계·path traversal을 검증한다. 사용자 지정 URL 접근은 관리자 설정에만 한정한다.
 
-## 11. 기존 애드온 코드와 데이터 이전
-
-| 현재 파일 | 처리 |
-|---|---|
-| `main.py`, services run, Dockerfile | 새 통합 실행에는 사용하지 않음. 기존 애드온 배포는 유지 |
-| `server.py` App/route | manager/jobs/devices/websocket/http로 책임 분리 |
-| `dashboard.py` | command/stream 의미 재사용, session 주입·reader 종료·재연결·job 복구 보강 |
-| `metadata.py` | 바이너리·텍스트/YAML 분석을 순수 로직으로 분리. 파일 scan은 게시 디렉터리 관리로 제한 |
-| `packages.py` | 생성 로직 재사용. 생성과 파일 쓰기 분리, 새 inline 관리 package 추가 |
-| `publisher.py` | 원자적 파일 처리 재사용. private 경로 주입·immutable artifact·저장 오류 처리 보강 |
-| `registry.py` | HA Store와 버전 migration으로 교체 |
-| `supervisor.py` | HA discovery adapter와 state/registry 접근으로 대체 |
-| `static/index.html` | 기능·번역 재사용, custom panel과 WS subscription으로 재구성 |
-
-> 아래 레거시 애드온 데이터 이전 절차는 초기 설계 기록이다. 가져오기 기능은 이후 제거되었다(레거시 사용자 감소, 공개 URL 토큰 필수화).
-
-이전 순서:
-
-1. `esphome/ota_server/registered.json`, 래퍼, 공개 manifest를 읽기 전용으로 검사하고 가져올 기기·파일 요약 생성.
-2. 토큰, slug, version 소유권, base URL, 선택한 HA entity, expiry를 보존하며 Store로 변환.
-3. 공개 binary가 있으면 private 저장소에 복사하고 해시 검증. 애드온 `/data/firmware`의 숨긴 binary는 애드온 export 기능을 통해 이전한다. 통합에서 직접 읽을 수 있다고 가정하지 않는다.
-4. 애드온을 중지한 뒤 최종 재검사와 가져오기를 실행한다. 같은 registry·www에 두 writer를 동시에 두지 않는다.
-5. 가져오기 결과와 재연결을 확인한다. 기존 파일은 migration 성공 뒤에도 자동 삭제하지 않는다.
-
-구현 위치는 `/Users/eigger/Documents/GitHub/hass-esphome-ota`이며 HACS용 커스텀 통합 저장소로 구성한다. 원본 `hassio-apps`는 참조하고 변경하지 않는다. 원격 저장소 생성·게시와 기존 애드온 종료는 구현 작업의 자동 수행 범위에 포함하지 않는다. 상세 작업 범위는 상위 디렉터리의 `WORK_ORDER.md`를 따른다.
-
-## 12. 구현 순서와 검증
+## 11. 구현 순서와 검증
 
 | 단계 | 결과물 | 통과 기준 |
 |---|---|---|
