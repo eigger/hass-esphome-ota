@@ -561,24 +561,31 @@ class OtaManager:
             self._start_reconnect_loop()
             raise
 
-    async def refresh_devices(self) -> None:
-        """Fetch updated device list from Builder."""
+    async def refresh_devices(self) -> bool:
+        """Fetch updated device list from Builder.
+
+        Returns True when the list was refreshed, False when there is no active
+        Builder connection or the fetch failed.
+        """
         if self._unloaded:
-            return
+            return False
         client = self.resolver.active_client
-        if client:
-            try:
-                devices = await client.list_devices()
-                if self._unloaded:
-                    return
-                self.device_manager.update_builder_devices(devices)
-                self.dispatch_event(
-                    "devices_updated", {"devices": self.device_manager.list_all()}
-                )
-            except Exception as err:  # noqa: BLE001
-                if self._unloaded:
-                    return
-                _LOGGER.debug("Failed refreshing devices: %s", err)
+        if not client:
+            return False
+        try:
+            devices = await client.list_devices()
+            if self._unloaded:
+                return False
+            self.device_manager.update_builder_devices(devices)
+            self.dispatch_event(
+                "devices_updated", {"devices": self.device_manager.list_all()}
+            )
+        except Exception as err:  # noqa: BLE001
+            if self._unloaded:
+                return False
+            _LOGGER.debug("Failed refreshing devices: %s", err)
+            return False
+        return True
 
 
 type OtaConfigEntry = ConfigEntry[OtaManager]

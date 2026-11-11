@@ -80,6 +80,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_cancel_job)
     websocket_api.async_register_command(hass, ws_select_builder)
     websocket_api.async_register_command(hass, ws_reconnect)
+    websocket_api.async_register_command(hass, ws_refresh_devices)
     websocket_api.async_register_command(hass, ws_subscribe)
 
 
@@ -1252,6 +1253,40 @@ async def ws_reconnect(
         connection.send_result(msg["id"], {"status": manager.resolver.status})
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "reconnect_failed", str(err))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "esphome_ota/refresh_devices",
+    }
+)
+@websocket_api.async_response
+async def ws_refresh_devices(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Re-fetch the device list from the connected Builder (no reconnect)."""
+    manager = _get_manager(hass)
+    try:
+        refreshed = await manager.refresh_devices()
+        if not refreshed:
+            connection.send_error(
+                msg["id"],
+                "refresh_devices_failed",
+                "Builder is not connected or the device list could not be fetched",
+            )
+            return
+        connection.send_result(
+            msg["id"],
+            {
+                "status": manager.resolver.status,
+                "devices": manager.device_manager.list_all(),
+            },
+        )
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "refresh_devices_failed", str(err))
 
 
 @websocket_api.require_admin
