@@ -41,13 +41,13 @@ from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.firmware import inspect_binary
 from custom_components.esphome_ota.jobs import JobRunner
 from custom_components.esphome_ota.manager import OtaManager
-from custom_components.esphome_ota.websocket import async_register_websocket_commands
 from custom_components.esphome_ota.models import (
     BuilderCandidate,
     EsphomeOtaError,
 )
 from custom_components.esphome_ota.publisher import ArtifactPublisher
 from custom_components.esphome_ota.storage import StorageManager
+from custom_components.esphome_ota.websocket import async_register_websocket_commands
 from tests.components.esphome_ota.conftest import MockBuilderServer
 
 # ---------------------------------------------------------------------------
