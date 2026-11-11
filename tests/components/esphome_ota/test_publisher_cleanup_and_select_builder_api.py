@@ -10,13 +10,14 @@ Issues covered:
    - OptionsFlow supports selecting 'auto' to revert to automatic discovery.
    - WebSocket API 'esphome_ota/select_builder' and 'esphome_ota/reconnect' (with slug parameter)
      allow selecting candidates and transitioning from selection_required to ready.
+- WebSocket API 'esphome_ota/refresh_devices' reports failure when the list was not refreshed.
 """
 
 from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
@@ -40,6 +41,7 @@ from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.firmware import inspect_binary
 from custom_components.esphome_ota.jobs import JobRunner
 from custom_components.esphome_ota.manager import OtaManager
+from custom_components.esphome_ota.websocket import async_register_websocket_commands
 from custom_components.esphome_ota.models import (
     BuilderCandidate,
     EsphomeOtaError,
@@ -420,32 +422,41 @@ async def test_issue2_websocket_reconnect_with_slug(
         await hass.config_entries.async_unload(entry.entry_id)
 
 
-async def test_websocket_refresh_devices_calls_manager(
+def _fake_refresh_manager(refreshed: bool | Exception) -> Any:
+    manager = MagicMock()
+    if isinstance(refreshed, Exception):
+        manager.refresh_devices = AsyncMock(side_effect=refreshed)
+    else:
+        manager.refresh_devices = AsyncMock(return_value=refreshed)
+    manager.resolver.status = STATUS_READY
+    manager.device_manager.list_all.return_value = [{"device_id": "x"}]
+    return manager
+
+
+@pytest.mark.parametrize(
+    ("outcome", "success"),
+    [(True, True), (False, False), (RuntimeError("boom"), False)],
+)
+async def test_websocket_refresh_devices(
     hass: HomeAssistant,
     hass_ws_client: Any,
+    outcome: bool | Exception,
+    success: bool,
 ) -> None:
-    """esphome_ota/refresh_devices re-fetches the device list without reconnecting."""
-    from unittest.mock import AsyncMock
-
-    manager = type(
-        "M",
-        (),
-        {},
-    )()
-    manager.refresh_devices = AsyncMock()
-    manager.resolver = type("R", (), {"status": STATUS_READY})()
-    manager.device_manager = type("D", (), {"list_all": lambda self: [{"device_id": "x"}]})()
-
+    """esphome_ota/refresh_devices reports success only when the list was refreshed."""
+    manager = _fake_refresh_manager(outcome)
     with patch(
         "custom_components.esphome_ota.websocket._get_manager", return_value=manager
     ):
-        from custom_components.esphome_ota.websocket import async_register_websocket_commands
-
         async_register_websocket_commands(hass)
         client = await hass_ws_client(hass)
         await client.send_json({"id": 1, "type": "esphome_ota/refresh_devices"})
         resp = await client.receive_json()
 
-    assert resp["success"] is True
-    assert resp["result"]["devices"] == [{"device_id": "x"}]
+    assert resp["success"] is success
     manager.refresh_devices.assert_awaited_once()
+    if success:
+        assert resp["result"]["status"] == STATUS_READY
+        assert resp["result"]["devices"] == [{"device_id": "x"}]
+    else:
+        assert resp["error"]["code"] == "refresh_devices_failed"
