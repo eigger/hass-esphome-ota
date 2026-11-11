@@ -458,3 +458,56 @@ packages:
     updated2, changed2 = set_package_ota_slug(updated, "livingroom_new456")
     assert changed2 is False
     assert updated2 == updated
+
+
+_LVGL_DEVICE = """esphome:
+  name: panel
+packages:
+  base: !include base.yaml
+ota:
+  - id: !extend ota_http
+    on_begin:
+      - lvgl.label.update:
+          id: ota_label
+          text: "Updating"
+script:
+  - id: show_ota
+    then:
+      - logger.log: hi
+lvgl:
+  pages: []
+"""
+
+
+def test_managed_package_has_fixed_ota_ids() -> None:
+    """Managed package exposes fixed ota_http id and links the update entity to it."""
+    for src in ("esphome:\n  name: panel\n", _LVGL_DEVICE):
+        modified = apply_ota_patch(src, "http://ha", "panel_" + "a" * 32).modified
+        pkg = parse_yaml_safe(modified)["packages"]["esphome_ota"]
+        assert pkg["ota"][0]["id"] == "ota_http"
+        assert pkg["update"][0]["id"] == "ota_update"
+        assert pkg["update"][0]["ota_id"] == "ota_http"
+
+
+def test_patch_and_remove_preserve_top_level_ota_script_lvgl() -> None:
+    """Regeneration and removal keep user-owned ota/script/lvgl outside the package."""
+    patched = apply_ota_patch(_LVGL_DEVICE, "http://ha", "panel_" + "a" * 32).modified
+    again = apply_ota_patch(patched, "http://ha", "panel_" + "b" * 32).modified
+    for text in (patched, again):
+        assert "ota:\n  - id: !extend ota_http\n    on_begin:" in text
+        assert "script:\n  - id: show_ota" in text
+        assert "lvgl:\n  pages: []" in text
+    removed, changed = remove_ota_patch(again)
+    assert changed
+    assert "!extend ota_http" in removed
+    assert "script:\n  - id: show_ota" in removed
+    assert "lvgl:" in removed
+
+
+def test_ota_ids_survive_four_space_indent() -> None:
+    """4-space reindent keeps id/ota_id lines inside their list items."""
+    src = "esphome:\n    name: panel\npackages:\n    other: !include o.yaml\n"
+    modified = apply_ota_patch(src, "http://ha", "panel_" + "a" * 32).modified
+    pkg = parse_yaml_safe(modified)["packages"]["esphome_ota"]
+    assert pkg["ota"][0] == {"platform": "http_request", "id": "ota_http"}
+    assert pkg["update"][0]["ota_id"] == "ota_http"

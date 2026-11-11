@@ -91,12 +91,14 @@ def generate_inline_ota_yaml(
 
     ota:
       - platform: http_request
+        id: ota_http
 
     safe_mode:
 
     update:
       - platform: http_request
         id: ota_update
+        ota_id: ota_http
         name: "Firmware"
         source: "${{ota_base_url}}/local/{publish_dir}/${{ota_slug}}.json"
         update_interval: 6h

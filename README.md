@@ -77,6 +77,29 @@ Before removing the integration, click **Remove OTA** on each device card in the
 - Discovering a device never edits YAML or starts a build on its own.
 - Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is not covered by automated tests.
 
+## Hooking into OTA events (e.g. LVGL)
+
+The managed package gives the OTA component the fixed ID `ota_http` and links the update entity to it (`ota_id: ota_http`, update component ID `ota_update`). Keep your own callbacks **outside** the package; regenerating or re-applying the package never touches top-level `ota:`, `script:` or `lvgl:`.
+
+```yaml
+ota:
+  - id: !extend ota_http
+    on_begin:
+      - lvgl.label.update:
+          id: ota_label
+          text: "Updating..."
+    on_progress:
+      - lvgl.label.update:
+          id: ota_label
+          text: !lambda 'return str_sprintf("%.0f%%", x);'
+    on_error:
+      - lvgl.label.update:
+          id: ota_label
+          text: "OTA failed"
+```
+
+`ota_http` and `ota_update` are reserved IDs. If you click **Remove OTA**, also delete your `!extend ota_http` entry, otherwise the config no longer compiles.
+
 ## Troubleshooting
 
 If the integration cannot reach the Builder, or a build or install fails, see [Connection diagnostics and troubleshooting](docs/troubleshooting.md).

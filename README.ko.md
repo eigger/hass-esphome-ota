@@ -77,6 +77,29 @@ ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home As
 - 기기 발견만으로 YAML을 수정하거나 빌드를 시작하지 않습니다.
 - 실제 Home Assistant 대상 자동 테스트로 검증했으며, 실물 기기·실제 Builder 동작은 자동 테스트로 확인하지 않습니다.
 
+## OTA 이벤트 연결 (예: LVGL)
+
+관리되는 패키지는 OTA 컴포넌트에 고정 ID `ota_http`를 부여하고 업데이트 엔티티를 여기에 연결합니다(`ota_id: ota_http`, 업데이트 컴포넌트 ID `ota_update`). 직접 만든 콜백은 패키지 **밖**에 두세요. 패키지를 다시 생성하거나 적용해도 최상위 `ota:`, `script:`, `lvgl:`은 건드리지 않습니다.
+
+```yaml
+ota:
+  - id: !extend ota_http
+    on_begin:
+      - lvgl.label.update:
+          id: ota_label
+          text: "업데이트 중..."
+    on_progress:
+      - lvgl.label.update:
+          id: ota_label
+          text: !lambda 'return str_sprintf("%.0f%%", x);'
+    on_error:
+      - lvgl.label.update:
+          id: ota_label
+          text: "OTA 실패"
+```
+
+`ota_http`, `ota_update`는 예약된 ID입니다. **OTA 설정 제거**를 누르면 `!extend ota_http` 항목도 함께 지워야 하며, 그렇지 않으면 컴파일되지 않습니다.
+
 ## 문제 해결
 
 Builder에 연결되지 않거나 빌드·설치가 실패하면 [실환경 연결 진단과 문제 해결](docs/troubleshooting.ko.md)을 참고하세요.
