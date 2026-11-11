@@ -79,7 +79,7 @@ Before removing the integration, click **Remove OTA** on each device card in the
 
 ## Hooking into OTA events (e.g. LVGL)
 
-The managed package gives the OTA component the fixed ID `ota_http` and links the update entity to it (`ota_id: ota_http`, entity ID `ota_update`). Keep your own callbacks **outside** the package; regenerating or re-applying the package never touches top-level `ota:`, `script:` or `lvgl:`.
+The managed package gives the OTA component the fixed ID `ota_http` and links the update entity to it (`ota_id: ota_http`, update component ID `ota_update`). Keep your own callbacks **outside** the package; regenerating or re-applying the package never touches top-level `ota:`, `script:` or `lvgl:`.
 
 ```yaml
 ota:
