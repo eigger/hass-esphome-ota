@@ -418,3 +418,34 @@ async def test_issue2_websocket_reconnect_with_slug(
 
         await client.close()
         await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_websocket_refresh_devices_calls_manager(
+    hass: HomeAssistant,
+    hass_ws_client: Any,
+) -> None:
+    """esphome_ota/refresh_devices re-fetches the device list without reconnecting."""
+    from unittest.mock import AsyncMock
+
+    manager = type(
+        "M",
+        (),
+        {},
+    )()
+    manager.refresh_devices = AsyncMock()
+    manager.resolver = type("R", (), {"status": STATUS_READY})()
+    manager.device_manager = type("D", (), {"list_all": lambda self: [{"device_id": "x"}]})()
+
+    with patch(
+        "custom_components.esphome_ota.websocket._get_manager", return_value=manager
+    ):
+        from custom_components.esphome_ota.websocket import async_register_websocket_commands
+
+        async_register_websocket_commands(hass)
+        client = await hass_ws_client(hass)
+        await client.send_json({"id": 1, "type": "esphome_ota/refresh_devices"})
+        resp = await client.receive_json()
+
+    assert resp["success"] is True
+    assert resp["result"]["devices"] == [{"device_id": "x"}]
+    manager.refresh_devices.assert_awaited_once()

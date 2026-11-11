@@ -794,6 +794,8 @@ class EsphomeOtaManager extends HTMLElement {
         (msg) => this.handleEvent(msg),
         { type: "esphome_ota/subscribe" }
       );
+      // New devices added to the Builder after setup are not pushed; pick them up on open.
+      this.refreshDevices({ silent: true });
     } catch (err) {
       console.error("Subscription error:", err);
       if (fallback) await this.loadInitialFallback();
@@ -913,6 +915,31 @@ class EsphomeOtaManager extends HTMLElement {
       this.devicesLoaded = true;
       this.jobs = msg.jobs || [];
       this.render();
+    }
+  }
+
+  async refreshDevices({ silent = false } = {}) {
+    if (this._refreshingDevices) return;
+    this._refreshingDevices = true;
+    const button = this.shadowRoot?.getElementById("btn-refresh-devices");
+    if (button) button.disabled = true;
+    try {
+      const result = await this.hass.callWS({ type: "esphome_ota/refresh_devices" });
+      if (result?.devices) {
+        this.devices = result.devices;
+        this.initialLoadError = false;
+        this.devicesLoaded = true;
+        this._pruneSelection();
+        this._renderDeviceList();
+      }
+      if (!silent) this.showToast(t(this.hass, "devices_refreshed"));
+    } catch (err) {
+      console.error("Device refresh error:", err);
+      if (!silent) this.showToast(`${t(this.hass, "devices_refresh_failed")}: ${err.message || err}`);
+    } finally {
+      this._refreshingDevices = false;
+      const btn = this.shadowRoot?.getElementById("btn-refresh-devices");
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -1065,6 +1092,7 @@ class EsphomeOtaManager extends HTMLElement {
           <span class="status-text"></span>
         </div>
         <div class="header-actions">
+          <button id="btn-refresh-devices">${escapeHtml(t(this.hass, "refresh_devices") || "Refresh devices")}</button>
           <button id="btn-reconnect">${escapeHtml(t(this.hass, "reconnect") || "Reconnect")}</button>
           <button class="btn-batch" id="btn-batch">${escapeHtml(t(this.hass, "batch_build") || "Batch Build")}</button>
         </div>
@@ -1099,6 +1127,7 @@ class EsphomeOtaManager extends HTMLElement {
       <esphome-ota-build-dialog></esphome-ota-build-dialog>
     `;
 
+    this.shadowRoot.getElementById("btn-refresh-devices")?.addEventListener("click", () => this.refreshDevices());
     this.shadowRoot.getElementById("btn-reconnect")?.addEventListener("click", () => this.refresh());
     this.shadowRoot.getElementById("btn-batch")?.addEventListener("click", () => this.batchBuild());
     this.shadowRoot.getElementById("btn-clear-selection")?.addEventListener("click", () => {
