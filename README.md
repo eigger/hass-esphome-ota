@@ -77,26 +77,28 @@ Before removing the integration, click **Remove OTA** on each device card in the
 - Discovering a device never edits YAML or starts a build on its own.
 - Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is not covered by automated tests.
 
-## The managed YAML block and the secret slug
+## The managed YAML block and secrets
 
-The public firmware URL is unauthenticated, so its random slug is the only protection. The slug is therefore **not** written into your device YAML; the managed block references it with `!secret` and the value lives in the Builder's `secrets.yaml`:
+The public firmware URL is unauthenticated, so its random slug is the only protection, and your Home Assistant URL or IP is private. Neither is written into your device YAML; the managed block references them with `!secret` and the values live in the Builder's `secrets.yaml`:
 
 ```yaml
 packages:
   esphome_ota:
     substitutions:
-      ota_base_url: "http://homeassistant.local:8123"
+      ota_base_url: !secret esphome_ota_base_url
       ota_slug: !secret esphome_ota_slug_livingroom
 ```
 
 ```yaml
-# secrets.yaml (only this one line is added or updated; other keys and comments are untouched)
+# secrets.yaml (only these lines are added or updated; other keys and comments are untouched)
+esphome_ota_base_url: "http://homeassistant.local:8123"
 esphome_ota_slug_livingroom: "livingroom_0123456789abcdef0123456789abcdef"
 ```
 
-- The key is `esphome_ota_slug_<device name>` (lowercase, `[a-z0-9_]`; a short hash is appended if the name contains other characters such as `-`). Your device YAML can be shared or committed without leaking the download URL; keep `secrets.yaml` private.
-- Devices that still have a plaintext `ota_slug` are migrated automatically on their next build, with the same slug value (no reinstall needed). The secret is written before the YAML is updated. If a YAML with the plaintext slug was already committed or shared, change the token as well: the old value stays in that history.
-- **Remove OTA** also removes this key from `secrets.yaml` (best effort). Changing the token updates the value in `secrets.yaml`.
+- `esphome_ota_base_url` is one key shared by all devices. Changing the Base URL in the integration options takes effect on each device's next build, which rewrites the secret; nothing runs in the background and device YAML never needs editing. **Remove OTA** leaves this shared key in place.
+- The slug key is `esphome_ota_slug_<device name>` (lowercase, `[a-z0-9_]`; a short hash is appended if the name contains other characters such as `-`). Your device YAML can be shared or committed without leaking the download URL; keep `secrets.yaml` private.
+- Devices that still have a plaintext `ota_base_url` or `ota_slug` are migrated automatically on their next build, with the same values (no reinstall needed). The secret is written before the YAML is updated. If a YAML with the plaintext values was already committed or shared, change the token as well: the old value stays in that history.
+- **Remove OTA** also removes the slug key (not the shared base URL key) from `secrets.yaml` (best effort). Changing the token updates the value in `secrets.yaml`.
 
 ## Hooking into OTA events (e.g. LVGL)
 

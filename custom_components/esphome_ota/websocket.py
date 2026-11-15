@@ -17,6 +17,7 @@ from homeassistant.loader import async_get_integration
 
 from .config_patch import (
     apply_ota_patch,
+    ota_base_url_secret_ref,
     ota_slug_secret_ref,
     remove_ota_patch,
     set_package_ota_slug,
@@ -31,6 +32,7 @@ from .models import (
     UnsupportedPlatformError,
 )
 from .packages import (
+    BASE_URL_SECRET_KEY,
     NODE_RE,
     TOKEN_RE,
     VERSION_RE,
@@ -436,7 +438,15 @@ async def ws_apply_ota(
     try:
         # The previewed YAML references the slug via ``!secret``; store the
         # value first so the saved configuration never dangles.
+        base_key = ota_base_url_secret_ref(content)
+        if base_key and base_key != BASE_URL_SECRET_KEY:
+            raise RuntimeError(
+                "Cannot store the ota_base_url secret for this device; "
+                "prepare the OTA configuration again before applying."
+            )
         slug_key = ota_slug_secret_ref(content)
+        if base_key:
+            await client.set_secret(base_key, manager.base_url.rstrip("/"))
         if slug_key:
             dev = manager.device_manager.get_device(
                 device_id

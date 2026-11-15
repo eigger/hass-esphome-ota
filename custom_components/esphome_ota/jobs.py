@@ -18,6 +18,7 @@ from .config_patch import (
     apply_ota_patch,
     bump_patch_version,
     has_unclear_project_ownership,
+    ota_base_url_secret_ref,
     ota_slug_secret_ref,
     own_project_version,
     set_project_version,
@@ -469,6 +470,11 @@ class JobRunner:
                 # the value to secrets.yaml first so the device YAML (and its
                 # validation) never points at a missing secret. The slug value
                 # is unchanged when migrating from a plaintext ota_slug.
+                # The shared base_url secret is rewritten on every build, so a
+                # changed base_url reaches devices on their next build.
+                base_key = ota_base_url_secret_ref(final_yaml)
+                if base_key:
+                    await client.set_secret(base_key, base_url.rstrip("/"))
                 slug_key = ota_slug_secret_ref(final_yaml)
                 if slug_key:
                     await client.set_secret(slug_key, device.slug)

@@ -118,3 +118,12 @@ class TestTokenOtaRegressions(unittest.TestCase):
         assert f'ota_slug: "{slug}"' in yaml_out
         assert "${ota_slug}.json" in yaml_out
         assert 'ota_base_url: "https://my-ha.duckdns.org"' in yaml_out
+        secret_out = generate_inline_ota_yaml(
+            base_url="https://my-ha.duckdns.org",
+            slug=slug,
+            version="1.0.1",
+            node="livingroom",
+            base_url_secret="esphome_ota_base_url",
+        )
+        assert "ota_base_url: !secret esphome_ota_base_url" in secret_out
+        assert "duckdns" not in secret_out

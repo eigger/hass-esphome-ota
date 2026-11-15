@@ -53,6 +53,8 @@ def yaml_dq(value: str) -> str:
 
 
 SLUG_SECRET_PREFIX = "esphome_ota_slug_"
+# One key shared by every device: base_url is global to the config entry.
+BASE_URL_SECRET_KEY = "esphome_ota_base_url"
 SECRETS_FILE = "secrets.yaml"
 _SECRET_KEY_BAD_RE = re.compile(r"[^a-z0-9_]")
 
@@ -131,14 +133,19 @@ def generate_inline_ota_yaml(
     node: str = "",
     use_project: bool = True,
     slug_secret: str | None = None,
+    base_url_secret: str | None = None,
 ) -> str:
     """Generate YAML snippet for packages.esphome_ota.
 
     With ``slug_secret`` the slug is emitted as ``!secret <key>`` so the device
-    YAML never contains the public-URL token; otherwise it is inlined.
+    YAML never contains the public-URL token; otherwise it is inlined. The same
+    applies to ``base_url_secret`` and ``ota_base_url`` (the private HA URL).
     """
     slug_value = f"!secret {slug_secret}" if slug_secret else yaml_dq(slug)
     clean_base_url = base_url.rstrip("/")
+    base_url_value = (
+        f"!secret {base_url_secret}" if base_url_secret else yaml_dq(clean_base_url)
+    )
     proj_block = ""
     if use_project and node and version:
         proj_block = f"""    esphome:
@@ -149,7 +156,7 @@ def generate_inline_ota_yaml(
     return f"""\
   esphome_ota:
     substitutions:
-      ota_base_url: {yaml_dq(clean_base_url)}
+      ota_base_url: {base_url_value}
       ota_slug: {slug_value}
 {proj_block}    http_request:
       timeout: 60s
