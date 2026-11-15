@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import secrets
 
@@ -51,6 +52,64 @@ def yaml_dq(value: str) -> str:
     return f'"{escaped}"'
 
 
+SLUG_SECRET_PREFIX = "esphome_ota_slug_"
+SECRETS_FILE = "secrets.yaml"
+_SECRET_KEY_BAD_RE = re.compile(r"[^a-z0-9_]")
+
+
+def slug_secret_key(node: str) -> str:
+    """Return the ``secrets.yaml`` key holding the public slug of device ``node``.
+
+    Derived from the device name (``esphome.name``), which is the same stable
+    identity the public slug itself is built from. The name is lowercased and
+    mapped to ``[a-z0-9_]``; when that mapping is lossy (e.g. ``-`` -> ``_``) a
+    short hash of the original name is appended so ``a-b`` and ``a_b`` never
+    share a key.
+    """
+    clean = _SECRET_KEY_BAD_RE.sub("_", node.lower())
+    if clean != node:
+        digest = hashlib.sha1(node.encode("utf-8")).hexdigest()[:6]
+        clean = f"{clean}_{digest}"
+    return f"{SLUG_SECRET_PREFIX}{clean}"
+
+
+def _secret_line_re(key: str) -> re.Pattern[str]:
+    return re.compile(rf"^{re.escape(key)}[ \t]*:")
+
+
+def _line_ending(line: str) -> str:
+    if line.endswith("\r\n"):
+        return "\r\n"
+    return "\n" if line.endswith("\n") else ""
+
+
+def upsert_secret_text(content: str, key: str, value: str) -> str:
+    """Set ``key: "<value>"`` in secrets.yaml text, touching only that line.
+
+    Other keys, comments, ordering and line endings are preserved. An absent
+    key is appended (after adding a missing trailing newline).
+    """
+    lines = content.splitlines(keepends=True)
+    pattern = _secret_line_re(key)
+    for idx, line in enumerate(lines):
+        if pattern.match(line):
+            lines[idx] = f"{key}: {yaml_dq(value)}{_line_ending(line)}"
+            return "".join(lines)
+    nl = "\r\n" if "\r\n" in content else "\n"
+    if lines and not _line_ending(lines[-1]):
+        lines[-1] += nl
+    lines.append(f"{key}: {yaml_dq(value)}{nl}")
+    return "".join(lines)
+
+
+def remove_secret_text(content: str, key: str) -> tuple[str, bool]:
+    """Remove the ``key`` line from secrets.yaml text; returns (text, removed)."""
+    pattern = _secret_line_re(key)
+    lines = content.splitlines(keepends=True)
+    kept = [line for line in lines if not pattern.match(line)]
+    return "".join(kept), len(kept) != len(lines)
+
+
 def project_name(node: str) -> str:
     """Return 'local.<node>' capped at ESPHome's 32-character project.name limit."""
     name = f"local.{node}"
@@ -71,8 +130,14 @@ def generate_inline_ota_yaml(
     publish_dir: str = DEFAULT_PUBLISH_DIR,
     node: str = "",
     use_project: bool = True,
+    slug_secret: str | None = None,
 ) -> str:
-    """Generate YAML snippet for packages.esphome_ota."""
+    """Generate YAML snippet for packages.esphome_ota.
+
+    With ``slug_secret`` the slug is emitted as ``!secret <key>`` so the device
+    YAML never contains the public-URL token; otherwise it is inlined.
+    """
+    slug_value = f"!secret {slug_secret}" if slug_secret else yaml_dq(slug)
     clean_base_url = base_url.rstrip("/")
     proj_block = ""
     if use_project and node and version:
@@ -85,7 +150,7 @@ def generate_inline_ota_yaml(
   esphome_ota:
     substitutions:
       ota_base_url: {yaml_dq(clean_base_url)}
-      ota_slug: {yaml_dq(slug)}
+      ota_slug: {slug_value}
 {proj_block}    http_request:
       timeout: 60s
 

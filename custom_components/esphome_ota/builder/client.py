@@ -22,6 +22,7 @@ from ..models import (
     BuilderTimeoutError,
     ConfigConflictError,
 )
+from ..packages import SECRETS_FILE, remove_secret_text, upsert_secret_text
 from ..redaction import install_redaction
 from .capabilities import BuilderCapabilities
 from .connection import BuilderConnection
@@ -121,6 +122,49 @@ class BuilderClient:
                 raise ConfigConflictError(
                     f"CAS conflict updating config for {configuration}: {err}"
                 ) from err
+            raise
+
+    async def set_secret(self, key: str, value: str) -> None:
+        """Create or overwrite one key in the Builder's ``secrets.yaml``.
+
+        Uses the Builder's ``config/set_secret`` command (line-based, keeps
+        comments and other keys). Builders without that command fall back to a
+        text-preserving edit through ``devices/get_config``/``update_config``
+        on ``secrets.yaml``; a missing file is treated as empty. The value is
+        never logged.
+        """
+        try:
+            await self.conn.command(
+                "config/set_secret",
+                {"key": key, "value": value, "overwrite": True},
+            )
+            return
+        except BuilderError as err:
+            if (getattr(err, "error_code", None) or "").upper() != "UNKNOWN_COMMAND":
+                raise
+        current = await self._read_secrets_text()
+        await self.update_config(SECRETS_FILE, upsert_secret_text(current, key, value))
+
+    async def remove_secret(self, key: str) -> bool:
+        """Remove one key from ``secrets.yaml``; True if it was present."""
+        current = await self._read_secrets_text()
+        updated, removed = remove_secret_text(current, key)
+        if removed:
+            await self.update_config(SECRETS_FILE, updated)
+        return removed
+
+    async def _read_secrets_text(self) -> str:
+        try:
+            return await self.get_config(SECRETS_FILE)
+        except BuilderError as err:
+            # Only a structured "file missing" code may be treated as empty:
+            # the caller writes the whole file back, so misreading any other
+            # failure as empty would wipe the user's other secrets.
+            if (getattr(err, "error_code", None) or "").upper() in (
+                "NOT_FOUND",
+                "FILE_NOT_FOUND",
+            ):
+                return ""
             raise
 
     async def validate_config(

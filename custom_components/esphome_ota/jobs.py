@@ -18,6 +18,7 @@ from .config_patch import (
     apply_ota_patch,
     bump_patch_version,
     has_unclear_project_ownership,
+    ota_slug_secret_ref,
     own_project_version,
     set_project_version,
 )
@@ -464,6 +465,13 @@ class JobRunner:
                     node=device.name,
                 )
                 final_yaml = diff_res.modified
+                # The managed block references the slug via ``!secret``: write
+                # the value to secrets.yaml first so the device YAML (and its
+                # validation) never points at a missing secret. The slug value
+                # is unchanged when migrating from a plaintext ota_slug.
+                slug_key = ota_slug_secret_ref(final_yaml)
+                if slug_key:
+                    await client.set_secret(slug_key, device.slug)
                 if final_yaml != original_yaml:
                     _LOGGER.info(
                         "Updating YAML for %s (version: %s) prior to compile",

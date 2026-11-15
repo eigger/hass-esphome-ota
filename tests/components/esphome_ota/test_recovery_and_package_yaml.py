@@ -329,7 +329,8 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
     # 3. Old substitutions must be replaced with new base_url and slug
     assert "http://new-ha.local:8123" in patched
     assert "old-ha.local" not in patched
-    assert "bedroom_token123" in patched
+    assert "ota_slug: !secret esphome_ota_slug_bedroom" in patched
+    assert "bedroom_token123" not in patched
 
     # 4. Sibling packages must remain intact and with correct indentation
     assert "    other_pkg: !include other.yaml\n" in patched
@@ -344,7 +345,7 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
     assert "my_custom_sensor" in parsed["packages"]
     assert (
         parsed["packages"]["esphome_ota"]["substitutions"]["ota_slug"]
-        == "bedroom_token123"
+        is None  # !secret reference is not resolved
     )
 
 

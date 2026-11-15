@@ -15,7 +15,12 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.loader import async_get_integration
 
-from .config_patch import apply_ota_patch, remove_ota_patch, set_package_ota_slug
+from .config_patch import (
+    apply_ota_patch,
+    ota_slug_secret_ref,
+    remove_ota_patch,
+    set_package_ota_slug,
+)
 from .const import DOMAIN
 from .firmware import ensure_supported_platform, inspect_binary
 from .manager import get_loaded_manager
@@ -32,6 +37,7 @@ from .packages import (
     generate_token,
     is_valid_device_id,
     public_slug,
+    slug_secret_key,
 )
 from .publisher import (
     async_any_path_exists,
@@ -428,6 +434,19 @@ async def ws_apply_ota(
         return
     config_file = manager.device_manager.get_configuration(device_id)
     try:
+        # The previewed YAML references the slug via ``!secret``; store the
+        # value first so the saved configuration never dangles.
+        slug_key = ota_slug_secret_ref(content)
+        if slug_key:
+            dev = manager.device_manager.get_device(
+                device_id
+            ) or manager.device_manager.get_device(device_id.replace(".yaml", ""))
+            if not dev or slug_key != slug_secret_key(dev.name):
+                raise RuntimeError(
+                    "Cannot store the ota_slug secret for this device; "
+                    "prepare the OTA configuration again before applying."
+                )
+            await client.set_secret(slug_key, dev.slug)
         await client.update_config(config_file, content, expected)
         await manager.refresh_devices()
         await manager.monitor.async_refresh_monitoring()
@@ -693,6 +712,8 @@ async def ws_set_token(
         client = manager.resolver.active_client
         original_yaml = updated_yaml = None
         yaml_changed = False
+        secret_key: str | None = None
+        secret_changed = False
         artifact = None
         new_artifact = None
         new_binary_published = False
@@ -781,7 +802,8 @@ async def ws_set_token(
                 updated_yaml, yaml_changed = set_package_ota_slug(
                     original_yaml, new_slug
                 )
-                already_configured = bool(
+                secret_key = ota_slug_secret_ref(original_yaml)
+                already_configured = bool(secret_key) or bool(
                     re.search(
                         rf"^[ \t]*ota_slug\s*:\s*(['\"]?){re.escape(new_slug)}\1\s*(?:#.*)?$",
                         original_yaml,
@@ -793,6 +815,11 @@ async def ws_set_token(
                         "Could not establish the requested ota_slug in the Builder YAML. "
                         "The setting may be absent or controlled by an included/external package."
                     )
+                if secret_key and old_slug != new_slug:
+                    # ota_slug is ``!secret <key>``: rotate the value in
+                    # secrets.yaml and leave the device YAML untouched.
+                    await client.set_secret(secret_key, new_slug)
+                    secret_changed = True
                 if yaml_changed:
                     await client.update_config(
                         configuration, updated_yaml, expected=original_yaml
@@ -982,6 +1009,11 @@ async def ws_set_token(
                     )
                 except Exception as rollback_err:  # noqa: BLE001
                     rollback_errors.append(str(rollback_err))
+            if secret_changed and secret_key and client and was_managed:
+                try:
+                    await client.set_secret(secret_key, old_slug)
+                except Exception as rollback_err:  # noqa: BLE001
+                    rollback_errors.append(str(rollback_err))
             detail = str(err)
             if rollback_errors:
                 detail += f" (rollback also failed: {'; '.join(rollback_errors)})"
@@ -1133,6 +1165,16 @@ async def _remove_ota_locked(
                     )
                     connection.send_error(msg["id"], "remove_failed", str(err))
                     return
+                # Best effort: drop our slug secret now that nothing references it.
+                if ota_slug_secret_ref(yaml_content):
+                    try:
+                        await client.remove_secret(slug_secret_key(dev.name))
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "Could not remove the slug secret for %s: %s",
+                            device_id,
+                            err,
+                        )
 
     elif local_file_exists:
         try:

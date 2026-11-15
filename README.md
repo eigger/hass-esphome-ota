@@ -77,6 +77,27 @@ Before removing the integration, click **Remove OTA** on each device card in the
 - Discovering a device never edits YAML or starts a build on its own.
 - Verified with automated tests against a real Home Assistant; behavior with physical devices and a live Builder is not covered by automated tests.
 
+## The managed YAML block and the secret slug
+
+The public firmware URL is unauthenticated, so its random slug is the only protection. The slug is therefore **not** written into your device YAML; the managed block references it with `!secret` and the value lives in the Builder's `secrets.yaml`:
+
+```yaml
+packages:
+  esphome_ota:
+    substitutions:
+      ota_base_url: "http://homeassistant.local:8123"
+      ota_slug: !secret esphome_ota_slug_livingroom
+```
+
+```yaml
+# secrets.yaml (only this one line is added or updated; other keys and comments are untouched)
+esphome_ota_slug_livingroom: "livingroom_0123456789abcdef0123456789abcdef"
+```
+
+- The key is `esphome_ota_slug_<device name>` (lowercase, `[a-z0-9_]`; a short hash is appended if the name contains other characters such as `-`). Your device YAML can be shared or committed without leaking the download URL; keep `secrets.yaml` private.
+- Devices that still have a plaintext `ota_slug` are migrated automatically on their next build, with the same slug value (no reinstall needed). The secret is written before the YAML is updated. If a YAML with the plaintext slug was already committed or shared, change the token as well: the old value stays in that history.
+- **Remove OTA** also removes this key from `secrets.yaml` (best effort). Changing the token updates the value in `secrets.yaml`.
+
 ## Hooking into OTA events (e.g. LVGL)
 
 The managed package gives the OTA component the fixed ID `ota_http` and links the update entity to it (`ota_id: ota_http`, update component ID `ota_update`). Keep your own callbacks **outside** the package; regenerating or re-applying the package never touches top-level `ota:`, `script:` or `lvgl:`.
