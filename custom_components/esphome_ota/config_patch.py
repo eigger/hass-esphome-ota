@@ -11,7 +11,12 @@ from typing import Any
 import yaml
 
 from .models import YamlDiff
-from .packages import generate_inline_ota_yaml, slug_secret_key, yaml_dq
+from .packages import (
+    BASE_URL_SECRET_KEY,
+    generate_inline_ota_yaml,
+    slug_secret_key,
+    yaml_dq,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -796,6 +801,17 @@ def ota_slug_secret_ref(content: str) -> str | None:
     return match.group(1) if match else None
 
 
+_OTA_BASE_URL_SECRET_RE = re.compile(
+    r"^[ \t]*ota_base_url\s*:\s*!secret\s+([A-Za-z0-9_]+)\s*(?:#.*)?$", re.MULTILINE
+)
+
+
+def ota_base_url_secret_ref(content: str) -> str | None:
+    """Return the secrets.yaml key if ``ota_base_url`` is ``!secret <key>``, else None."""
+    match = _OTA_BASE_URL_SECRET_RE.search(content)
+    return match.group(1) if match else None
+
+
 def set_package_ota_slug(content: str, new_slug: str) -> tuple[str, bool]:
     """Update ota_slug in YAML text (inside packages.esphome_ota.substitutions or general substitutions).
 
@@ -999,6 +1015,7 @@ def apply_ota_patch(
         node=node,
         use_project=use_project,
         slug_secret=slug_secret_key(node) if node else None,
+        base_url_secret=BASE_URL_SECRET_KEY,
     )
 
     lines = clean_yaml.splitlines(keepends=True)

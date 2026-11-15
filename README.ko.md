@@ -77,26 +77,28 @@ ESPHome Device Builder 애드온에 연결해 펌웨어를 빌드하고, Home As
 - 기기 발견만으로 YAML을 수정하거나 빌드를 시작하지 않습니다.
 - 실제 Home Assistant 대상 자동 테스트로 검증했으며, 실물 기기·실제 Builder 동작은 자동 테스트로 확인하지 않습니다.
 
-## 관리되는 YAML 블록과 비밀 슬러그
+## 관리되는 YAML 블록과 시크릿
 
-공개 펌웨어 URL은 인증이 없으므로 무작위 슬러그가 유일한 보호 수단입니다. 그래서 슬러그는 기기 YAML에 직접 쓰지 않고, 관리 블록이 `!secret`으로 참조하며 실제 값은 Builder의 `secrets.yaml`에 저장됩니다.
+공개 펌웨어 URL은 인증이 없으므로 무작위 슬러그가 유일한 보호 수단이며, Home Assistant 주소(URL/IP)도 비공개 정보입니다. 그래서 둘 다 기기 YAML에 직접 쓰지 않고, 관리 블록이 `!secret`으로 참조하며 실제 값은 Builder의 `secrets.yaml`에 저장됩니다.
 
 ```yaml
 packages:
   esphome_ota:
     substitutions:
-      ota_base_url: "http://homeassistant.local:8123"
+      ota_base_url: !secret esphome_ota_base_url
       ota_slug: !secret esphome_ota_slug_livingroom
 ```
 
 ```yaml
-# secrets.yaml (이 한 줄만 추가/갱신되며 다른 키와 주석은 그대로 유지됩니다)
+# secrets.yaml (이 줄들만 추가/갱신되며 다른 키와 주석은 그대로 유지됩니다)
+esphome_ota_base_url: "http://homeassistant.local:8123"
 esphome_ota_slug_livingroom: "livingroom_0123456789abcdef0123456789abcdef"
 ```
 
-- 키는 `esphome_ota_slug_<기기 이름>`입니다(소문자 `[a-z0-9_]`, 이름에 `-` 등 다른 문자가 있으면 짧은 해시가 붙습니다). 기기 YAML을 공유하거나 커밋해도 다운로드 URL이 노출되지 않습니다. `secrets.yaml`은 비공개로 유지하세요.
-- 평문 `ota_slug`가 남아 있는 기기는 다음 빌드 때 같은 슬러그 값으로 자동 이전됩니다(재설치 불필요). 시크릿을 먼저 기록한 뒤 YAML을 갱신합니다. 평문 슬러그가 담긴 YAML을 이미 커밋하거나 공유했다면 기록에 옛 값이 남으므로 토큰도 변경하세요.
-- **OTA 설정 제거**는 `secrets.yaml`의 이 키도 함께 지우려 시도합니다. 토큰을 변경하면 `secrets.yaml`의 값이 갱신됩니다.
+- `esphome_ota_base_url`은 모든 기기가 공유하는 하나의 키입니다. 통합 옵션에서 Base URL을 바꾸면 각 기기의 다음 빌드 때 시크릿이 다시 기록되어 적용됩니다. 백그라운드 작업은 없고 기기 YAML을 고칠 필요도 없습니다. **OTA 설정 제거**는 이 공유 키를 지우지 않습니다.
+- 슬러그 키는 `esphome_ota_slug_<기기 이름>`입니다(소문자 `[a-z0-9_]`, 이름에 `-` 등 다른 문자가 있으면 짧은 해시가 붙습니다). 기기 YAML을 공유하거나 커밋해도 다운로드 URL이 노출되지 않습니다. `secrets.yaml`은 비공개로 유지하세요.
+- 평문 `ota_base_url`/`ota_slug`가 남아 있는 기기는 다음 빌드 때 같은 값으로 자동 이전됩니다(재설치 불필요). 시크릿을 먼저 기록한 뒤 YAML을 갱신합니다. 평문 값이 담긴 YAML을 이미 커밋하거나 공유했다면 기록에 옛 값이 남으므로 토큰도 변경하세요.
+- **OTA 설정 제거**는 `secrets.yaml`의 슬러그 키도 함께 지우려 시도합니다(공유 Base URL 키는 제외). 토큰을 변경하면 `secrets.yaml`의 값이 갱신됩니다.
 
 ## OTA 이벤트 연결 (예: LVGL)
 

@@ -316,7 +316,11 @@ async def test_issue3_own_project_version_preserves_version_and_updates_ota_conf
         cfg_after = await client.get_config("bedroom.yaml")
         assert "packages:" in cfg_after
         assert "esphome_ota:" in cfg_after
-        assert 'ota_base_url: "https://my-ha.duckdns.org"' in cfg_after
+        assert "ota_base_url: !secret esphome_ota_base_url" in cfg_after
+        assert "my-ha.duckdns.org" not in cfg_after
+        assert mock_builder.secrets["esphome_ota_base_url"] == (
+            "https://my-ha.duckdns.org"
+        )
 
         # BUT user's project version '2.1.0' MUST be preserved (NOT overwritten)
         assert "version: '2.1.0'" in cfg_after
@@ -333,7 +337,10 @@ async def test_issue3_own_project_version_preserves_version_and_updates_ota_conf
             await task_2
 
         cfg_after_2 = await client.get_config("bedroom.yaml")
-        assert 'ota_base_url: "https://new-ha.example.com"' in cfg_after_2
+        assert "ota_base_url: !secret esphome_ota_base_url" in cfg_after_2
+        assert mock_builder.secrets["esphome_ota_base_url"] == (
+            "https://new-ha.example.com"
+        )
         assert "version: '2.1.0'" in cfg_after_2
 
         await conn.disconnect()

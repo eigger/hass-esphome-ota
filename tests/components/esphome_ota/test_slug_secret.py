@@ -15,6 +15,7 @@ from custom_components.esphome_ota.builder.client import BuilderClient
 from custom_components.esphome_ota.builder.connection import BuilderConnection
 from custom_components.esphome_ota.config_patch import (
     apply_ota_patch,
+    ota_base_url_secret_ref,
     ota_slug_secret_ref,
     set_package_ota_slug,
 )
@@ -23,6 +24,7 @@ from custom_components.esphome_ota.devices import DeviceManager
 from custom_components.esphome_ota.jobs import JobRunner
 from custom_components.esphome_ota.models import BuilderError
 from custom_components.esphome_ota.packages import (
+    BASE_URL_SECRET_KEY,
     generate_inline_ota_yaml,
     remove_secret_text,
     slug_secret_key,
@@ -98,6 +100,26 @@ def test_apply_patch_migrates_plaintext_to_secret() -> None:
     res = apply_ota_patch(src, "http://ha", SLUG, node="livingroom")
     assert SLUG not in res.modified
     assert ota_slug_secret_ref(res.modified) == KEY
+
+
+def test_apply_patch_emits_both_secrets_and_migrates_plaintext_base_url() -> None:
+    src = (
+        "esphome:\n  name: livingroom\npackages:\n  esphome_ota:\n"
+        '    substitutions:\n      ota_base_url: "http://ha.local:8123"\n'
+        f'      ota_slug: "{SLUG}"\n'
+    )
+    res = apply_ota_patch(src, "http://ha.local:8123/", SLUG, node="livingroom")
+    assert "ota_base_url: !secret esphome_ota_base_url" in res.modified
+    assert f"ota_slug: !secret {KEY}" in res.modified
+    assert "ha.local" not in res.modified
+    assert SLUG not in res.modified
+    assert ota_base_url_secret_ref(res.modified) == BASE_URL_SECRET_KEY
+
+
+def test_generate_inlines_base_url_without_secret_key() -> None:
+    text = generate_inline_ota_yaml("http://ha/", SLUG)
+    assert 'ota_base_url: "http://ha"' in text
+    assert ota_base_url_secret_ref(text) is None
 
 
 def test_set_package_ota_slug_keeps_secret_reference() -> None:
@@ -183,13 +205,17 @@ async def test_build_writes_secret_before_yaml_and_migrates_plaintext(
 
     # Same slug value, now only in secrets; device YAML references it.
     assert dev.slug == old_slug
-    assert mock_builder.secrets == {KEY: old_slug}
+    assert mock_builder.secrets == {
+        KEY: old_slug,
+        BASE_URL_SECRET_KEY: "https://ha.example",
+    }
+    assert "ha.example" not in mock_builder.configs["livingroom.yaml"]
     final = mock_builder.configs["livingroom.yaml"]
     assert old_slug not in final
     assert f"ota_slug: !secret {KEY}" in final
-    assert mock_builder.write_log.index(f"secret:{KEY}") < mock_builder.write_log.index(
-        "config:livingroom.yaml"
-    )
+    config_idx = mock_builder.write_log.index("config:livingroom.yaml")
+    assert mock_builder.write_log.index(f"secret:{KEY}") < config_idx
+    assert mock_builder.write_log.index(f"secret:{BASE_URL_SECRET_KEY}") < config_idx
 
 
 async def _setup_rotation(hass, mock_config_entry, secret_form: bool):
@@ -273,4 +299,122 @@ async def test_rotation_failure_restores_secret(
             (KEY, f"livingroom_{NEW_TOKEN}"),
             (KEY, "livingroom_0123456789abcdef0123456789abcdef"),
         ]
+        await ws.close()
+
+
+async def _setup_apply(hass, mock_config_entry):
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    manager = hass.config_entries.async_entries(DOMAIN)[0].runtime_data
+    dev = await manager.device_manager.async_register_or_update(
+        device_id="livingroom",
+        configuration="livingroom.yaml",
+        name="livingroom",
+        friendly_name="Living Room",
+        target_platform="esp32",
+        token="0123456789abcdef0123456789abcdef",
+    )
+    client = AsyncMock()
+    manager.resolver.active_client = client
+    return manager, dev, client
+
+
+async def _apply(ws, content: str) -> dict:
+    await ws.send_json(
+        {
+            "id": 1,
+            "type": "esphome_ota/apply_ota",
+            "device_id": "livingroom",
+            "content": content,
+        }
+    )
+    msg = await ws.receive_json()
+    while msg.get("type") == "event":
+        msg = await ws.receive_json()
+    return msg
+
+
+async def test_apply_ota_writes_both_secrets(
+    hass: HomeAssistant,
+    hass_ws_client,
+    mock_config_entry: MockConfigEntry,
+    mock_builder: MockBuilderServer,
+) -> None:
+    with patch(
+        "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
+        return_value=[],
+    ):
+        manager, dev, client = await _setup_apply(hass, mock_config_entry)
+        content = (
+            "packages:\n  esphome_ota:\n    substitutions:\n"
+            f"      ota_base_url: !secret {BASE_URL_SECRET_KEY}\n"
+            f"      ota_slug: !secret {KEY}\n"
+        )
+        ws = await hass_ws_client(hass)
+        msg = await _apply(ws, content)
+        assert msg["success"] is True, msg
+        calls = [c.args for c in client.set_secret.await_args_list]
+        assert calls == [
+            (BASE_URL_SECRET_KEY, manager.base_url.rstrip("/")),
+            (KEY, dev.slug),
+        ]
+        client.update_config.assert_awaited_once()
+        await ws.close()
+
+
+async def test_apply_ota_refuses_foreign_base_url_secret(
+    hass: HomeAssistant,
+    hass_ws_client,
+    mock_config_entry: MockConfigEntry,
+    mock_builder: MockBuilderServer,
+) -> None:
+    with patch(
+        "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
+        return_value=[],
+    ):
+        _manager, _dev, client = await _setup_apply(hass, mock_config_entry)
+        content = (
+            "packages:\n  esphome_ota:\n    substitutions:\n"
+            "      ota_base_url: !secret some_other_key\n"
+            f"      ota_slug: !secret {KEY}\n"
+        )
+        ws = await hass_ws_client(hass)
+        msg = await _apply(ws, content)
+        assert msg["success"] is False
+        assert msg["error"]["code"] == "apply_failed"
+        client.set_secret.assert_not_called()
+        client.update_config.assert_not_called()
+        await ws.close()
+
+
+async def test_remove_keeps_shared_base_url_secret(
+    hass: HomeAssistant,
+    hass_ws_client,
+    mock_config_entry: MockConfigEntry,
+    mock_builder: MockBuilderServer,
+) -> None:
+    with patch(
+        "custom_components.esphome_ota.builder.resolver.HaDiscoveryAdapter.async_discover_all",
+        return_value=[],
+    ):
+        _manager, _dev, client = await _setup_apply(hass, mock_config_entry)
+        yaml_text = (
+            "esphome:\n  name: livingroom\n"
+            "packages:\n  esphome_ota:\n    substitutions:\n"
+            f"      ota_base_url: !secret {BASE_URL_SECRET_KEY}\n"
+            f"      ota_slug: !secret {KEY}\n"
+        )
+        client.get_config.return_value = yaml_text
+        ws = await hass_ws_client(hass)
+        await ws.send_json(
+            {"id": 1, "type": "esphome_ota/remove_ota", "device_id": "livingroom"}
+        )
+        msg = await ws.receive_json()
+        while msg.get("type") == "event":
+            msg = await ws.receive_json()
+        assert msg["success"] is True, msg
+        client.update_config.assert_awaited_once()
+        assert "!secret" not in client.update_config.await_args.args[1]
+        client.remove_secret.assert_awaited_once_with(KEY)
         await ws.close()

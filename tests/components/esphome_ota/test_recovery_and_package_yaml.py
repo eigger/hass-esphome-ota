@@ -327,7 +327,8 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
     )
 
     # 3. Old substitutions must be replaced with new base_url and slug
-    assert "http://new-ha.local:8123" in patched
+    assert "ota_base_url: !secret esphome_ota_base_url" in patched
+    assert "new-ha.local" not in patched
     assert "old-ha.local" not in patched
     assert "ota_slug: !secret esphome_ota_slug_bedroom" in patched
     assert "bedroom_token123" not in patched
