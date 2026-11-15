@@ -66,6 +66,8 @@ class MockBuilderServer:
             "bedroom.yaml": "esphome:\n  name: bedroom\n  project:\n    name: my.bedroom\n    version: '2.1.0'\nesp32:\n  board: esp32dev\n",
             "bedroom": "esphome:\n  name: bedroom\n  project:\n    name: my.bedroom\n    version: '2.1.0'\nesp32:\n  board: esp32dev\n",
         }
+        self.secrets: dict[str, str] = {}
+        self.write_log: list[str] = []
         self.jobs: dict[str, dict[str, Any]] = {}
         self.compile_status = "completed"
         self.issued_download_token = "valid-token-123"
@@ -168,8 +170,16 @@ class MockBuilderServer:
                 }
                 await ws.send_str(json.dumps(reply))
 
+            elif cmd == "config/set_secret":
+                self.secrets[args["key"]] = args["value"]
+                self.write_log.append(f"secret:{args['key']}")
+                await ws.send_str(
+                    json.dumps({"message_id": msg_id, "result": {"created": True}})
+                )
+
             elif cmd == "devices/update_config":
                 cfg_name = args.get("configuration", "")
+                self.write_log.append(f"config:{cfg_name}")
                 content = args.get("content", "")
                 expected = args.get("expected")
                 current = self.configs.get(cfg_name, "")

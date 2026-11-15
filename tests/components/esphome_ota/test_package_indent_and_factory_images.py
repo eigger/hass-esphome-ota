@@ -85,7 +85,10 @@ def test_issue1_two_space_packages_with_four_space_internal_settings() -> None:
     assert "wifi" in pkgs
     assert "device_base" in pkgs
     assert "sensors" in pkgs
-    assert pkgs["esphome_ota"]["substitutions"]["ota_slug"] == "livingroom_token123"
+    assert (
+        pkgs["esphome_ota"]["substitutions"]["ota_slug"]
+        is None  # !secret reference is not resolved
+    )
 
 
 def test_issue1_nested_esphome_ota_key_not_confused_with_top_package() -> None:

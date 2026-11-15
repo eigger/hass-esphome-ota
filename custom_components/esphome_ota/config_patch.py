@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 from .models import YamlDiff
-from .packages import generate_inline_ota_yaml, yaml_dq
+from .packages import generate_inline_ota_yaml, slug_secret_key, yaml_dq
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -785,6 +785,17 @@ def set_project_version(content: str, new_version: str) -> tuple[str, bool]:
     return content, False
 
 
+_OTA_SLUG_SECRET_RE = re.compile(
+    r"^[ \t]*ota_slug\s*:\s*!secret\s+([A-Za-z0-9_]+)\s*(?:#.*)?$", re.MULTILINE
+)
+
+
+def ota_slug_secret_ref(content: str) -> str | None:
+    """Return the secrets.yaml key if ``ota_slug`` is ``!secret <key>``, else None."""
+    match = _OTA_SLUG_SECRET_RE.search(content)
+    return match.group(1) if match else None
+
+
 def set_package_ota_slug(content: str, new_slug: str) -> tuple[str, bool]:
     """Update ota_slug in YAML text (inside packages.esphome_ota.substitutions or general substitutions).
 
@@ -800,6 +811,9 @@ def set_package_ota_slug(content: str, new_slug: str) -> tuple[str, bool]:
         if match:
             indent = match.group(1)
             raw_val = match.group(2).strip()
+            if raw_val.startswith("!secret"):
+                # The value lives in secrets.yaml; never overwrite the reference.
+                continue
             if (raw_val.startswith('"') and raw_val.endswith('"')) or (
                 raw_val.startswith("'") and raw_val.endswith("'")
             ):
@@ -984,6 +998,7 @@ def apply_ota_patch(
         version=target_version if use_project else None,
         node=node,
         use_project=use_project,
+        slug_secret=slug_secret_key(node) if node else None,
     )
 
     lines = clean_yaml.splitlines(keepends=True)
