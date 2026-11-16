@@ -67,6 +67,8 @@ class MockBuilderServer:
             "bedroom": "esphome:\n  name: bedroom\n  project:\n    name: my.bedroom\n    version: '2.1.0'\nesp32:\n  board: esp32dev\n",
         }
         self.secrets: dict[str, str] = {}
+        # When set, config/set_secret answers with this error code.
+        self.set_secret_error: str | None = None
         self.write_log: list[str] = []
         self.jobs: dict[str, dict[str, Any]] = {}
         self.compile_status = "completed"
@@ -169,6 +171,17 @@ class MockBuilderServer:
                     "result": {"content": content},
                 }
                 await ws.send_str(json.dumps(reply))
+
+            elif cmd == "config/set_secret" and self.set_secret_error:
+                await ws.send_str(
+                    json.dumps(
+                        {
+                            "message_id": msg_id,
+                            "error_code": self.set_secret_error,
+                            "details": "mock failure",
+                        }
+                    )
+                )
 
             elif cmd == "config/set_secret":
                 self.secrets[args["key"]] = args["value"]

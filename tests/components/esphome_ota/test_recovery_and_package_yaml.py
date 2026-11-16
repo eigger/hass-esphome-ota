@@ -313,6 +313,7 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
         slug="bedroom_token123",
         target_version="2.0.0",
         node="bedroom",
+        device_id="bedroom",
     )
 
     patched = diff.modified
@@ -330,7 +331,7 @@ def test_issue4_4_space_indented_packages_replaced_cleanly() -> None:
     assert "ota_base_url: !secret esphome_ota_base_url" in patched
     assert "new-ha.local" not in patched
     assert "old-ha.local" not in patched
-    assert "ota_slug: !secret esphome_ota_slug_bedroom" in patched
+    assert "ota_slug: !secret esphome_ota_cfg_bedroom" in patched
     assert "bedroom_token123" not in patched
 
     # 4. Sibling packages must remain intact and with correct indentation

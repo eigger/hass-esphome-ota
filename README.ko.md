@@ -86,19 +86,20 @@ packages:
   esphome_ota:
     substitutions:
       ota_base_url: !secret esphome_ota_base_url
-      ota_slug: !secret esphome_ota_slug_livingroom
+      ota_slug: !secret esphome_ota_cfg_livingroom
 ```
 
 ```yaml
 # secrets.yaml (이 줄들만 추가/갱신되며 다른 키와 주석은 그대로 유지됩니다)
 esphome_ota_base_url: "http://homeassistant.local:8123"
-esphome_ota_slug_livingroom: "livingroom_0123456789abcdef0123456789abcdef"
+esphome_ota_cfg_livingroom: "livingroom_0123456789abcdef0123456789abcdef"
 ```
 
 - `esphome_ota_base_url`은 모든 기기가 공유하는 하나의 키입니다. 통합 옵션에서 Base URL을 바꾸면 각 기기의 다음 빌드 때 시크릿이 다시 기록되어 적용됩니다. 백그라운드 작업은 없고 기기 YAML을 고칠 필요도 없습니다. **OTA 설정 제거**는 이 공유 키를 지우지 않습니다.
-- 슬러그 키는 `esphome_ota_slug_<기기 이름>`입니다(소문자 `[a-z0-9_]`, 이름에 `-` 등 다른 문자가 있으면 짧은 해시가 붙습니다). 기기 YAML을 공유하거나 커밋해도 다운로드 URL이 노출되지 않습니다. `secrets.yaml`은 비공개로 유지하세요.
+- 슬러그 키는 `esphome_ota_cfg_<설정 파일 이름>`입니다(`.yaml`을 뺀 파일 이름, 소문자 `[a-z0-9_]`, 다른 문자가 있으면 짧은 해시가 붙습니다). `esphome.name`이 아니라 설정 파일 기준이므로 노드 이름이 같은 두 파일도 키를 공유하지 않습니다. `esphome_ota_`로 시작하는 키는 이 통합 전용입니다. 1.7.0b0/b1은 `esphome_ota_slug_<기기 이름>`을 썼으며, 해당 기기는 다음 빌드 때 새 키로 이전되고 옛 키는 `secrets.yaml`에 사용되지 않은 채 남습니다(원하면 직접 삭제하세요). 기기 YAML을 공유하거나 커밋해도 다운로드 URL이 노출되지 않습니다. `secrets.yaml`은 비공개로 유지하세요.
 - 평문 `ota_base_url`/`ota_slug`가 남아 있는 기기는 다음 빌드 때 같은 값으로 자동 이전됩니다(재설치 불필요). 시크릿을 먼저 기록한 뒤 YAML을 갱신합니다. 평문 값이 담긴 YAML을 이미 커밋하거나 공유했다면 기록에 옛 값이 남으므로 토큰도 변경하세요.
-- **OTA 설정 제거**는 `secrets.yaml`의 슬러그 키도 함께 지우려 시도합니다(공유 Base URL 키는 제외). 토큰을 변경하면 `secrets.yaml`의 값이 갱신됩니다.
+- **OTA 설정 제거**는 `secrets.yaml`의 슬러그 키를 지우지 않습니다(Builder에 시크릿 삭제 API가 없고 통합이 파일 전체를 다시 쓰지 않기 때문). 남은 키는 무해하며 직접 지울 수 있습니다. 토큰 변경은 통합이 해당 기기용으로 관리하는 키만 갱신합니다. YAML이 다른 키(예: 1.7.0b0/b1의 이름 기반 키)를 참조하면 먼저 빌드를 실행해 이전하세요.
+- Builder는 `config/set_secret` 명령을 지원해야 합니다(키 하나만 원자적으로 기록하며 기존 시크릿은 다시 쓰지 않습니다). 지원하지 않거나 기록이 거부되면 빌드/저장이 오류와 함께 실패하고 아무것도 바뀌지 않습니다. 이때 ESPHome Builder를 업데이트하세요. Base URL이 비어 있거나 올바르지 않을 때도 저장이 거부됩니다.
 
 ## OTA 이벤트 연결 (예: LVGL)
 

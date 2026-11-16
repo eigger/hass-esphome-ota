@@ -121,12 +121,13 @@ sensor:
         slug="livingroom_abc123",
         target_version="1.0.0",
         node="livingroom",
+        device_id="livingroom",
     )
 
     assert "+  esphome_ota:" in diff_res.diff
     assert "ota_base_url: !secret esphome_ota_base_url" in diff_res.modified
     assert "my-ha.duckdns.org" not in diff_res.modified
-    assert "ota_slug: !secret esphome_ota_slug_livingroom" in diff_res.modified
+    assert "ota_slug: !secret esphome_ota_cfg_livingroom" in diff_res.modified
     assert "livingroom_abc123" not in diff_res.modified
     # Check preservation of comments and secrets
     assert "# Living Room Sensor" in diff_res.modified

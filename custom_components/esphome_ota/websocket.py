@@ -32,12 +32,14 @@ from .models import (
     UnsupportedPlatformError,
 )
 from .packages import (
+    BASE_URL_INVALID_MESSAGE,
     BASE_URL_SECRET_KEY,
     NODE_RE,
     TOKEN_RE,
     VERSION_RE,
     generate_token,
     is_valid_device_id,
+    normalize_base_url,
     public_slug,
     slug_secret_key,
 )
@@ -386,6 +388,7 @@ async def ws_prepare_ota(
         slug=dev.slug,
         target_version=target_ver,
         node=dev.name,
+        device_id=dev.device_id,
     )
 
     connection.send_result(
@@ -438,26 +441,40 @@ async def ws_apply_ota(
     try:
         # The previewed YAML references the slug via ``!secret``; store the
         # value first so the saved configuration never dangles.
-        base_key = ota_base_url_secret_ref(content)
-        if base_key and base_key != BASE_URL_SECRET_KEY:
-            raise RuntimeError(
-                "Cannot store the ota_base_url secret for this device; "
-                "prepare the OTA configuration again before applying."
-            )
-        slug_key = ota_slug_secret_ref(content)
-        if base_key:
-            await client.set_secret(base_key, manager.base_url.rstrip("/"))
-        if slug_key:
-            dev = manager.device_manager.get_device(
-                device_id
-            ) or manager.device_manager.get_device(device_id.replace(".yaml", ""))
-            if not dev or slug_key != slug_secret_key(dev.name):
+        # Same per-device lock as ws_set_token/builds: dev.slug must not change
+        # between the secret write and the YAML save.
+        async with manager.device_manager.get_lock(device_id.replace(".yaml", "")):
+            base_key = ota_base_url_secret_ref(content)
+            if base_key and base_key != BASE_URL_SECRET_KEY:
                 raise RuntimeError(
-                    "Cannot store the ota_slug secret for this device; "
-                    "prepare the OTA configuration again before applying."
+                    f"The edited YAML references the secret '{base_key}' for "
+                    "ota_base_url, which is not managed by ESPHome OTA. Nothing was "
+                    "written. Prepare the OTA configuration again before applying."
                 )
-            await client.set_secret(slug_key, dev.slug)
-        await client.update_config(config_file, content, expected)
+            slug_key = ota_slug_secret_ref(content)
+            clean_base = None
+            if base_key:
+                clean_base = normalize_base_url(manager.base_url)
+                if not clean_base:
+                    raise RuntimeError(BASE_URL_INVALID_MESSAGE)
+            dev = None
+            if slug_key:
+                dev = manager.device_manager.get_device(
+                    device_id
+                ) or manager.device_manager.get_device(device_id.replace(".yaml", ""))
+                if not dev or slug_key != slug_secret_key(dev.device_id):
+                    raise RuntimeError(
+                        f"The edited YAML references the secret '{slug_key}' for "
+                        "ota_slug, which is not the key managed for this device. "
+                        "Nothing was written. Prepare the OTA configuration again "
+                        "before applying."
+                    )
+                manager.device_manager.assert_slug_key_unique(dev.device_id)
+            if base_key and clean_base:
+                await client.set_secret(base_key, clean_base)
+            if slug_key and dev:
+                await client.set_secret(slug_key, dev.slug)
+            await client.update_config(config_file, content, expected)
         await manager.refresh_devices()
         await manager.monitor.async_refresh_monitoring()
         connection.send_result(msg["id"], {"success": True})
@@ -827,9 +844,34 @@ async def ws_set_token(
                     )
                 if secret_key and old_slug != new_slug:
                     # ota_slug is ``!secret <key>``: rotate the value in
-                    # secrets.yaml and leave the device YAML untouched.
-                    await client.set_secret(secret_key, new_slug)
+                    # secrets.yaml and leave the device YAML untouched. Only
+                    # the integration-owned key of a managed device is ever
+                    # written: for an unmanaged device the old value is
+                    # unknown (the Builder cannot read values), so a failed
+                    # rotation could not be rolled back; and any other key
+                    # (a user's own, or the 1.7.0b0/b1 name-based key) is not
+                    # ours to overwrite.
+                    if not was_managed:
+                        raise RuntimeError(
+                            "This device's ota_slug uses a !secret reference but the device is "
+                            "not managed by ESPHome OTA yet, so the secret cannot be "
+                            "changed safely (its old value cannot be restored on "
+                            "failure). Nothing was written. Build this device once "
+                            "to enable OTA management, then change the token."
+                        )
+                    if secret_key != slug_secret_key(clean_dev_id):
+                        raise RuntimeError(
+                            f"ota_slug references the secret '{secret_key}', which is not "
+                            f"the key managed for this device ('{slug_secret_key(clean_dev_id)}'). "
+                            "Nothing was written. Run a build for this device first "
+                            "to migrate the OTA block to the managed key, or change "
+                            "the ota_slug reference yourself, then retry."
+                        )
+                    manager.device_manager.assert_slug_key_unique(clean_dev_id)
+                    # Flag first: a timeout or lost connection may still have
+                    # applied the write, and the rollback is idempotent.
                     secret_changed = True
+                    await client.set_secret(secret_key, new_slug)
                 if yaml_changed:
                     await client.update_config(
                         configuration, updated_yaml, expected=original_yaml
@@ -914,6 +956,7 @@ async def ws_set_token(
                     )
         except Exception as err:  # noqa: BLE001
             rollback_errors = []
+            secret_rollback_failed = False
             if new_binary_published:
                 try:
                     await manager.publisher.async_deactivate(new_slug)
@@ -1023,10 +1066,17 @@ async def ws_set_token(
                 try:
                     await client.set_secret(secret_key, old_slug)
                 except Exception as rollback_err:  # noqa: BLE001
+                    secret_rollback_failed = True
                     rollback_errors.append(str(rollback_err))
             detail = str(err)
             if rollback_errors:
                 detail += f" (rollback also failed: {'; '.join(rollback_errors)})"
+            if secret_rollback_failed:
+                detail += (
+                    " The OTA slug secret in secrets.yaml may not match this "
+                    "device's current token. Run a build for this device to "
+                    "restore the correct value."
+                )
             connection.send_error(msg["id"], "token_update_failed", detail)
             return
 
@@ -1175,16 +1225,9 @@ async def _remove_ota_locked(
                     )
                     connection.send_error(msg["id"], "remove_failed", str(err))
                     return
-                # Best effort: drop our slug secret now that nothing references it.
-                if ota_slug_secret_ref(yaml_content):
-                    try:
-                        await client.remove_secret(slug_secret_key(dev.name))
-                    except Exception as err:  # noqa: BLE001
-                        _LOGGER.debug(
-                            "Could not remove the slug secret for %s: %s",
-                            device_id,
-                            err,
-                        )
+                # The slug key stays in secrets.yaml on purpose: the Builder has
+                # no delete-secret API and rewriting the whole file could wipe
+                # the user's other secrets. It is orphaned and harmless.
 
     elif local_file_exists:
         try:
