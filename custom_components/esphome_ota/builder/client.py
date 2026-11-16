@@ -22,7 +22,6 @@ from ..models import (
     BuilderTimeoutError,
     ConfigConflictError,
 )
-from ..packages import SECRETS_FILE, remove_secret_text, upsert_secret_text
 from ..redaction import install_redaction
 from .capabilities import BuilderCapabilities
 from .connection import BuilderConnection
@@ -45,6 +44,26 @@ _NON_CONFLICT_CODES = frozenset(
         "UNKNOWN_COMMAND",
     }
 )
+
+
+_SECRETS_NAMES = frozenset({"secrets", "secrets.yaml", "secrets.yml"})
+
+
+def _refuse_secrets_file(configuration: str) -> None:
+    """Refuse whole-file access to ``secrets.yaml``.
+
+    Secrets may only be changed key by key through ``config/set_secret``; a
+    whole-file write can wipe the user's other secrets irrecoverably.
+    """
+    text = str(configuration).replace("\\", "/").strip(" ./\\")
+    base = text.rsplit("/", 1)[-1].strip(" ./\\").lower()
+    if base in _SECRETS_NAMES:
+        raise BuilderError(
+            "Safety guard: refusing to read or write secrets.yaml as a whole file. "
+            "Nothing was written. Secrets are only changed one key at a time "
+            "through the Builder's config/set_secret command; this is an "
+            "internal error, please report it."
+        )
 
 
 def _is_cas_conflict(err: BuilderError) -> bool:
@@ -87,6 +106,7 @@ class BuilderClient:
 
     async def get_config(self, configuration: str) -> str:
         """Fetch YAML configuration for a device."""
+        _refuse_secrets_file(configuration)
         result = await self.conn.command(
             "devices/get_config", {"configuration": configuration}
         )
@@ -108,6 +128,7 @@ class BuilderClient:
             ConfigConflictError: If expected content does not match current content.
             BuilderError: On other builder errors.
         """
+        _refuse_secrets_file(configuration)
         args: dict[str, Any] = {
             "configuration": configuration,
             "content": content,
@@ -125,47 +146,44 @@ class BuilderClient:
             raise
 
     async def set_secret(self, key: str, value: str) -> None:
-        """Create or overwrite one key in the Builder's ``secrets.yaml``.
+        """Create or overwrite exactly one key in the Builder's ``secrets.yaml``.
 
-        Uses the Builder's ``config/set_secret`` command (line-based, keeps
-        comments and other keys). Builders without that command fall back to a
-        text-preserving edit through ``devices/get_config``/``update_config``
-        on ``secrets.yaml``; a missing file is treated as empty. The value is
-        never logged.
+        Only the Builder's atomic ``config/set_secret`` command is used: it
+        changes one key under a write lock and refuses the save (file
+        untouched) if the result would not resolve the key to the new value.
+        There is deliberately NO fallback to rewriting ``secrets.yaml`` as a
+        whole file: that path cannot be made safe (no compare-and-swap, no
+        history), so a Builder without the command makes the save fail instead.
+        The value is never logged.
         """
         try:
             await self.conn.command(
                 "config/set_secret",
                 {"key": key, "value": value, "overwrite": True},
             )
-            return
-        except BuilderError as err:
-            if (getattr(err, "error_code", None) or "").upper() != "UNKNOWN_COMMAND":
-                raise
-        current = await self._read_secrets_text()
-        await self.update_config(SECRETS_FILE, upsert_secret_text(current, key, value))
-
-    async def remove_secret(self, key: str) -> bool:
-        """Remove one key from ``secrets.yaml``; True if it was present."""
-        current = await self._read_secrets_text()
-        updated, removed = remove_secret_text(current, key)
-        if removed:
-            await self.update_config(SECRETS_FILE, updated)
-        return removed
-
-    async def _read_secrets_text(self) -> str:
-        try:
-            return await self.get_config(SECRETS_FILE)
-        except BuilderError as err:
-            # Only a structured "file missing" code may be treated as empty:
-            # the caller writes the whole file back, so misreading any other
-            # failure as empty would wipe the user's other secrets.
-            if (getattr(err, "error_code", None) or "").upper() in (
-                "NOT_FOUND",
-                "FILE_NOT_FOUND",
-            ):
-                return ""
+        except (BuilderConnectionError, BuilderTimeoutError):
             raise
+        except BuilderError as err:
+            code = (getattr(err, "error_code", None) or "").upper()
+            if code == "UNKNOWN_COMMAND":
+                raise BuilderError(
+                    "The ESPHome Builder does not support config/set_secret, "
+                    "so the OTA secrets cannot be stored. Nothing was written. "
+                    "Update the ESPHome Builder to a version that supports it "
+                    "and try again.",
+                    error_code="UNKNOWN_COMMAND",
+                ) from err
+            # The Builder's details can quote secrets.yaml content (parse
+            # errors), so they are never surfaced or logged; only the code is.
+            _LOGGER.debug("config/set_secret for %s failed (code %s)", key, code)
+            raise BuilderError(
+                f"secrets.yaml could not be updated for the secret '{key}' "
+                f"(Builder code: {code or 'unknown'}). This secret was not "
+                "changed. secrets.yaml may not parse or may contain a duplicate "
+                "key; fix it in the ESPHome Builder's secrets editor, then try "
+                "again.",
+                error_code=code or None,
+            ) from err
 
     async def validate_config(
         self,

@@ -987,13 +987,11 @@ class EsphomeOtaDeviceDialog extends HTMLElement {
         this.device?.device_id === targetDeviceId &&
         this._deviceRequest === request
       ) {
-        this.dispatchEvent(
-          new CustomEvent("hass-notification", {
-            detail: { message: `Token update failed: ${err.message || err}` },
-            bubbles: true,
-            composed: true,
-          })
-        );
+        // Persistent in-dialog error (a toast disappears before long, actionable
+        // messages can be read).
+        this.statusMessage = `${t(this.hass, "token_update_error")}: ${err.message || err}`;
+        this.statusType = "error";
+        this.render();
       }
     } finally {
       if (btn) btn.disabled = false;

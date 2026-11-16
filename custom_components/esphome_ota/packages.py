@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+from collections.abc import Iterable
+from urllib.parse import urlsplit
 
 from .const import DEFAULT_PUBLISH_DIR
 
@@ -52,64 +54,96 @@ def yaml_dq(value: str) -> str:
     return f'"{escaped}"'
 
 
-SLUG_SECRET_PREFIX = "esphome_ota_slug_"
+# Keys of integration-owned slug secrets. The prefix is deliberately NOT an
+# extension of the legacy prefix below: every 1.7.0b0/b1 key starts with
+# ``esphome_ota_slug_`` while every key now starts with ``esphome_ota_cfg_``
+# (they differ at the 13th character, ``s`` vs ``c``), so a new key can never
+# equal a legacy name-based key whatever the device names are. The shared base
+# URL key ``esphome_ota_base_url`` is disjoint from both for the same reason.
+SLUG_SECRET_PREFIX = "esphome_ota_cfg_"
+LEGACY_SLUG_SECRET_PREFIX = "esphome_ota_slug_"
 # One key shared by every device: base_url is global to the config entry.
 BASE_URL_SECRET_KEY = "esphome_ota_base_url"
-SECRETS_FILE = "secrets.yaml"
 _SECRET_KEY_BAD_RE = re.compile(r"[^a-z0-9_]")
 
 
-def slug_secret_key(node: str) -> str:
-    """Return the ``secrets.yaml`` key holding the public slug of device ``node``.
+def normalize_base_url(value: str) -> str | None:
+    """Return the cleaned base URL, or None when it is not a valid http(s) URL."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().rstrip("/")
+    try:
+        parsed = urlsplit(cleaned)
+        parsed.port  # noqa: B018 - raises ValueError on a malformed port
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
+    if (
+        parsed.query
+        or parsed.fragment
+        or parsed.username
+        or parsed.password
+        or any(ch.isspace() for ch in cleaned)
+    ):
+        return None
+    return cleaned
 
-    Derived from the device name (``esphome.name``), which is the same stable
-    identity the public slug itself is built from. The name is lowercased and
-    mapped to ``[a-z0-9_]``; when that mapping is lossy (e.g. ``-`` -> ``_``) a
-    short hash of the original name is appended so ``a-b`` and ``a_b`` never
-    share a key.
+
+BASE_URL_INVALID_MESSAGE = (
+    "The Base URL is empty or not a valid http(s) URL, so the OTA secrets "
+    "cannot be stored. Nothing was written. Set a valid Base URL in the "
+    "ESPHome OTA integration options (Settings > Devices & services > "
+    "ESPHome OTA > Configure), then try again."
+)
+
+
+def slug_secret_key(device_id: str) -> str:
+    """Return the ``secrets.yaml`` key holding the public slug of a device.
+
+    Derived from the device id (the configuration file stem), which is unique
+    within one Builder config directory. ``esphome.name`` is NOT unique, so
+    two files sharing a name would otherwise overwrite each other's slug. The
+    id is lowercased and mapped to ``[a-z0-9_]``; when that mapping is lossy
+    (e.g. ``-`` -> ``_``) a short hash of the original id is appended so
+    ``a-b`` and ``a_b`` never share a key.
     """
-    clean = _SECRET_KEY_BAD_RE.sub("_", node.lower())
-    if clean != node:
-        digest = hashlib.sha1(node.encode("utf-8")).hexdigest()[:6]
+    clean = _SECRET_KEY_BAD_RE.sub("_", device_id.lower())
+    if clean != device_id:
+        digest = hashlib.sha1(device_id.encode("utf-8")).hexdigest()[:6]
         clean = f"{clean}_{digest}"
     return f"{SLUG_SECRET_PREFIX}{clean}"
 
 
-def _secret_line_re(key: str) -> re.Pattern[str]:
-    return re.compile(rf"^{re.escape(key)}[ \t]*:")
+def legacy_slug_secret_key(node: str) -> str:
+    """Return the name-based key that 1.7.0b0/b1 used (``esphome.name`` based)."""
+    clean = _SECRET_KEY_BAD_RE.sub("_", node.lower())
+    if clean != node:
+        digest = hashlib.sha1(node.encode("utf-8")).hexdigest()[:6]
+        clean = f"{clean}_{digest}"
+    return f"{LEGACY_SLUG_SECRET_PREFIX}{clean}"
 
 
-def _line_ending(line: str) -> str:
-    if line.endswith("\r\n"):
-        return "\r\n"
-    return "\n" if line.endswith("\n") else ""
+def find_slug_key_conflict(
+    device_id: str,
+    other_ids: Iterable[str],
+    other_names: Iterable[str] = (),
+) -> str | None:
+    """Return another device id/name whose slug key equals this device's key.
 
-
-def upsert_secret_text(content: str, key: str, value: str) -> str:
-    """Set ``key: "<value>"`` in secrets.yaml text, touching only that line.
-
-    Other keys, comments, ordering and line endings are preserved. An absent
-    key is appended (after adding a missing trailing newline).
+    ``other_ids`` are compared with the current key scheme; ``other_names`` are
+    ``esphome.name`` values compared with the legacy name-based key (defense in
+    depth: the prefixes are disjoint, so this can only trigger if that ever
+    changes).
     """
-    lines = content.splitlines(keepends=True)
-    pattern = _secret_line_re(key)
-    for idx, line in enumerate(lines):
-        if pattern.match(line):
-            lines[idx] = f"{key}: {yaml_dq(value)}{_line_ending(line)}"
-            return "".join(lines)
-    nl = "\r\n" if "\r\n" in content else "\n"
-    if lines and not _line_ending(lines[-1]):
-        lines[-1] += nl
-    lines.append(f"{key}: {yaml_dq(value)}{nl}")
-    return "".join(lines)
-
-
-def remove_secret_text(content: str, key: str) -> tuple[str, bool]:
-    """Remove the ``key`` line from secrets.yaml text; returns (text, removed)."""
-    pattern = _secret_line_re(key)
-    lines = content.splitlines(keepends=True)
-    kept = [line for line in lines if not pattern.match(line)]
-    return "".join(kept), len(kept) != len(lines)
+    key = slug_secret_key(device_id)
+    for other in other_ids:
+        if other != device_id and slug_secret_key(other) == key:
+            return other
+    for name in other_names:
+        if legacy_slug_secret_key(name) == key:
+            return name
+    return None
 
 
 def project_name(node: str) -> str:

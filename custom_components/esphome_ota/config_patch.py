@@ -795,9 +795,48 @@ _OTA_SLUG_SECRET_RE = re.compile(
 )
 
 
+def _managed_block_text(content: str) -> str:
+    """Return the text of the ``packages.esphome_ota`` entry ('' if absent).
+
+    Secret references are only looked up here so a user's own top-level
+    ``substitutions: ota_slug: !secret ...`` is never mistaken for ours.
+    """
+    lines = content.splitlines()
+    in_packages = False
+    pkg_indent = 0
+    start: int | None = None
+    seen_child = False
+    for idx, line in enumerate(lines):
+        if re.match(r"^packages\s*:", line):
+            in_packages = True
+            continue
+        if not in_packages:
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" \t"))
+        if indent == 0:
+            break
+        if not seen_child:
+            pkg_indent = indent
+            seen_child = True
+        if indent == pkg_indent and re.match(r"^[ \t]*esphome_ota\s*:", line):
+            start = idx
+            break
+    if start is None:
+        return ""
+    block = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.strip() and not line.lstrip().startswith("#"):
+            if len(line) - len(line.lstrip(" \t")) <= pkg_indent:
+                break
+        block.append(line)
+    return "\n".join(block)
+
+
 def ota_slug_secret_ref(content: str) -> str | None:
-    """Return the secrets.yaml key if ``ota_slug`` is ``!secret <key>``, else None."""
-    match = _OTA_SLUG_SECRET_RE.search(content)
+    """Return the secrets.yaml key if the managed block's ``ota_slug`` is ``!secret <key>``."""
+    match = _OTA_SLUG_SECRET_RE.search(_managed_block_text(content))
     return match.group(1) if match else None
 
 
@@ -807,8 +846,8 @@ _OTA_BASE_URL_SECRET_RE = re.compile(
 
 
 def ota_base_url_secret_ref(content: str) -> str | None:
-    """Return the secrets.yaml key if ``ota_base_url`` is ``!secret <key>``, else None."""
-    match = _OTA_BASE_URL_SECRET_RE.search(content)
+    """Return the secrets.yaml key if the managed block's ``ota_base_url`` is ``!secret <key>``."""
+    match = _OTA_BASE_URL_SECRET_RE.search(_managed_block_text(content))
     return match.group(1) if match else None
 
 
@@ -983,6 +1022,7 @@ def apply_ota_patch(
     slug: str,
     target_version: str | None = None,
     node: str = "",
+    device_id: str = "",
 ) -> YamlDiff:
     """Apply the managed packages.esphome_ota block into YAML while preserving comments and format."""
     original = yaml_content
@@ -1014,7 +1054,7 @@ def apply_ota_patch(
         version=target_version if use_project else None,
         node=node,
         use_project=use_project,
-        slug_secret=slug_secret_key(node) if node else None,
+        slug_secret=slug_secret_key(device_id) if device_id else None,
         base_url_secret=BASE_URL_SECRET_KEY,
     )
 

@@ -61,6 +61,7 @@ def test_issue1_two_space_packages_with_four_space_internal_settings() -> None:
         slug="livingroom_token123",
         target_version="1.0.0",
         node="livingroom",
+        device_id="livingroom",
     )
 
     patched = diff.modified

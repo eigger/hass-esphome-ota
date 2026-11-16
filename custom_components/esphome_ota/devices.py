@@ -24,8 +24,13 @@ from .const import (
     YAML_MODE_INLINE_PACKAGE,
 )
 from .firmware import chip_family
-from .models import ManagedDevice
-from .packages import generate_token, is_valid_token, public_slug
+from .models import BuilderError, ManagedDevice
+from .packages import (
+    find_slug_key_conflict,
+    generate_token,
+    is_valid_token,
+    public_slug,
+)
 from .storage import StorageManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,6 +94,42 @@ class DeviceManager:
     def get_device(self, device_id: str) -> ManagedDevice | None:
         """Get managed device by ID."""
         return self._managed_devices.get(device_id)
+
+    def assert_slug_key_unique(self, device_id: str) -> None:
+        """Raise if another known device would share this device's slug secret key.
+
+        Checked before a slug secret is written so one device can never
+        overwrite the slug that another device's YAML references. Compares the
+        key with every other managed or Builder device, including the legacy
+        name-based key that 1.7.0b0/b1 YAML may still reference.
+        """
+        files: dict[str, str] = {}
+        names: dict[str, str] = {}
+        for dev_id, dev in self._managed_devices.items():
+            if dev_id == device_id:
+                continue
+            files[dev_id] = dev.configuration or f"{dev_id}.yaml"
+            if dev.name:
+                names[dev.name] = files[dev_id]
+        for raw in self._builder_devices:
+            cfg = str(raw.get("configuration") or "")
+            stem = cfg[:-5] if cfg.endswith(".yaml") else cfg
+            if not stem or stem == device_id:
+                continue
+            files.setdefault(stem, cfg if cfg.endswith(".yaml") else f"{cfg}.yaml")
+            if raw.get("name"):
+                names.setdefault(str(raw["name"]), files[stem])
+        clash = find_slug_key_conflict(device_id, files, names)
+        if clash:
+            this_file = self.get_configuration(device_id)
+            other_file = files.get(clash) or names.get(clash) or f"{clash}.yaml"
+            raise BuilderError(
+                f"The configurations '{this_file}' and '{other_file}' map to "
+                "the same secrets.yaml key for the OTA slug, so saving one would "
+                "overwrite the other's URL. Nothing was written. Rename one of "
+                "the two configuration files, then try again.",
+                error_code="SLUG_KEY_COLLISION",
+            )
 
     def get_builder_raw(self, device_id: str) -> dict[str, Any] | None:
         """Find raw Builder device info by device_id or configuration."""

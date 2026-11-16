@@ -86,19 +86,20 @@ packages:
   esphome_ota:
     substitutions:
       ota_base_url: !secret esphome_ota_base_url
-      ota_slug: !secret esphome_ota_slug_livingroom
+      ota_slug: !secret esphome_ota_cfg_livingroom
 ```
 
 ```yaml
 # secrets.yaml (only these lines are added or updated; other keys and comments are untouched)
 esphome_ota_base_url: "http://homeassistant.local:8123"
-esphome_ota_slug_livingroom: "livingroom_0123456789abcdef0123456789abcdef"
+esphome_ota_cfg_livingroom: "livingroom_0123456789abcdef0123456789abcdef"
 ```
 
 - `esphome_ota_base_url` is one key shared by all devices. Changing the Base URL in the integration options takes effect on each device's next build, which rewrites the secret; nothing runs in the background and device YAML never needs editing. **Remove OTA** leaves this shared key in place.
-- The slug key is `esphome_ota_slug_<device name>` (lowercase, `[a-z0-9_]`; a short hash is appended if the name contains other characters such as `-`). Your device YAML can be shared or committed without leaking the download URL; keep `secrets.yaml` private.
+- The slug key is `esphome_ota_cfg_<configuration file name>` (the file name without `.yaml`, lowercase, `[a-z0-9_]`; a short hash is appended if it contains other characters such as `-`). It is based on the configuration file, not `esphome.name`, so two files with the same node name never share a key. Keys starting with `esphome_ota_` are reserved for this integration. Versions 1.7.0b0/b1 used `esphome_ota_slug_<device name>`; those devices move to the new key on their next build and the old key stays in `secrets.yaml` unused (delete it by hand if you like). Your device YAML can be shared or committed without leaking the download URL; keep `secrets.yaml` private.
 - Devices that still have a plaintext `ota_base_url` or `ota_slug` are migrated automatically on their next build, with the same values (no reinstall needed). The secret is written before the YAML is updated. If a YAML with the plaintext values was already committed or shared, change the token as well: the old value stays in that history.
-- **Remove OTA** also removes the slug key (not the shared base URL key) from `secrets.yaml` (best effort). Changing the token updates the value in `secrets.yaml`.
+- **Remove OTA** leaves the slug key in `secrets.yaml` (the Builder has no delete-secret API and the integration never rewrites the whole file); the orphaned key is harmless and can be deleted by hand. Changing the token updates the value in `secrets.yaml` only for the key the integration manages for that device; if the YAML references another key (for example the name-based key from 1.7.0b0/b1), run a build first to migrate it.
+- The Builder must support the `config/set_secret` command (one key is written atomically; existing secrets are never rewritten). If it does not, or it refuses the write, the build/save fails with an error and nothing is changed: update the ESPHome Builder. Saving is also refused when the Base URL is empty or invalid.
 
 ## Hooking into OTA events (e.g. LVGL)
 

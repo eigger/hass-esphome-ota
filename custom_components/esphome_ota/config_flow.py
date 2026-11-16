@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import urlsplit
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -24,29 +23,9 @@ from .const import (
     DOMAIN,
 )
 from .models import BuilderCandidate
+from .packages import normalize_base_url as _normalize_base_url
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _normalize_base_url(value: str) -> str | None:
-    """Return the cleaned base URL, or None when it is not a valid http(s) URL."""
-    cleaned = value.strip().rstrip("/")
-    try:
-        parsed = urlsplit(cleaned)
-        parsed.port  # noqa: B018 - raises ValueError on a malformed port
-    except ValueError:
-        return None
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return None
-    if (
-        parsed.query
-        or parsed.fragment
-        or parsed.username
-        or parsed.password
-        or any(ch.isspace() for ch in cleaned)
-    ):
-        return None
-    return cleaned
 
 
 class EsphomeOtaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):

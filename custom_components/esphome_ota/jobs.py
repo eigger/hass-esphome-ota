@@ -48,7 +48,13 @@ from .models import (
     PipelineJob,
     PublishedArtifact,
 )
-from .packages import is_valid_token
+from .packages import (
+    BASE_URL_INVALID_MESSAGE,
+    BASE_URL_SECRET_KEY,
+    is_valid_token,
+    normalize_base_url,
+    slug_secret_key,
+)
 from .publisher import ArtifactPublisher
 from .redaction import install_redaction
 from .storage import StorageManager
@@ -464,6 +470,7 @@ class JobRunner:
                     slug=device.slug,
                     target_version=target_patch_version,
                     node=device.name,
+                    device_id=device.device_id,
                 )
                 final_yaml = diff_res.modified
                 # The managed block references the slug via ``!secret``: write
@@ -473,9 +480,31 @@ class JobRunner:
                 # The shared base_url secret is rewritten on every build, so a
                 # changed base_url reaches devices on their next build.
                 base_key = ota_base_url_secret_ref(final_yaml)
-                if base_key:
-                    await client.set_secret(base_key, base_url.rstrip("/"))
                 slug_key = ota_slug_secret_ref(final_yaml)
+                # Only integration-owned keys may be written: a foreign key
+                # referenced by YAML we could not rewrite is never touched.
+                if base_key and base_key != BASE_URL_SECRET_KEY:
+                    raise BuilderError(
+                        f"Cannot build {device.configuration}: ota_base_url uses "
+                        f"the secret '{base_key}', which is not managed by ESPHome "
+                        "OTA. Nothing was written. Remove or fix that ota_base_url "
+                        "reference so the managed block can be regenerated."
+                    )
+                if slug_key and slug_key != slug_secret_key(device.device_id):
+                    raise BuilderError(
+                        f"Cannot build {device.configuration}: ota_slug uses "
+                        f"the secret '{slug_key}', which is not managed by ESPHome "
+                        "OTA. Nothing was written. Remove or fix that ota_slug "
+                        "reference so the managed block can be regenerated."
+                    )
+                if base_key:
+                    clean_base = normalize_base_url(base_url)
+                    if not clean_base:
+                        raise BuilderError(BASE_URL_INVALID_MESSAGE)
+                if slug_key:
+                    self.device_manager.assert_slug_key_unique(device.device_id)
+                if base_key:
+                    await client.set_secret(base_key, clean_base)
                 if slug_key:
                     await client.set_secret(slug_key, device.slug)
                 if final_yaml != original_yaml:
