@@ -57,3 +57,18 @@ def test_i18n_en_ko_key_parity() -> None:
         f"en-only: {sorted(en_keys - ko_keys)}; ko-only: {sorted(ko_keys - en_keys)}"
     )
     assert "batch_build" in en_keys
+
+
+def test_job_dialog_patches_in_place() -> None:
+    """The job dialog must not rewrite its whole shadow DOM per log line."""
+    source = (_FRONTEND_DIR / "job-dialog.js").read_text(encoding="utf-8")
+    assert "requestAnimationFrame" in source
+    assert "cancelAnimationFrame" in source
+    assert "_buildSkeleton" in source
+    assert "_patchTerminal" in source
+    # Whole-shadow-root rewrites are only allowed to build the skeleton / clear on close.
+    assert source.count("this.shadowRoot.innerHTML") == 2
+    # Listeners are bound once per skeleton build, never in the patch path.
+    patch_src = source[source.index("  _patch() {") :]
+    assert "bindModalAccessibility" not in patch_src
+    assert 'getElementById("close-x")' not in patch_src

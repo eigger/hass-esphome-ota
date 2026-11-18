@@ -304,11 +304,17 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this._historyJobId = null;
     this._historyTruncated = false;
     this._pendingRemovedLines = 0;
+    this._historyEpoch = 0;
+    this._els = null;
+    this._frame = null;
+    this._resetRendered();
   }
 
   open(job, hass, returnFocus = undefined) {
     if (!this.isOpen) rememberModalFocus(this);
+    else captureModalFocus(this);
     if (returnFocus !== undefined) this._modalReturnFocus = returnFocus;
+    this._cancelFrame();
     this.job = job;
     this.hass = hass;
     this.isOpen = true;
@@ -318,12 +324,17 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this._logHistory = [...(job.log_tail || [])];
     this._historyTruncated = false;
     this._pendingRemovedLines = 0;
-    this.render();
+    this._historyEpoch += 1;
+    this._buildSkeleton();
+    this._patch();
   }
 
   close() {
+    this._cancelFrame();
     this.isOpen = false;
-    this.render();
+    this._els = null;
+    this._resetRendered();
+    this.shadowRoot.innerHTML = "";
     restoreModalFocus(this);
   }
 
@@ -332,8 +343,28 @@ class EsphomeOtaJobDialog extends HTMLElement {
     if (this.job && this.job.job_id === job.job_id) {
       this._mergeLogSnapshot(job.log_tail || []);
       this.job = job;
-      this.render();
+      this._scheduleFrame();
     }
+  }
+
+  _scheduleFrame() {
+    if (this._frame !== null) return;
+    const run = () => {
+      this._frame = null;
+      this._patch();
+    };
+    if (typeof requestAnimationFrame === "function") {
+      this._frame = { raf: true, id: requestAnimationFrame(run) };
+    } else {
+      this._frame = { raf: false, id: setTimeout(run, 16) };
+    }
+  }
+
+  _cancelFrame() {
+    if (this._frame === null) return;
+    if (this._frame.raf) cancelAnimationFrame(this._frame.id);
+    else clearTimeout(this._frame.id);
+    this._frame = null;
   }
 
   _mergeLogSnapshot(snapshot) {
@@ -343,6 +374,7 @@ class EsphomeOtaJobDialog extends HTMLElement {
       this._logHistory = [];
       this._historyTruncated = false;
       this._pendingRemovedLines = 0;
+      this._historyEpoch += 1;
     }
     if (!incoming.length) return;
     if (!this._logHistory.length) {
@@ -403,34 +435,114 @@ class EsphomeOtaJobDialog extends HTMLElement {
     }
   }
 
-  render() {
-    if (!this.isOpen || !this.job) {
-      this.shadowRoot.innerHTML = "";
-      return;
-    }
+  _resetRendered() {
+    this._renderedStrings = [];
+    this._renderedEls = [];
+    this._trailerEls = [];
+    this._trailerKey = "";
+    this._placeholderEl = null;
+    this._renderedEpoch = -1;
+  }
 
-    const previousTerminal = this.shadowRoot.getElementById("terminal");
-    const previousScrollTop = previousTerminal?.scrollTop || 0;
-    let removedHeight = 0;
-    if (previousTerminal && this._pendingRemovedLines > 0) {
-      const oldLines = [...previousTerminal.querySelectorAll(".log-line")];
-      removedHeight = oldLines
-        .slice(0, this._pendingRemovedLines)
-        .reduce((height, line) => height + line.getBoundingClientRect().height, 0);
-    }
-    if (previousTerminal) {
+  /** Build the static dialog structure once; all listeners are bound here only. */
+  _buildSkeleton() {
+    this._resetRendered();
+    this._bannerKey = null;
+    this._titleText = null;
+    this.shadowRoot.innerHTML = `
+      <style>${css}</style>
+      <div class="backdrop" id="backdrop">
+        <div class="modal">
+          <div class="header">
+            <h2></h2>
+            <button id="close-x" aria-label="Close">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          <div class="body">
+            <div class="stage-banner"></div>
+            <div class="terminal-toolbar">
+              <button class="secondary" id="btn-follow-logs" type="button" hidden>${escapeHtml(t(this.hass, "logs_jump_latest"))}</button>
+            </div>
+            <div class="terminal" id="terminal"></div>
+          </div>
+          <div class="footer">
+            <button class="primary" id="btn-close">${escapeHtml(t(this.hass, "close"))}</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const root = this.shadowRoot;
+    const els = {
+      backdrop: root.getElementById("backdrop"),
+      title: root.querySelector(".header h2"),
+      banner: root.querySelector(".stage-banner"),
+      body: root.querySelector(".body"),
+      toolbar: root.querySelector(".terminal-toolbar"),
+      follow: root.getElementById("btn-follow-logs"),
+      terminal: root.getElementById("terminal"),
+      footer: root.querySelector(".footer"),
+      close: root.getElementById("btn-close"),
+      notice: null,
+      recheck: null,
+      cancel: null,
+    };
+    this._els = els;
+
+    els.terminal.addEventListener("scroll", () => {
       this._followLogs =
-        previousTerminal.scrollHeight - previousTerminal.scrollTop - previousTerminal.clientHeight < 60;
-    }
+        els.terminal.scrollHeight - els.terminal.scrollTop - els.terminal.clientHeight < 60;
+      els.follow.hidden = this._followLogs;
+    }, { passive: true });
+    els.follow.addEventListener("click", () => {
+      els.terminal.scrollTop = els.terminal.scrollHeight;
+      this._followLogs = true;
+      els.follow.hidden = true;
+    });
+    root.getElementById("close-x").addEventListener("click", () => this.close());
+    els.close.addEventListener("click", () => this.close());
+    let mouseDownTarget = null;
+    els.backdrop.addEventListener("mousedown", (e) => {
+      mouseDownTarget = e.target;
+    });
+    els.backdrop.addEventListener("click", (e) => {
+      if (e.target.id === "backdrop" && mouseDownTarget?.id === "backdrop") {
+        this.close();
+      }
+      mouseDownTarget = null;
+    });
 
+    const focusTarget = this._modalFocusTarget;
+    if (focusTarget) {
+      const target = focusTarget.id
+        ? root.getElementById(focusTarget.id)
+        : root.querySelector(`[${focusTarget.attribute}="${focusTarget.value}"]`);
+      // Conditional footer buttons do not exist yet; fall back to Close.
+      if (!target) this._modalFocusTarget = { id: "btn-close" };
+    }
+    bindModalAccessibility(this, () => this.close());
+  }
+
+  /** Apply the latest job state to the existing DOM without replacing controls. */
+  _patch() {
+    if (!this.isOpen || !this.job || !this._els) return;
+    const els = this._els;
     const stage = this.job.stage || "preparing";
-    const stageText = t(this.hass, `stage_${stage}`) || stage;
-    const logLines = [...this._logHistory];
-    if (this.job.error && (stage === "failed" || stage === "cancelled")) {
-      logLines.push("", "", `\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`);
-    }
-    if (!logLines.length) logLines.push(t(this.hass, "logs_waiting_output"));
 
+    this._patchHeader(stage);
+    this._patchFooter(stage);
+    this._patchTerminal(stage);
+  }
+
+  _patchHeader(stage) {
+    const els = this._els;
+    const title = `${t(this.hass, "logs_title")} - ${this.job.configuration}`;
+    if (title !== this._titleText) {
+      this._titleText = title;
+      els.title.textContent = title;
+    }
+
+    const stageText = t(this.hass, `stage_${stage}`) || stage;
     let stageClass = "stage-banner";
     if (stage === "building" || stage === "downloading" || stage === "submitting") {
       stageClass += " stage-building";
@@ -441,110 +553,154 @@ class EsphomeOtaJobDialog extends HTMLElement {
     } else if (stage === "recovery_required") {
       stageClass += " stage-recovery";
     }
+    const version = this.job.reserved_version || "";
+    const error = this.job.error || "";
+    const key = [stageClass, stageText, version, error].join("\u0000");
+    if (key === this._bannerKey) return;
+    this._bannerKey = key;
+    els.banner.className = stageClass;
+    els.banner.innerHTML = `
+      <span><strong>${escapeHtml(t(this.hass, "job_status"))}:</strong> ${escapeHtml(stageText)}</span>
+      ${version ? `<span>(${escapeHtml(t(this.hass, "target_version"))}: ${escapeHtml(version)})</span>` : ""}
+      ${error ? `<span> — ${escapeHtml(error)}</span>` : ""}
+    `;
+  }
 
+  _syncNotice() {
+    const els = this._els;
+    if (this._historyTruncated && !els.notice) {
+      const notice = document.createElement("div");
+      notice.className = "log-history-notice";
+      notice.setAttribute("role", "status");
+      notice.textContent = t(this.hass, "logs_history_truncated");
+      els.body.insertBefore(notice, els.toolbar);
+      els.notice = notice;
+    } else if (!this._historyTruncated && els.notice) {
+      els.notice.remove();
+      els.notice = null;
+    }
+  }
+
+  _patchFooter(stage) {
+    const els = this._els;
     const isRunning = ["preparing", "validating", "submitting", "queued", "building", "downloading", "verifying", "publishing"].includes(stage);
     const isRecovery = stage === "recovery_required";
+    const active = this.shadowRoot.activeElement;
+    let focusLost = false;
 
-    captureModalFocus(this);
-    this.shadowRoot.innerHTML = `
-      <style>${css}</style>
-      <div class="backdrop" id="backdrop">
-        <div class="modal">
-          <div class="header">
-            <h2>${escapeHtml(t(this.hass, "logs_title"))} - ${escapeHtml(this.job.configuration)}</h2>
-            <button id="close-x" aria-label="Close">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-          <div class="body">
-            <div class="${stageClass}">
-              <span><strong>${escapeHtml(t(this.hass, "job_status"))}:</strong> ${escapeHtml(stageText)}</span>
-              ${this.job.reserved_version ? `<span>(${escapeHtml(t(this.hass, "target_version"))}: ${escapeHtml(this.job.reserved_version)})</span>` : ""}
-              ${this.job.error ? `<span> — ${escapeHtml(this.job.error)}</span>` : ""}
-            </div>
-            ${this._historyTruncated ? `<div class="log-history-notice" role="status">${escapeHtml(t(this.hass, "logs_history_truncated"))}</div>` : ""}
-            <div class="terminal-toolbar">
-              <button class="secondary" id="btn-follow-logs" type="button" hidden>${escapeHtml(t(this.hass, "logs_jump_latest"))}</button>
-            </div>
-            <div class="terminal" id="terminal"></div>
-          </div>
-          <div class="footer">
-            ${isRecovery ? `<button class="secondary" id="btn-recheck">${escapeHtml(t(this.hass, "logs_retry_btn"))}</button>` : ""}
-            ${(isRunning || isRecovery) ? `<button class="danger" id="btn-cancel">${escapeHtml(t(this.hass, "logs_cancel_btn"))}</button>` : ""}
-            <button class="primary" id="btn-close">${escapeHtml(t(this.hass, "close"))}</button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const terminalEl = this.shadowRoot.getElementById("terminal");
-    const followButton = this.shadowRoot.getElementById("btn-follow-logs");
-    if (terminalEl) {
-      terminalEl.innerHTML = logLines
-        .map((line) => `<div class="log-line">${ansiToHtml(line) || "&nbsp;"}</div>`)
-        .join("");
-      if (this._followLogs || !this._hasInitialScrolled) {
-        terminalEl.scrollTop = terminalEl.scrollHeight;
-        this._hasInitialScrolled = true;
-        this._followLogs = true;
-      } else {
-        const anchorExpired = previousScrollTop < removedHeight;
-        terminalEl.scrollTop = Math.max(0, previousScrollTop - removedHeight);
-        if (anchorExpired) {
-          this._historyTruncated = true;
-          const notice = this.shadowRoot.querySelector(".log-history-notice");
-          if (notice) notice.textContent = t(this.hass, "logs_history_truncated");
-          else {
-            const body = this.shadowRoot.querySelector(".body");
-            const newNotice = document.createElement("div");
-            newNotice.className = "log-history-notice";
-            newNotice.setAttribute("role", "status");
-            newNotice.textContent = t(this.hass, "logs_history_truncated");
-            body?.insertBefore(newNotice, this.shadowRoot.querySelector(".terminal-toolbar"));
-          }
-        }
+    const sync = (name, id, cls, labelKey, visible, handler) => {
+      if (visible && !els[name]) {
+        const button = document.createElement("button");
+        button.id = id;
+        button.className = cls;
+        button.textContent = t(this.hass, labelKey);
+        button.addEventListener("click", handler);
+        els.footer.insertBefore(button, name === "recheck" ? (els.cancel || els.close) : els.close);
+        els[name] = button;
+      } else if (!visible && els[name]) {
+        if (active === els[name]) focusLost = true;
+        els[name].remove();
+        els[name] = null;
       }
-      this._pendingRemovedLines = 0;
+    };
+    sync("recheck", "btn-recheck", "secondary", "logs_retry_btn", isRecovery, () => this.recheckJob());
+    sync("cancel", "btn-cancel", "danger", "logs_cancel_btn", isRunning || isRecovery, () => this.cancelJob());
+    if (focusLost) els.close.focus();
+  }
 
-      followButton.hidden = this._followLogs;
-      terminalEl.addEventListener("scroll", () => {
-        this._followLogs =
-          terminalEl.scrollHeight - terminalEl.scrollTop - terminalEl.clientHeight < 60;
-        followButton.hidden = this._followLogs;
-      }, { passive: true });
-      followButton.addEventListener("click", () => {
-        terminalEl.scrollTop = terminalEl.scrollHeight;
-        this._followLogs = true;
-        followButton.hidden = true;
-      });
+  _lineElement(line) {
+    const el = document.createElement("div");
+    el.className = "log-line";
+    el.innerHTML = ansiToHtml(line) || "&nbsp;";
+    return el;
+  }
+
+  _patchTerminal(stage) {
+    const els = this._els;
+    const term = els.terminal;
+    const history = this._logHistory;
+
+    if (this._hasInitialScrolled) {
+      this._followLogs = term.scrollHeight - term.scrollTop - term.clientHeight < 60;
+    }
+    const previousScrollTop = term.scrollTop;
+
+    // Drop lines that were trimmed from the head of the history.
+    let removedHeight = 0;
+    const removeCount = Math.min(this._pendingRemovedLines, this._renderedEls.length);
+    if (removeCount > 0) {
+      for (const el of this._renderedEls.slice(0, removeCount)) {
+        removedHeight += el.getBoundingClientRect().height;
+        el.remove();
+      }
+      this._renderedEls.splice(0, removeCount);
+      this._renderedStrings.splice(0, removeCount);
+    }
+    this._pendingRemovedLines = 0;
+
+    // Verify the rendered lines are still a prefix of the history; otherwise rebuild.
+    const rendered = this._renderedStrings;
+    const consistent =
+      this._renderedEpoch === this._historyEpoch &&
+      rendered.length <= history.length &&
+      (rendered.length === 0 ||
+        (rendered[0] === history[0] && rendered[rendered.length - 1] === history[rendered.length - 1]));
+    let rebuilt = false;
+    if (!consistent) {
+      term.textContent = "";
+      this._resetRendered();
+      this._renderedEpoch = this._historyEpoch;
+      removedHeight = 0;
+      rebuilt = true;
     }
 
-    const focusTarget = this._modalFocusTarget;
-    if (focusTarget) {
-      const target = focusTarget.id
-        ? this.shadowRoot.getElementById(focusTarget.id)
-        : this.shadowRoot.querySelector(`[${focusTarget.attribute}="${focusTarget.value}"]`);
-      if (!target || target.hidden || target.getAttribute("aria-hidden") === "true") {
-        this._modalFocusTarget = { id: "btn-close" };
-      }
-    }
-    bindModalAccessibility(this, () => this.close());
+    const trailer =
+      this.job.error && (stage === "failed" || stage === "cancelled")
+        ? ["", "", `\x1b[31;1m[ERROR] ${this.job.error}\x1b[0m`]
+        : [];
+    const trailerKey = trailer.join("\n");
+    const newLines = history.slice(this._renderedStrings.length);
+    const needPlaceholder = !history.length && !trailer.length;
+    const placeholderOk = needPlaceholder === Boolean(this._placeholderEl);
 
-    this.shadowRoot.getElementById("close-x")?.addEventListener("click", () => this.close());
-    this.shadowRoot.getElementById("btn-close")?.addEventListener("click", () => this.close());
-    this.shadowRoot.getElementById("btn-recheck")?.addEventListener("click", () => this.recheckJob());
-    this.shadowRoot.getElementById("btn-cancel")?.addEventListener("click", () => this.cancelJob());
-    let mouseDownTarget = null;
-    const backdrop = this.shadowRoot.getElementById("backdrop");
-    backdrop?.addEventListener("mousedown", (e) => {
-      mouseDownTarget = e.target;
-    });
-    backdrop?.addEventListener("click", (e) => {
-      if (e.target.id === "backdrop" && mouseDownTarget?.id === "backdrop") {
-        this.close();
+    if (newLines.length || trailerKey !== this._trailerKey || !placeholderOk) {
+      // Trailer and placeholder always sit after the history lines.
+      for (const el of this._trailerEls) el.remove();
+      this._trailerEls = [];
+      this._placeholderEl?.remove();
+      this._placeholderEl = null;
+
+      const fragment = document.createDocumentFragment();
+      for (const line of newLines) {
+        const el = this._lineElement(line);
+        this._renderedEls.push(el);
+        this._renderedStrings.push(line);
+        fragment.appendChild(el);
       }
-      mouseDownTarget = null;
-    });
+      for (const line of trailer) {
+        const el = this._lineElement(line);
+        this._trailerEls.push(el);
+        fragment.appendChild(el);
+      }
+      if (needPlaceholder) {
+        this._placeholderEl = this._lineElement(t(this.hass, "logs_waiting_output"));
+        fragment.appendChild(this._placeholderEl);
+      }
+      term.appendChild(fragment);
+      this._trailerKey = trailerKey;
+    }
+
+    if (this._followLogs || !this._hasInitialScrolled) {
+      term.scrollTop = term.scrollHeight;
+      this._hasInitialScrolled = true;
+      this._followLogs = true;
+    } else if (removedHeight > 0 || rebuilt) {
+      const anchorExpired = previousScrollTop < removedHeight;
+      term.scrollTop = Math.max(0, previousScrollTop - removedHeight);
+      if (anchorExpired) this._historyTruncated = true;
+    }
+    this._syncNotice();
+    els.follow.hidden = this._followLogs;
   }
 }
 
