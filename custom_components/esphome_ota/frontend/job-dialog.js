@@ -327,6 +327,16 @@ class EsphomeOtaJobDialog extends HTMLElement {
     this._historyEpoch += 1;
     this._buildSkeleton();
     this._patch();
+    // Resolve focus only after conditional footer buttons exist.
+    const focusTarget = this._modalFocusTarget;
+    if (focusTarget) {
+      const root = this.shadowRoot;
+      const target = focusTarget.id
+        ? root.getElementById(focusTarget.id)
+        : root.querySelector(`[${focusTarget.attribute}="${focusTarget.value}"]`);
+      if (!target) this._modalFocusTarget = { id: "btn-close" };
+    }
+    bindModalAccessibility(this, () => this.close());
   }
 
   close() {
@@ -349,21 +359,15 @@ class EsphomeOtaJobDialog extends HTMLElement {
 
   _scheduleFrame() {
     if (this._frame !== null) return;
-    const run = () => {
+    this._frame = requestAnimationFrame(() => {
       this._frame = null;
       this._patch();
-    };
-    if (typeof requestAnimationFrame === "function") {
-      this._frame = { raf: true, id: requestAnimationFrame(run) };
-    } else {
-      this._frame = { raf: false, id: setTimeout(run, 16) };
-    }
+    });
   }
 
   _cancelFrame() {
     if (this._frame === null) return;
-    if (this._frame.raf) cancelAnimationFrame(this._frame.id);
-    else clearTimeout(this._frame.id);
+    cancelAnimationFrame(this._frame);
     this._frame = null;
   }
 
@@ -511,22 +515,11 @@ class EsphomeOtaJobDialog extends HTMLElement {
       }
       mouseDownTarget = null;
     });
-
-    const focusTarget = this._modalFocusTarget;
-    if (focusTarget) {
-      const target = focusTarget.id
-        ? root.getElementById(focusTarget.id)
-        : root.querySelector(`[${focusTarget.attribute}="${focusTarget.value}"]`);
-      // Conditional footer buttons do not exist yet; fall back to Close.
-      if (!target) this._modalFocusTarget = { id: "btn-close" };
-    }
-    bindModalAccessibility(this, () => this.close());
   }
 
   /** Apply the latest job state to the existing DOM without replacing controls. */
   _patch() {
     if (!this.isOpen || !this.job || !this._els) return;
-    const els = this._els;
     const stage = this.job.stage || "preparing";
 
     this._patchHeader(stage);
