@@ -216,18 +216,23 @@ async def test_publisher_abort_during_publish_preserves_prior_files(
         new_blob, target_platform="esp32", reserved_version="2.0.0"
     )
 
-    # Try publishing new version but abort via check_cancelled
-    with pytest.raises(EsphomeOtaError, match="Publish aborted"):
-        await publisher.async_publish(
-            device_id="dev1",
-            configuration="dev1.yaml",
-            slug="dev1_slug",
-            blob=new_blob,
-            info=new_info,
-            check_cancelled=lambda: True,
-        )
+    # Abort after the private write to exercise rollback of the archive too.
+    for blob, info in ((new_blob, new_info), (old_blob, old_info)):
+        checks = iter((False, True))
+        with pytest.raises(EsphomeOtaError, match="Publish aborted"):
+            await publisher.async_publish(
+                device_id="dev1",
+                configuration="dev1.yaml",
+                slug="dev1_slug",
+                blob=blob,
+                info=info,
+                check_cancelled=lambda: next(checks),
+            )
 
-    # Prior files must be untouched
+    private_path = Path(artifact.private_path)
+    assert private_path.read_bytes() == old_blob
+    assert not private_path.with_name(f"{new_info.sha256}.bin").exists()
+
     assert pub_bin.is_file()
     assert pub_bin.read_bytes() == old_blob
     assert pub_md5.is_file()

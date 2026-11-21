@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import uuid
@@ -19,10 +20,12 @@ from homeassistant.core import HomeAssistant
 from .const import DEFAULT_AUTO_CLEANUP_HOURS, DEFAULT_PUBLISH_DIR
 from .firmware import BinaryInfo
 from .models import EsphomeOtaError, PublishedArtifact
+from .packages import is_valid_device_id
 from .redaction import install_redaction, mask_slug
 
 _LOGGER = logging.getLogger(__name__)
 install_redaction(_LOGGER)
+_PRIVATE_BIN_NAME = re.compile(r"[0-9a-f]{64}\.bin")
 
 
 async def async_path_exists(hass: HomeAssistant, path: Path) -> bool:
@@ -115,13 +118,12 @@ class ArtifactPublisher:
         device_id: str,
         sha256: str,
         blob: bytes,
-    ) -> Path:
-        """Save binary into private configuration directory."""
-        dev_dir = self.private_base_dir / device_id
-        dev_dir.mkdir(parents=True, exist_ok=True)
-        target = dev_dir / f"{sha256}.bin"
+    ) -> tuple[Path, bool]:
+        """Save binary and report whether this publication created the file."""
+        target = self.private_base_dir / device_id / f"{sha256}.bin"
+        created = not target.exists()
         self._atomic_write_bytes(target, blob)
-        return target
+        return target, created
 
     def publish_sync(
         self,
@@ -154,6 +156,7 @@ class ArtifactPublisher:
             prior_bin_exists = False
             prior_md5_exists = False
             prior_manifest_exists = False
+            private_path_created = False
 
             def _check_validity() -> None:
                 if self._unloaded:
@@ -170,7 +173,9 @@ class ArtifactPublisher:
                 chip_family = info.chip_family
 
                 # 1. Archive in private storage
-                private_path = self._write_private_artifact(device_id, sha256, blob)
+                private_path, private_path_created = self._write_private_artifact(
+                    device_id, sha256, blob
+                )
 
                 _check_validity()
 
@@ -255,6 +260,13 @@ class ArtifactPublisher:
                 os.replace(stage_manifest, public_manifest)
                 self._active_artifacts[slug] = published_at
             except Exception:
+                if private_path_created:
+                    try:
+                        private_path.unlink(missing_ok=True)
+                    except OSError as err:
+                        _LOGGER.warning(
+                            "Could not remove aborted firmware archive: %s", err
+                        )
                 # Rollback: restore prior files if they existed, or unlink newly placed public files
                 if prior_bin_exists and backup_bin is not None and backup_bin.exists():
                     os.replace(backup_bin, public_bin)
@@ -474,6 +486,54 @@ class ArtifactPublisher:
         return await self.hass.async_add_executor_job(
             self._deactivate_sync, slug, expected_artifact_id
         )
+
+    def _prune_private_artifacts_sync(self, device_id: str, private_path: str) -> None:
+        if self._unloaded or not is_valid_device_id(device_id):
+            return
+
+        keep = Path(private_path)
+        dev_dir = self.private_base_dir / device_id
+        try:
+            if (
+                keep.parent != dev_dir
+                or not _PRIVATE_BIN_NAME.fullmatch(keep.name)
+                or self.private_base_dir.parent.is_symlink()
+                or self.private_base_dir.is_symlink()
+                or dev_dir.is_symlink()
+                or keep.is_symlink()
+                or not keep.is_file()
+            ):
+                return
+            for candidate in dev_dir.iterdir():
+                if (
+                    candidate != keep
+                    and _PRIVATE_BIN_NAME.fullmatch(candidate.name)
+                    and not candidate.is_symlink()
+                    and candidate.is_file()
+                ):
+                    candidate.unlink(missing_ok=True)
+        except OSError as err:
+            _LOGGER.warning(
+                "Could not prune firmware archives for %s: %s", device_id, err
+            )
+
+    async def async_prune_private_artifacts(
+        self, device_id: str, private_path: str
+    ) -> None:
+        """Keep the persisted binary while the caller holds the device lock."""
+        future = self.hass.async_add_executor_job(
+            self._prune_private_artifacts_sync, device_id, private_path
+        )
+        cancelled = False
+        while not future.done():
+            try:
+                await asyncio.shield(future)
+            except asyncio.CancelledError:
+                # Keep the device lock until the worker has stopped deleting files.
+                cancelled = True
+        if cancelled:
+            raise asyncio.CancelledError
+        future.result()
 
     def _delete_private_artifacts_sync(self, device_id: str) -> None:
         """Remove every private artifact stored for a device."""

@@ -115,6 +115,7 @@ def _parse_iso_or_timestamp(val: Any) -> float | None:
 
 async def record_publication(
     storage: StorageManager,
+    publisher: ArtifactPublisher,
     device_manager: DeviceManager,
     monitor: Any | None,
     notify: Callable[[str, dict[str, Any]], None] | None,
@@ -140,6 +141,12 @@ async def record_publication(
         await monitor.async_refresh_entity(device.device_id)
     if notify:
         notify("devices_updated", {"devices": device_manager.list_all()})
+
+    paths = await storage.async_read_persisted_artifact_paths()
+    if paths.get(device.device_id) == published.private_path:
+        await publisher.async_prune_private_artifacts(
+            device.device_id, published.private_path
+        )
 
 
 class JobRunner:
@@ -268,6 +275,7 @@ class JobRunner:
         """Persist a new publication and refresh monitor, entities and UI."""
         await record_publication(
             self.storage,
+            self.publisher,
             self.device_manager,
             self.monitor,
             self.event_callback,
