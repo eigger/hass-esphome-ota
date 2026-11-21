@@ -269,6 +269,7 @@ class FirmwareUploadView(HomeAssistantView):
                 )
                 await record_publication(
                     manager.storage,
+                    manager.publisher,
                     manager.device_manager,
                     manager.monitor,
                     manager.dispatch_event,

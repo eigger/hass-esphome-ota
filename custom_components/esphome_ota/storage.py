@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -44,7 +46,7 @@ class StorageManager:
             hass, STORAGE_VERSION, STORAGE_KEY_JOBS
         )
         self._artifact_store: Store[dict[str, Any]] = Store(
-            hass, STORAGE_VERSION, STORAGE_KEY_ARTIFACTS
+            hass, STORAGE_VERSION, STORAGE_KEY_ARTIFACTS, atomic_writes=True
         )
         # Only kept to delete the record of the removed legacy add-on import.
         self._migration_store: Store[dict[str, Any]] = Store(
@@ -130,6 +132,35 @@ class StorageManager:
                 if isinstance(item, dict):
                     result[key] = PublishedArtifact.from_dict(item)
             return result
+
+    @staticmethod
+    def _read_persisted_artifact_paths(path: Path) -> dict[str, str]:
+        try:
+            stored = json.loads(path.read_bytes())
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as err:
+            _LOGGER.warning("Could not verify persisted firmware records: %s", err)
+            return {}
+
+        if (
+            not isinstance(stored, dict)
+            or stored.get("version") != STORAGE_VERSION
+            or stored.get("key") != STORAGE_KEY_ARTIFACTS
+            or not isinstance(records := stored.get("data"), dict)
+        ):
+            return {}
+        return {
+            device_id: record["private_path"]
+            for device_id, record in records.items()
+            if isinstance(record, dict) and isinstance(record.get("private_path"), str)
+        }
+
+    async def async_read_persisted_artifact_paths(self) -> dict[str, str]:
+        """Read paths from disk because Store can suppress write errors."""
+        return await self.hass.async_add_executor_job(
+            self._read_persisted_artifact_paths, Path(self._artifact_store.path)
+        )
 
     async def async_save_artifacts(
         self, artifacts: dict[str, PublishedArtifact]

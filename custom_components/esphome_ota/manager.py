@@ -7,6 +7,7 @@ import logging
 import os
 import random
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
@@ -311,6 +312,7 @@ class OtaManager:
         await self._async_rotate_weak_tokens()
         await self._async_warn_guessable_public_files()
         await self.job_runner.async_load()
+        await self._async_prune_firmware_archives()
 
         # 2. Register custom panel (the upload view is registered once in async_setup)
         await self.panel_manager.async_register()
@@ -330,6 +332,31 @@ class OtaManager:
         # 4. Start installation monitor
         await self.monitor.async_setup()
         self.ready = True
+
+    async def _async_prune_firmware_archives(self) -> None:
+        """Clean existing archives before resuming builder jobs."""
+        paths = await self.storage.async_read_persisted_artifact_paths()
+        if not paths:
+            return
+
+        async with AsyncExitStack() as stack:
+            idle_device_ids = []
+            for device_id in paths:
+                lock = self.device_manager.get_lock(device_id)
+                if not lock.locked():
+                    await stack.enter_async_context(lock)
+                    idle_device_ids.append(device_id)
+
+            # Read the records after locking because an in-flight request may
+            # have published new firmware while the entry was being reloaded.
+            artifacts = await self.storage.async_load_artifacts()
+            persisted_paths = await self.storage.async_read_persisted_artifact_paths()
+            for device_id in idle_device_ids:
+                artifact = artifacts.get(device_id)
+                if artifact and persisted_paths.get(device_id) == artifact.private_path:
+                    await self.publisher.async_prune_private_artifacts(
+                        device_id, artifact.private_path
+                    )
 
     async def _async_rotate_weak_tokens(self) -> None:
         """Give every managed device a strong public-URL token.

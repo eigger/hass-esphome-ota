@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from weakref import WeakValueDictionary
 
 from homeassistant.core import HomeAssistant
 
@@ -21,6 +22,7 @@ from .const import (
     DEVICE_STATUS_READY,
     DEVICE_STATUS_UNMANAGED,
     DEVICE_STATUS_UPDATE_AVAILABLE,
+    DOMAIN,
     YAML_MODE_INLINE_PACKAGE,
 )
 from .firmware import chip_family
@@ -47,7 +49,10 @@ class DeviceManager:
         self.storage = storage
         self._managed_devices: dict[str, ManagedDevice] = {}
         self._builder_devices: list[dict[str, Any]] = []
-        self._device_locks: dict[str, asyncio.Lock] = {}
+        # Requests already in flight can outlive an entry reload.
+        self._device_locks: WeakValueDictionary[str, asyncio.Lock] = (
+            hass.data.setdefault(f"{DOMAIN}_device_locks", WeakValueDictionary())
+        )
         self._registration_lock = asyncio.Lock()
         # (dir inode/mtime/ctime, trusted, slugs) cache for public binary existence.
         self._public_scan: tuple[tuple[int, int, int], bool, set[str]] | None = None
@@ -57,10 +62,11 @@ class DeviceManager:
         self.public_scan_listener: Callable[[], None] | None = None
 
     def get_lock(self, device_id: str) -> asyncio.Lock:
-        """Return a persistent asyncio.Lock for a specific device."""
-        if device_id not in self._device_locks:
-            self._device_locks[device_id] = asyncio.Lock()
-        return self._device_locks[device_id]
+        """Return the shared asyncio.Lock for a specific device."""
+        lock = self._device_locks.get(device_id)
+        if lock is None:
+            lock = self._device_locks[device_id] = asyncio.Lock()
+        return lock
 
     async def async_load(self) -> None:
         """Load stored devices from storage."""

@@ -51,6 +51,8 @@ Open **Settings → Devices & services → Add integration → ESPHome OTA**.
 
 Afterwards, **Configure** on the integration entry changes the Base URL, the Builder, and the **Default auto-hide period (hours)** (0 = never hide automatically). See [Important limitations](#important-limitations) before publishing.
 
+The integration keeps the current private firmware for each device so it can be republished. It removes older archived binaries after a new publication is saved and when the integration starts.
+
 ### Uninstall
 
 Before removing the integration, click **Remove OTA** on each device card in the panel if you want the `packages.esphome_ota` block removed from its YAML; removing the integration entry does not edit your YAML. Then remove the integration entry and uninstall it from Marketplace. Published firmware in `www/esphome_ota/` and the private archive in `/config/esphome_ota/firmware/` are retained. Delete them only if they are no longer needed.
